@@ -9,15 +9,21 @@ import {
 import { assertTodayInTaipei } from "../../packages/domain/src";
 import {
   ensureDevelopmentDatabase,
-  getOrCreateDevUser,
   insertConditionSnapshot,
   type AppEnv,
   type SpotRow,
   type UserRow,
 } from "./db";
 import { createConditionsProvider, createVideoProvider } from "./providers";
+import {
+  beginLineLogin,
+  finishLineLogin,
+  getAuthenticatedUser,
+  isLineAuthConfigured,
+  logout,
+} from "./auth";
 
-type Variables = { user: UserRow };
+type Variables = { user: UserRow; authMode: "development" | "line" };
 
 interface ObservationRow {
   id: string;
@@ -85,20 +91,27 @@ async function findObservation(env: AppEnv, videoId: string, userId: string) {
 export const api = new Hono<{ Bindings: AppEnv; Variables: Variables }>()
   .basePath("/api/v1");
 
+api.get("/health", (context) => context.json({ ok: true }));
+api.get("/auth/line", (context) => beginLineLogin(context.env));
+api.get("/auth/line/callback", (context) => finishLineLogin(context.req.raw, context.env));
+api.post("/auth/logout", (context) => logout(context.req.raw, context.env));
+
 api.use("*", async (context, next) => {
   await ensureDevelopmentDatabase(context.env);
-  const user = await getOrCreateDevUser(context.env);
-  if (!user) {
+  const authenticated = await getAuthenticatedUser(context.req.raw, context.env);
+  if (!authenticated) {
+    const configured = isLineAuthConfigured(context.env);
     return context.json(
-      { error: "AUTH_NOT_CONFIGURED", message: "目前尚未設定 LINE Login" },
-      401,
+      configured
+        ? { error: "UNAUTHENTICATED", message: "請先使用 LINE 登入" }
+        : { error: "AUTH_NOT_CONFIGURED", message: "目前尚未完成 LINE Login 部署設定" },
+      configured ? 401 : 503,
     );
   }
-  context.set("user", user);
+  context.set("user", authenticated.user);
+  context.set("authMode", authenticated.authMode);
   await next();
 });
-
-api.get("/health", (context) => context.json({ ok: true }));
 
 api.get("/me", (context) => {
   const user = context.get("user");
@@ -106,7 +119,7 @@ api.get("/me", (context) => {
     id: user.id,
     displayId: user.display_id,
     showIdentityDefault: Boolean(user.show_identity_default),
-    authMode: "development",
+    authMode: context.get("authMode"),
   });
 });
 

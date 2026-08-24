@@ -15,6 +15,13 @@
       "when": 1787590000000,
       "tag": "0001_wushi_harbor_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787587640742,
+      "tag": "0002_sour_galactus",
+      "breakpoints": true
     }
   ]
 }

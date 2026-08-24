@@ -4,6 +4,9 @@ Base path: `/api/v1`. All current product endpoints require authentication and u
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/auth/line` | Start LINE Login v2.1 with state, nonce, and PKCE |
+| GET | `/auth/line/callback` | Validate the callback and create a server-side session |
+| POST | `/auth/logout` | Revoke the current app session |
 | GET | `/me` | Current public profile preferences |
 | PATCH | `/me` | Update `display_id` and default visibility |
 | GET | `/spots` | Active spot checklist |
@@ -15,4 +18,4 @@ Base path: `/api/v1`. All current product endpoints require authentication and u
 
 The Zod source of truth is `packages/api-contract/src/index.ts`; handler behavior is `src/worker/api.ts`. Error responses contain stable `error` and user-readable `message`. Do not manually duplicate every schema here.
 
-Forecast and matches endpoints are deferred until real provider integration and upload stability.
+The health and authentication routes are public. Product-data routes require either explicit development auth or a valid LINE-backed app session. Forecast and matches endpoints are deferred until real provider integration and upload stability.

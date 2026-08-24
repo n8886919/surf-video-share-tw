@@ -2,15 +2,19 @@
 
 ## Resources and secrets
 
-One Worker/Sites deployment, D1 database, Cloudflare Stream account, LINE Login channel, and marine/tide APIs. `.env.example` is the complete current variable checklist. Runtime secrets must be configured outside Git.
+One Worker deployment, D1 database, Cloudflare Stream account, LINE Login channel, and marine/tide APIs. `.env.example` is the complete current variable checklist. Runtime secrets must be configured outside Git.
 
-## Deploy
+LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secret `LINE_CHANNEL_SECRET`, and secret `SESSION_SECRET`. Changing the callback origin requires updating both the LINE Developers Console and runtime configuration. Never put either secret in Git, browser code, D1, documentation, or chat.
 
-1. Review/replace D1 IDs and apply `drizzle/` migrations.
-2. Configure LINE/session, Stream, and provider secrets.
-3. Ensure production variables select real providers and do not enable dev auth.
+## Deploy to the owner's Cloudflare account
+
+1. The production D1 binding is `DB`; apply `drizzle/` migrations with `pnpm db:migrate:remote`.
+2. Configure `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, and `CLOUDFLARE_STREAM_API_TOKEN` as Worker secrets, never plaintext vars.
+3. After the first deployment, set `LINE_CALLBACK_URL` and `PUBLIC_SITE_ORIGIN` to the exact `workers.dev` origin and update the LINE Developers Console callback.
 4. Run `pnpm typecheck && pnpm test && pnpm build`.
-5. Deploy manually; automatic production deploy remains disabled.
+5. Deploy with `pnpm deploy`, or connect the GitHub repository with Cloudflare Workers Builds and use `pnpm deploy` as its deploy command. This applies pending D1 migrations before publishing the Worker.
+
+The Worker name in Cloudflare must remain `surf-video-share-tw` because Workers Builds requires it to match `wrangler.jsonc`.
 
 Add preview/staging later as a separate Cloudflare environment with separate D1/Stream credentials, not shared production data.
 

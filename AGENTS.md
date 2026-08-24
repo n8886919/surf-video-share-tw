@@ -42,7 +42,7 @@ pnpm db:generate
 pnpm db:migrate:local
 ```
 
-Production deployment is intentionally manual until Cloudflare, Stream, LINE, and condition-provider credentials are configured. The Sites checkpoint command is used only in ChatGPT Work; standalone Cloudflare deployment uses reviewed Wrangler configuration.
+Production deployment uses the reviewed Wrangler configuration. Cloudflare Stream, LINE, and condition-provider secrets must be configured in the Cloudflare runtime, never committed.
 
 ## Authoritative files
 

@@ -1,5 +1,5 @@
 {
-  "name": "taiwan-surf-conditions",
+  "name": "surf-video-share-tw",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.19.0",
@@ -7,16 +7,19 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "install:ci": "bash scripts/install-ci.sh",
-    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
-    "build": "bash scripts/build-verified.sh",
-    "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "install:ci": "pnpm install --frozen-lockfile",
+    "dev": "vite",
+    "build": "vinext build",
+    "start": "vinext start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:site": "npm run build && node --test tests/rendered-html.test.mjs",
-    "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .sites-runtime --ignore-pattern .wrangler --ignore-pattern build",
-    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply site-creator-d1 --local",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .wrangler",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "deploy": "pnpm db:migrate:remote && vinext deploy",
+    "deploy:dry-run": "vinext deploy --dry-run",
     "verify": "pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
@@ -49,5 +52,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "displayName": "台灣浪況實錄"
+  "displayName": "浪影互助"
 }

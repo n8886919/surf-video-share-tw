@@ -1,14 +1,21 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "taiwan-surf-conditions",
+  "name": "surf-video-share-tw",
+  "account_id": "722749fe02e89bd904fe46fcdd05d106",
   "main": "worker/index.ts",
-  "compatibility_date": "2026-08-20",
+  "compatibility_date": "2026-08-25",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "APP_ENV": "production",
+    "LINE_CHANNEL_ID": "2011238358",
+    "VIDEO_PROVIDER": "cloudflare-stream",
+    "CLOUDFLARE_ACCOUNT_ID": "722749fe02e89bd904fe46fcdd05d106"
+  },
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "taiwan-surf-conditions",
-      "database_id": "00000000-0000-4000-8000-000000000000",
+      "database_name": "surf-video-share-tw-prod",
+      "database_id": "64d2d226-36cb-405e-8ed0-9b07f274a14a",
       "migrations_dir": "drizzle"
     }
   ]

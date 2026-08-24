@@ -17,6 +17,10 @@ export interface AppEnv {
   CONDITIONS_PROVIDER?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_STREAM_API_TOKEN?: string;
+  LINE_CHANNEL_ID?: string;
+  LINE_CHANNEL_SECRET?: string;
+  LINE_CALLBACK_URL?: string;
+  SESSION_SECRET?: string;
 }
 
 export interface UserRow {
@@ -45,6 +49,23 @@ const schemaStatements = [
     updated_at TEXT NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS users_line_subject_idx ON users (line_subject)`,
+  `CREATE TABLE IF NOT EXISTS auth_sessions (
+    id_hash TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS auth_sessions_user_id_idx ON auth_sessions (user_id)`,
+  `CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx ON auth_sessions (expires_at)`,
+  `CREATE TABLE IF NOT EXISTS oauth_attempts (
+    state_hash TEXT PRIMARY KEY NOT NULL,
+    nonce TEXT NOT NULL,
+    code_verifier TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS oauth_attempts_expires_at_idx ON oauth_attempts (expires_at)`,
   `CREATE TABLE IF NOT EXISTS spots (
     id TEXT PRIMARY KEY NOT NULL,
     slug TEXT NOT NULL,

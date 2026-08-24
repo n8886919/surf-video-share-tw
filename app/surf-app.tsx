@@ -59,9 +59,18 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { "content-type": "application/json", ...init?.headers },
   });
-  const payload = await response.json() as T & { message?: string };
-  if (!response.ok) throw new Error(payload.message || "連線失敗，請稍後再試");
+  const payload = await response.json() as T & { error?: string; message?: string };
+  if (!response.ok) {
+    throw new ApiFailure(payload.message || "連線失敗，請稍後再試", response.status, payload.error);
+  }
   return payload;
+}
+
+class ApiFailure extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message);
+    this.name = "ApiFailure";
+  }
 }
 
 function toLocalDateTime(date: Date): string {
@@ -94,8 +103,27 @@ function Brand() {
   return (
     <div className="brand">
       <span className="brand-mark"><Icon name="wave" /></span>
-      <span>台灣浪況實錄</span>
+      <span>浪影互助</span>
     </div>
+  );
+}
+
+function LoginScreen() {
+  const reason = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("login");
+  const message = reason === "cancelled"
+    ? "你取消了 LINE 授權，可以隨時再試一次。"
+    : reason
+      ? "登入沒有完成，請重新嘗試。"
+      : "登入後即可查看與上傳今天的浪況影片。";
+  return (
+    <main className="app-shell center-screen login-screen">
+      <Brand />
+      <div className="setup-icon"><Icon name="user" /></div>
+      <h1>先登入，再一起看浪</h1>
+      <p>{message}</p>
+      <a className="line-login-button" href="/api/v1/auth/line">使用 LINE 登入</a>
+      <small>只使用 LINE 帳號識別登入；公開 ID 由你另外設定。</small>
+    </main>
   );
 }
 
@@ -178,28 +206,37 @@ export function SurfApp() {
   const [observations, setObservations] = useState<Observation[]>([]);
   const [loading, setLoading] = useState(true);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [loginRequired, setLoginRequired] = useState(false);
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      api<Me>("/me"),
-      api<{ spots: Spot[] }>("/spots"),
-      api<{ observations: Observation[] }>("/videos"),
-    ]).then(([meResult, spotsResult, videoResult]) => {
-      if (!active) return;
-      setMe(meResult);
-      setSpots(spotsResult.spots);
-      setObservations(videoResult.observations);
-    }).catch((error: unknown) => {
-      if (!active) return;
-      setSetupError(error instanceof Error ? error.message : "無法啟動應用程式");
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
+    void (async () => {
+      try {
+        const meResult = await api<Me>("/me");
+        const [spotsResult, videoResult] = await Promise.all([
+          api<{ spots: Spot[] }>("/spots"),
+          api<{ observations: Observation[] }>("/videos"),
+        ]);
+        if (!active) return;
+        setMe(meResult);
+        setSpots(spotsResult.spots);
+        setObservations(videoResult.observations);
+      } catch (error: unknown) {
+        if (!active) return;
+        if (error instanceof ApiFailure && error.code === "UNAUTHENTICATED") {
+          setLoginRequired(true);
+        } else {
+          setSetupError(error instanceof Error ? error.message : "無法啟動應用程式");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
     return () => { active = false; };
   }, []);
 
   if (loading) return <LoadingScreen />;
+  if (loginRequired) return <LoginScreen />;
   if (setupError || !me) return <SetupScreen message={setupError || "找不到使用者"} />;
 
   return (
@@ -504,7 +541,13 @@ function ProfileView({ me, onBack, onSave }: {
         {error && <div className="error-message" role="alert">{error}</div>}
         <button className="submit-button" disabled={saving}>{saving ? "儲存中" : "儲存設定"}</button>
       </form>
-      <div className="dev-note">開發模式使用假的本機使用者；正式環境必須設定 LINE Login。</div>
+      {me.authMode === "line" ? (
+        <form className="logout-form" action="/api/v1/auth/logout" method="post">
+          <button type="submit">登出 LINE</button>
+        </form>
+      ) : (
+        <div className="dev-note">目前是開發用假帳號。</div>
+      )}
     </div>
   );
 }

@@ -12,7 +12,7 @@ flowchart TD
   P --> M["Marine / tide APIs"]
 ```
 
-The frontend owns interaction only. Hono owns auth, authorization, validation, and product policy. Domain modules depend on neither. Vinext currently compiles the React UI and Worker into the Sites-compatible Vite artifact; the API remains replaceable/splittable because the UI talks only to `/api/v1`.
+The frontend owns interaction only. Hono owns auth, authorization, validation, and product policy. Domain modules depend on neither. Vinext compiles the React UI and API into a Cloudflare Worker artifact; the API remains replaceable/splittable because the UI talks only to `/api/v1`.
 
 ## Upload flow
 
@@ -37,7 +37,7 @@ The mock adapter skips byte transfer but follows the same request/complete recor
 
 ## Auth flow
 
-Production target is same-origin LINE Login authorization-code/OIDC with state, nonce, server-side token exchange, validated ID token, and HTTP-only session cookie. Milestone 1 has a fake user only when both development environment and explicit dev auth are enabled. Production fails closed.
+Production uses same-origin LINE Login v2.1 authorization-code/OIDC with one-time state, nonce, PKCE S256, server-side token exchange, LINE's ID-token verification endpoint, and a secure HTTP-only cookie containing only a random opaque session token. D1 stores only an HMAC of that token and its expiry. OAuth attempts are one-time D1 records and expire after ten minutes; app sessions expire after seven days. Development has a fake user only when both development environment and explicit dev auth are enabled. Production fails closed.
 
 ## Condition acquisition and matching
 

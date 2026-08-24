@@ -6,7 +6,7 @@ Foundation, D1 schema, spot checklist, dev auth, mock/Stream video provider boun
 
 ## Milestone 2 — production identity and data
 
-1. Implement and security-test same-origin LINE Login/session flow.
+1. Complete: same-origin LINE Login/session flow with state, nonce, PKCE, verified ID token, and server-side revocable sessions. Live callback verification remains an operations gate.
 2. Verify coordinates for a small launch subset, then implement Open-Meteo marine and verified CWA tide adapters with fixture tests.
 3. Configure Stream delivery/access policy, webhook or polling reconciliation, deletion/retention, upload rate limit, and cost alarms.
 

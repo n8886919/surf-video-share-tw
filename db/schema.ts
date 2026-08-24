@@ -15,6 +15,33 @@ export const users = sqliteTable(
   (table) => [uniqueIndex("users_line_subject_idx").on(table.lineSubject)],
 );
 
+export const authSessions = sqliteTable(
+  "auth_sessions",
+  {
+    idHash: text("id_hash").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull(),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+  (table) => [
+    index("auth_sessions_user_id_idx").on(table.userId),
+    index("auth_sessions_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
+export const oauthAttempts = sqliteTable(
+  "oauth_attempts",
+  {
+    stateHash: text("state_hash").primaryKey(),
+    nonce: text("nonce").notNull(),
+    codeVerifier: text("code_verifier").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("oauth_attempts_expires_at_idx").on(table.expiresAt)],
+);
+
 export const spots = sqliteTable(
   "spots",
   {
