@@ -3,7 +3,7 @@
   "name": "surf-video-share-tw",
   "account_id": "722749fe02e89bd904fe46fcdd05d106",
   "main": "worker/index.ts",
-  "compatibility_date": "2026-08-25",
+  "compatibility_date": "2026-08-24",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "APP_ENV": "production",
