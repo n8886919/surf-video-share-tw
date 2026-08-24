@@ -1,0 +1,42 @@
+slug,name_en,name_zh,region,latitude,longitude,coordinate_source,source_notes,active
+shalun,Shalun,,North,,,,,false
+baishawan,Baishawan,,North,,,,,false
+restaurants,Restaurants,,North,,,,,false
+jinshan,Jinshan,,North,,,,,false
+green-bay,Green Bay,,North,,,,,false
+wanli,Wanli,,North,,,,,false
+fulong,Fulong,,North,,,,,false
+daxi,Daxi,,Northeast,,,,,false
+gengfang,Gengfang,,Northeast,,,,,false
+double-lions,Double Lions,,Northeast,,,,,false
+waiao,Wai'ao,,Northeast,,,,,false
+wushi-harbor-north,Wushi Harbor,烏石港,Northeast,24.8731036,121.8411446,https://maps.app.goo.gl/4SENnqZuYGGe8Gco7,Google Maps listing 烏石港北堤衝浪點; product display name 烏石港,true
+wushi-harbor-south,Wushi Harbor (South),,Northeast,,,,,false
+chou-shui,Chou Shui,,Northeast,,,,,false
+zhuan,Zhu'an,,Northeast,,,,,false
+qing-shui,Qing Shui,,Northeast,,,,,false
+suao-wuwei-harbor,Su'ao - Wuwei Harbor,,Northeast,,,,,false
+environmental-park,Environmental Park,,East,,,,,false
+hualien-beibin,Hualien Beibin,,East,,,,,false
+double-bridge,Double Bridge,,East,,,,,false
+gongs,Gongs,,East,,,,,false
+jiqi,Jiqi,,East,,,,,false
+baxian-dong,Baxian Dong,,East,,,,,false
+yiwan,Yiwan,,East,,,,,false
+chenggong,Chenggong,,East,,,,,false
+duli,Duli,,East,,,,,false
+donghe,Donghe,,East,,,,,false
+jinzun,Jinzun,,East,,,,,false
+dulan,Dulan,,East,,,,,false
+taitung,Taitung,,East,,,,,false
+jiupeng,Jiupeng,,South,,,,,false
+jialeshui,Jialeshui,,South,,,,,false
+nanwan,Nanwan,,South,,,,,false
+sheliao,Sheliao,,South,,,,,false
+qijin,Qijin,,West,,,,,false
+yuguangdao,Yuguangdao,,West,,,,,false
+sicao-bridge,Sicao Bridge,,West,,,,,false
+shanshui,Shanshui,,West,,,,,false
+songbai-harbor,Songbai Harbor,,West,,,,,false
+waipu-fishing-harbor,Waipu Fishing Harbor,,West,,,,,false
+zhunan,Zhunan,,West,,,,,false
