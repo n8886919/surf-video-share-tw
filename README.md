@@ -14,6 +14,7 @@ One Cloudflare Worker contains a React mobile UI and a Hono `/api/v1` boundary. 
 - pnpm 11+
 - A Cloudflare account for D1/Workers/Stream when moving beyond mocks
 - A LINE Login channel for production authentication
+- A CWA Open Data API authorization key for CWA wave/tide ingestion
 
 ## Local development
 
@@ -51,9 +52,9 @@ pnpm db:migrate:local
 3. Create a LINE Login v2.1 web channel, register the exact callback URL, and configure the four `LINE_*`/session values listed in `.env.example`.
 
 4. Production deploys to Cloudflare Worker `surf-video-share-tw` with D1 binding `DB`. `pnpm deploy` applies pending remote migrations before publishing, and is also the deploy command for Cloudflare Workers Builds on GitHub `main`.
-5. Configure secrets from `.env.example` in Cloudflare Worker settings; never commit `.env.local`.
+5. Configure secrets from `.env.example`, including `CWA_API_KEY`, in Cloudflare Worker settings; never commit `.env.local`.
 
-LINE Login is implemented and remains fail-closed when production values are incomplete. Real forecast ingestion and Stream playback/access control are not presented as complete. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
+LINE Login remains fail-closed when production values are incomplete. Scheduled CWA wave/tide and Open-Meteo ECMWF WAM ingestion is implemented but not deployed; production Stream playback/access control is still unverified. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
 
 ## Documentation
 

@@ -3,6 +3,7 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { api } from "../src/worker/api";
 import type { AppEnv } from "../src/worker/db";
+import { runScheduledForecastIngestion } from "../src/worker/forecast/ingest";
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -35,6 +36,9 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+  async scheduled(controller: ScheduledController, env: AppEnv): Promise<void> {
+    await runScheduledForecastIngestion(env, new Date(controller.scheduledTime));
   },
 };
 

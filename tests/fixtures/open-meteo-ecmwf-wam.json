@@ -1,0 +1,24 @@
+{
+  "latitude": 24.850615,
+  "longitude": 121.901184,
+  "generationtime_ms": 0.184,
+  "hourly": {
+    "time": [
+      "2026-08-25T03:00",
+      "2026-08-25T04:00",
+      "2026-08-25T05:00"
+    ],
+    "wave_height": [0.82, 0.86, 0.91],
+    "wave_direction": [91, 93, 96],
+    "wave_period": [7.1, 7.2, 7.4],
+    "swell_wave_height": [null, null, null],
+    "swell_wave_direction": [null, null, null],
+    "swell_wave_period": [null, null, null],
+    "secondary_swell_wave_height": [null, null, null],
+    "secondary_swell_wave_direction": [null, null, null],
+    "secondary_swell_wave_period": [null, null, null],
+    "wind_wave_height": [null, null, null],
+    "wind_wave_direction": [null, null, null],
+    "wind_wave_period": [null, null, null]
+  }
+}

@@ -22,6 +22,7 @@ export interface AppEnv {
   LINE_CALLBACK_URL?: string;
   SESSION_SECRET?: string;
   ADMIN_USER_ID?: string;
+  CWA_API_KEY?: string;
 }
 
 export interface UserRow {

@@ -1,10 +1,10 @@
 # Project state
 
-Last source review: 2026-08-25, GitHub `main` commit `761c6e3`.
+Last source review: 2026-08-25. This file describes the current local worktree; production may be behind it.
 
 ## Current local verification
 
-- Typecheck, 30 unit/integration tests, production build, lint, rendered-site test, and local production HTTP smoke checks pass as of 2026-08-25.
+- Typecheck, 38 unit/integration tests, lint, production build, and rendered-site test pass for the current forecast-ingestion work. The earlier 0000→0004 migration-chain verification remains applicable because this batch adds no schema migration; `sqlite3` is unavailable in the current runtime, so it was not rerun.
 - React/Hono/D1 modular monolith, LINE auth/session source, mock development providers, and Cloudflare Stream direct-upload adapter exist.
 - The production health endpoint responds; only non-destructive smoke checks were performed.
 - Open-Meteo Marine currently returns total wave data for explicit `ecmwf_wam` near the launch spots, but its component swell/wind-wave arrays were null in the 2026-08-25 test. Best-match returns more components and must remain a separate model/source.
@@ -26,7 +26,7 @@ Last source review: 2026-08-25, GitHub `main` commit `761c6e3`.
 
 - Cloudflare Stream production upload, processing, playback domain/signing, deletion, and webhook behavior need a real end-to-end test.
 - Production D1 has not received the new schema in this local branch.
-- Real scheduled CWA/ECMWF forecast ingestion is not complete. It must run independently of video uploads so historical model runs are retained.
+- Scheduled ingestion is not deployed. Production needs the pending D1 migrations, `CWA_API_KEY`, Cron deployment, and one production-like scheduled/D1 verification.
 - Rate limits, cost alarms, and production moderation operations remain launch gates. Reporting/delisting and versioned CC0 terms now exist locally but have not been exercised against production D1.
 
 ## Implemented locally in this worktree
@@ -35,6 +35,7 @@ Last source review: 2026-08-25, GitHub `main` commit `761c6e3`.
 - Provider-separated forecast snapshot schema and deterministic per-source historical-forecast matching path. With no ingested snapshots, the UI explicitly labels results as unranked same-spot videos.
 - Public 找浪, signed-in 上傳／我的, fixed three-tab navigation, inline public notice, pending supplement UI, filters, profile settings, and the supplied logo.
 - Query-window enforcement, latest-available-run selection, uploader supplement/fun reaction boundaries, public report records, CC0 terms versioning, and administrator delisting.
+- Six-hour Cloudflare Cron ingestion for provider-separated CWA wave/tide and Open-Meteo ECMWF WAM snapshots. It includes current/legacy CWA XML fixtures, streamed ZIP limits, nearest-sea-grid selection, tide interpolation, nullable missing fields, chunked immutable writes, stable retry IDs, and structured provider-isolated results.
 - Migrations `0003_big_sprite.sql` and `0004_outgoing_ben_urich.sql` were generated. The full 0000→0004 SQL chain passed SQLite integrity and foreign-key checks, including a legacy-video migration check. Production was not migrated.
 
-Do not push, deploy, or migrate production without explicit authorization.
+Do not deploy or migrate production without explicit authorization.

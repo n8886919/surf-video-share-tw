@@ -9,9 +9,10 @@
 
 ## Milestone B — forecast history
 
-1. Scheduled immutable snapshots for CWA wave/tide and ECMWF WAM, including run/valid/lead/grid provenance.
-2. Keep sources separate; add fixture, missing-field, duplicate-run, and retry tests.
-3. Query same-spot videos against the newest run available at historical capture time; do not require equal lead time.
+1. Implemented locally: scheduled immutable snapshots for CWA wave/tide and ECMWF WAM, including run/valid/lead/grid provenance.
+2. Implemented locally: separate sources plus current/legacy fixture, missing-field, duplicate-run, and retry tests.
+3. Implemented locally: query same-spot videos against the newest run available at historical capture time; equal lead time is not required.
+4. Pending: production-like Cron/D1 verification, provider quota observation, and cost/CPU measurement before deployment.
 
 ## Milestone C — production readiness
 

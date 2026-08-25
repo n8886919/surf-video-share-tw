@@ -25,6 +25,7 @@
   "dependencies": {
     "@hono/zod-validator": "^0.7.2",
     "drizzle-orm": "0.45.2",
+    "fflate": "0.7.5",
     "hono": "^4.9.6",
     "next": "16.2.6",
     "react": "19.2.6",

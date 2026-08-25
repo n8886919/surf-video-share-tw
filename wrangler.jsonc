@@ -5,6 +5,13 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-08-24",
   "compatibility_flags": ["nodejs_compat"],
+  "triggers": {
+    "crons": ["20 */6 * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
   "vars": {
     "APP_ENV": "production",
     "LINE_CHANNEL_ID": "2011238358",

@@ -12,6 +12,8 @@ Upload creates a private record and direct Stream ticket. Completion verifies pr
 
 ## Forecast path
 
-Forecast ingestion is scheduled independently of uploads. Each source run is normalized into immutable `forecast_snapshots`; retries are idempotent. CWA, ECMWF WAM, and any future source remain separate rather than averaged.
+Cloudflare Cron invokes the forecast path every six hours, independently of uploads. Open-Meteo is fetched once per active spot. CWA's large ZIP is streamed through a bounded unzipper; only three-hourly leads from 0 through 72 are decompressed and only the nearest sea grid for each active spot is retained. CWA tide events for `O00400` are interpolated onto those valid times using local-mean-sea-level heights.
+
+Each source run is normalized into immutable `forecast_snapshots`; stable IDs plus `INSERT OR IGNORE` make retries idempotent. Provider failures are isolated. CWA and ECMWF WAM remain separate rather than averaged. Open-Meteo does not expose the upstream ECMWF run timestamp, so its `issued_at` means first observed by this service and `model_run_at` remains null; CWA preserves the official XML `Sent`, derived model run, valid time, lead, and selected grid.
 
 Development mocks require explicit development flags. Production fails closed for authentication and video provider configuration, but fails open for optional condition enrichment.
