@@ -18,6 +18,7 @@ export interface VideoProvider {
     maxDurationSeconds: number;
   }): Promise<UploadTicket>;
   getStatus(providerVideoId: string): Promise<VideoStatus>;
+  deleteVideo(providerVideoId: string): Promise<void>;
 }
 
 export interface ConditionsQuery {

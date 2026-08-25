@@ -12,9 +12,14 @@ export interface MarineConditions {
   secondarySwellHeight: number | null;
   secondarySwellDirection: number | null;
   secondarySwellPeriod: number | null;
+  windWaveHeight: number | null;
+  windWaveDirection: number | null;
+  windWavePeriod: number | null;
   windSpeed: number | null;
   windDirection: number | null;
+  windGust: number | null;
   tideHeight: number | null;
+  tideSlope: number | null;
   tideState: TideState | null;
   validTime: string;
   provider: string;
@@ -45,8 +50,13 @@ export function normalizeConditions(input: MarineConditions): MarineConditions {
     secondarySwellHeight: nullableFinite(input.secondarySwellHeight),
     secondarySwellDirection: normalizeDirection(input.secondarySwellDirection),
     secondarySwellPeriod: nullableFinite(input.secondarySwellPeriod),
+    windWaveHeight: nullableFinite(input.windWaveHeight),
+    windWaveDirection: normalizeDirection(input.windWaveDirection),
+    windWavePeriod: nullableFinite(input.windWavePeriod),
     windSpeed: nullableFinite(input.windSpeed),
     windDirection: normalizeDirection(input.windDirection),
+    windGust: nullableFinite(input.windGust),
     tideHeight: nullableFinite(input.tideHeight),
+    tideSlope: nullableFinite(input.tideSlope),
   };
 }

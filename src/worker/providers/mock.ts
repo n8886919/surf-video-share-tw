@@ -24,6 +24,8 @@ export class MockVideoProvider implements VideoProvider {
   async getStatus(): Promise<VideoStatus> {
     return { state: "ready", durationSeconds: null };
   }
+
+  async deleteVideo(): Promise<void> {}
 }
 
 export class MockMarineConditionsProvider implements MarineConditionsProvider {
@@ -39,9 +41,14 @@ export class MockMarineConditionsProvider implements MarineConditionsProvider {
       secondarySwellHeight: 0.3,
       secondarySwellDirection: 118,
       secondarySwellPeriod: 5.5,
+      windWaveHeight: 0.4,
+      windWaveDirection: 48,
+      windWavePeriod: 4.2,
       windSpeed: 3.8,
       windDirection: 45,
+      windGust: 5.2,
       tideHeight: 0.72,
+      tideSlope: 0.11,
       tideState: "rising",
       validTime: input.validTime,
       provider: "mock",

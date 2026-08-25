@@ -1,6 +1,8 @@
 # 浪影互助
 
-把「今天現場的浪」留下來，未來用同浪點、相似海況的歷史影片理解預報實際長什麼樣。Milestone 1 先完成極簡上傳與紀錄，不做預報比對 UI。
+> 不預測浪好不好；只用社群共享的歷史實拍，呈現指定浪點與時間的預報可能長什麼樣。
+
+完整理念與不可逾越的產品邊界見 [Project principles](docs/PROJECT_PRINCIPLES.md)。
 
 ## Architecture
 
@@ -40,7 +42,7 @@ pnpm db:generate
 pnpm db:migrate:local
 ```
 
-`data/spots.csv` seeds development. 烏石港 is the sole verified, active spot; other checklist entries remain inactive with blank coordinates/translations until independently verified.
+`data/spots.csv` seeds development. 首波只啟用烏石港與雙獅；其他清單項目保持停用。
 
 ## Cloudflare and LINE setup
 
@@ -51,11 +53,12 @@ pnpm db:migrate:local
 4. Production deploys to Cloudflare Worker `surf-video-share-tw` with D1 binding `DB`. `pnpm deploy` applies pending remote migrations before publishing, and is also the deploy command for Cloudflare Workers Builds on GitHub `main`.
 5. Configure secrets from `.env.example` in Cloudflare Worker settings; never commit `.env.local`.
 
-LINE Login is implemented but remains fail-closed until all production values are configured and the callback is tested. Real marine/tide adapters are not presented as complete. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
+LINE Login is implemented and remains fail-closed when production values are incomplete. Real forecast ingestion and Stream playback/access control are not presented as complete. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
 
 ## Documentation
 
 - [Product](docs/PRODUCT.md)
+- [Project principles](docs/PROJECT_PRINCIPLES.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Data model](docs/DATA_MODEL.md)
 - [API](docs/API.md)

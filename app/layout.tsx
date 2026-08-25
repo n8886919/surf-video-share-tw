@@ -1,23 +1,27 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { PROJECT_PURPOSE } from "../packages/domain/src/project-purpose";
 
 export const metadata: Metadata = {
   title: "浪影互助",
-  description: "用今天的實拍浪況，理解下一次相似海況實際長什麼樣。",
+  description: PROJECT_PURPOSE,
   openGraph: {
     title: "浪影互助",
-    description: "用今天的實拍，理解下一次的浪。",
+    description: PROJECT_PURPOSE,
+    images: ["/brand-logo.png"],
     locale: "zh_TW",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
     title: "浪影互助",
-    description: "用今天的實拍，理解下一次的浪。",
+    description: PROJECT_PURPOSE,
+    images: ["/brand-logo.png"],
   },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/brand-logo.png",
+    shortcut: "/brand-logo.png",
+    apple: "/brand-logo.png",
   },
 };
 

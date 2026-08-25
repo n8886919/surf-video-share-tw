@@ -1,15 +1,22 @@
 # Roadmap
 
-## Milestone 1 — runnable upload slice
+## Milestone A — revised local vertical slice
 
-Foundation, D1 schema, spot checklist, dev auth, mock/Stream video provider boundary, mock conditions, phone upload UI, today-only enforcement, observation display, identity preferences, tests, and CI.
+1. Public spot list and find-by-spot/time surface.
+2. Seven-day upload/pending lifecycle; condition failure does not fail completion.
+3. Three-tab mobile UI, versioned CC0 notice, two launch spots, logo, own filter/favorite/supplement/fun reaction.
+4. Public reports, administrator delisting, schema/API tests, and local migration verification.
 
-## Milestone 2 — production identity and data
+## Milestone B — forecast history
 
-1. Complete: same-origin LINE Login/session flow with state, nonce, PKCE, verified ID token, and server-side revocable sessions. Live callback verification remains an operations gate.
-2. Verify coordinates for a small launch subset, then implement Open-Meteo marine and verified CWA tide adapters with fixture tests.
-3. Configure Stream delivery/access policy, webhook or polling reconciliation, deletion/retention, upload rate limit, and cost alarms.
+1. Scheduled immutable snapshots for CWA wave/tide and ECMWF WAM, including run/valid/lead/grid provenance.
+2. Keep sources separate; add fixture, missing-field, duplicate-run, and retry tests.
+3. Query same-spot videos against the newest run available at historical capture time; do not require equal lead time.
 
-## Milestone 3 — core matching value
+## Milestone C — production readiness
 
-Add forecast retrieval/cache, same-spot candidate query, deterministic match endpoint, debug differences, and the simple 今天/明天/後天 lookup UI. Do not tune learned weights until real observations exist.
+Real Stream upload/playback/access control, lifecycle deletion job, staged moderation verification, rate limits, cost alarms, backups, and a staged rollout under 100 users and NT$1,000/month.
+
+## Later experiments
+
+After enough complete samples, compare the deterministic baseline with offline clustering or nearest-neighbor methods. Ship ML only when held-out evaluation improves useful matches without hiding provider provenance.

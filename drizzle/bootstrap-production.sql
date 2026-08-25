@@ -1,6 +1,6 @@
 -- One-time production bootstrap for Cloudflare D1 Console.
--- It mirrors drizzle/0000..0002 and records the same migration filenames
--- Wrangler uses, so future `wrangler d1 migrations apply` remains consistent.
+-- Historical one-time bootstrap through drizzle/0002. After using it, apply
+-- drizzle/0003 and later with Wrangler; do not treat this file as the latest schema.
 
 CREATE TABLE IF NOT EXISTS `d1_migrations` (
   `id` INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -25,10 +25,18 @@ function readSpots() {
 }
 
 describe("spot seed", () => {
-  it("keeps 烏石港 as the only active spot with exact provenance", () => {
+  it("keeps only 烏石港 and 雙獅 active with exact provenance", () => {
     const activeSpots = readSpots().filter((spot) => spot.active === "true");
 
     expect(activeSpots).toEqual([
+      expect.objectContaining({
+        slug: "double-lions",
+        nameEn: "Double Lions",
+        nameZh: "雙獅",
+        latitude: "24.8887597",
+        longitude: "121.8495724",
+        coordinateSource: "https://maps.app.goo.gl/CJTEVfSH7yFGnHKPA",
+      }),
       expect.objectContaining({
         slug: "wushi-harbor-north",
         nameEn: "Wushi Harbor",

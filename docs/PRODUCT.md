@@ -1,31 +1,38 @@
 # Product
 
-## Problem
+## Definition
 
-Forecast numbers do not answer the practical question: when this spot previously had similar conditions, what did it actually look like? The product builds a same-spot library of short real-world observations.
+浪影互助讓使用者選擇浪點與一個未來預報時間，再用同浪點、相似歷史預報下的公開實拍，回答「這種預報下，浪實際會長怎樣」。個人影片時間軸、收藏與公開 ID 是促進上傳的誘因，不是私人影片儲存服務。
 
-## MVP
+完整理念與公地、永續經營邊界見 `docs/PROJECT_PRINCIPLES.md`。
 
-- Authenticated user selects a surf spot and a 5–60 second video captured today.
-- Capture time is hinted from file metadata and confirmed on the same screen.
-- Backend enforces today in `Asia/Taipei`, requests direct video upload, records a condition snapshot, and shows the observation.
-- User sets a reusable public `display_id`, a default identity preference, and can change visibility per video.
+## MVP scope
 
-## Main flows
+- 首波浪點：烏石港、雙獅。
+- 公開訪客只需在「找浪」選浪點與現在至未來 72 小時內的時間；系統自動讀取資料並挑選案例。上傳與「我的」需要 LINE 登入。
+- 上傳 5–60 秒、最多 200 MB、拍攝時間不得晚於現在且不得早於現在 168 小時以上。
+- 優先從檔案時間與上次浪點預填；使用者只可補浪點與拍攝時間，不可輸入任何浪況數值。
+- 海況抓取失敗不阻擋影音上傳。
+- 影片只有在浪點、拍攝時間、上傳與轉檔狀態完整時公開。缺浪點或時間者只在「我的」顯示，七天內可補，逾期刪除。
+- 上傳畫面直接說明資料補齊並公開後採 CC0 1.0、可下載／修改／轉售／訓練模型且不可撤回；不增加勾選或確認步驟，後端保存條款版本。
+- 信任貢獻者，不做逐片事前人工審核；公開影片需有檢舉入口與管理者下架能力。
+- 上傳者可用 2–24 字元公開 ID，逐片決定是否顯示。
+- 「我的」依時間排序、可依浪點篩選、可私人收藏自己的影片。上傳者可選填當天玩得開心／不開心與最多 100 字的公開補充；兩者不進 matching、不影響排序，也不延伸成標籤或多人留言串。
 
-Returning upload: open → 上傳浪況 → spot → video → confirm prefilled time → upload. The only required fields are spot, video, and capture time when metadata needs confirmation. The last spot is remembered on the device.
+## Navigation
 
-Records: 我的紀錄 → observation cards → toggle anonymous/public ID.
+手機底部固定三個入口：左側「找浪」、中央較大的「上傳」、右側「我的」。個人設定放在「我的」內，不增加第四個分頁。
 
-Forecast matching is the next milestone: spot → 今天/明天/後天/time → forecast plus same-spot historical matches.
+## Matching
+
+匹配目標是「當時已發布、使用者有機會看到的最新預報」而非事後觀測或重建值。每個 provider/model/run 都是獨立特徵與不可變快照，必須保存 `issued_at` / `model_run_at`、`valid_at`、`lead_hours` 與網格來源。未來查詢使用查詢當下最新可得 run；歷史影片使用拍攝當時最新可得 run，兩者的有效時間都需接近目標時間，但不要求 `lead_hours` 相同。CWA 與 ECMWF WAM 不平均，其他模型未驗證前不納入正式排序。
+
+第一版使用可解釋的同浪點距離排序。資料量尚小時，不以非監督學習取代基準：聚類可在累積足夠完整影片後做離線探索，但不能把叢集編號當浪況真相。
+
+## Condition features
+
+總浪、主湧浪、次湧浪、風浪各自保存浪高／方向／週期；另存潮高、潮汐斜率與狀態、風向／風速／陣風。可由原始值導出相對岸向、能量代理值，但不覆寫來源資料。
 
 ## Non-goals
 
-No forecast dashboard, historical backfill, arbitrary long videos, points, ads, payments, subscriptions, public search indexing, uploader GPS, machine-learned similarity, or copied SwellEye content.
-
-## UX decisions
-
-- Traditional Chinese and phone-first.
-- No title, description, tags, rating, manual weather, or wizard.
-- Optional identity override stays under 更多選項.
-- Failures use plain-language recovery messages.
+不做任意長影片、超過七天回填、使用者手填浪況、私人雲端硬碟、點數、廣告、付費、公開留言串、複製第三方浪點內容，或早期黑盒 ML 排名。

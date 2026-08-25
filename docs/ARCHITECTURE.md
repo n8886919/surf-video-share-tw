@@ -1,48 +1,17 @@
 # Architecture
 
-## Boundaries
+React and Hono remain one Cloudflare Worker with a strict `/api/v1` boundary. D1 stores normalized metadata; video bytes upload directly to Cloudflare Stream.
 
-```mermaid
-flowchart TD
-  W["React mobile web"] -->|"/api/v1 HTTPS"| A["Hono Worker API"]
-  A --> D[("D1")]
-  A --> P["Provider adapters"]
-  W -->|"direct video upload"| S["Cloudflare Stream"]
-  P --> S
-  P --> M["Marine / tide APIs"]
-```
+## Read path
 
-The frontend owns interaction only. Hono owns auth, authorization, validation, and product policy. Domain modules depend on neither. Vinext compiles the React UI and API into a Cloudflare Worker artifact; the API remains replaceable/splittable because the UI talks only to `/api/v1`.
+The public client selects only a spot and a time from now through +72 hours. The API reads the newest provider-separated run available at query time, links each ready/public/same-spot video to the newest run available at capture time, and returns an explainable ranking. Authentication is not required to view public results.
 
-## Upload flow
+## Write path
 
-```mermaid
-sequenceDiagram
-  participant B as Browser
-  participant A as Hono API
-  participant S as Stream
-  participant D as D1
-  B->>A: validated upload request
-  A->>S: create one-time upload URL
-  A->>D: pending video record
-  A-->>B: URL + internal video ID
-  B->>S: video bytes
-  B->>A: complete(provider ID)
-  A->>S: verify provider status
-  A->>D: condition snapshot + status
-  A-->>B: observation
-```
+Upload creates a private record and direct Stream ticket. Completion verifies provider status. If spot and time are present and valid, the record can become public; otherwise it remains private until supplemented or expired. Condition enrichment runs best-effort and cannot roll back a successful media completion.
 
-The mock adapter skips byte transfer but follows the same request/complete record lifecycle.
+## Forecast path
 
-## Auth flow
+Forecast ingestion is scheduled independently of uploads. Each source run is normalized into immutable `forecast_snapshots`; retries are idempotent. CWA, ECMWF WAM, and any future source remain separate rather than averaged.
 
-Production uses same-origin LINE Login v2.1 authorization-code/OIDC with one-time state, nonce, PKCE S256, server-side token exchange, LINE's ID-token verification endpoint, and a secure HTTP-only cookie containing only a random opaque session token. D1 stores only an HMAC of that token and its expiry. OAuth attempts are one-time D1 records and expire after ten minutes; app sessions expire after seven days. Development has a fake user only when both development environment and explicit dev auth are enabled. Production fails closed.
-
-## Condition acquisition and matching
-
-Adapters normalize provider payloads to `MarineConditions`. A video stores the exact snapshot and provenance used at capture time. Future matching first filters to the same spot, then calls the deterministic weighted ranking module and returns score plus component differences.
-
-## Why
-
-Serverless components avoid always-on cost. A modular monolith minimizes deployment/auth/CORS work while interface boundaries retain later replaceability. Stream avoids operating an FFmpeg service. See `docs/adr/`.
+Development mocks require explicit development flags. Production fails closed for authentication and video provider configuration, but fails open for optional condition enrichment.

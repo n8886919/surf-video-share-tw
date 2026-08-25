@@ -1,16 +1,12 @@
 # Security and privacy
 
-| Threat | MVP countermeasure |
-|---|---|
-| Unauthorized video access | Same-origin authenticated app; authorize every record by internal user ID; configure Stream delivery restrictions before launch |
-| Upload abuse / cost spike | Auth required, 200 MB and 60 second caps, Stream max-duration reservation, quick upload-disable switch |
-| Forged completion | Video ownership check and exact provider-ID match; real adapter re-queries Stream status/duration |
-| OAuth CSRF/replay | One-time HMACed state, nonce, PKCE S256, LINE ID-token verification, issuer/audience/expiry checks, and secure HTTP-only sessions |
-| LINE identifier leak | `line_subject` stays private and is never selected into public DTOs |
-| Malicious file | MIME is only UX validation; Stream handles media processing; never execute or proxy bytes through Worker |
-| Secret leak | Server-only environment values, `.env*` ignored, no secrets in frontend or D1 |
-| Location profiling | Store surf spot only; no uploader GPS or inferred home/history model |
+- Complete videos are public. The upload screen states the CC0 consequences inline without an extra consent click, and every new upload stores the accepted terms version. Existing unversioned rows are not retroactively exposed as CC0.
+- Missing spot/time records are owner-only and expire after seven days; public queries require `public_at`, ready status, spot, capture time, a terms version, and visible moderation state.
+- Public output may include the uploader's chosen `display_id` only when that video's visibility flag is on. LINE subjects and internal user IDs are never selected.
+- Upload requires authentication, ownership check, provider ID verification, 200 MB limit, and 5–60 second duration.
+- Target user-entered data is limited to spot/time, public ID, favorite, identity visibility, an optional fun reaction, and one optional 100-character uploader supplement. No manual condition values, uploader GPS, additional subjective tags, or public reply threads. The two optional subjective values never affect matching.
+- Production secrets stay server-side. Development mocks require explicit development flags.
+- MVP moderation is trust-first: no per-video pre-publication review. Public reports are auditable but do not auto-hide content. Only the project administrator identified by `ADMIN_USER_ID` can list open reports and delist a video; ordinary uploader metadata edits cannot republish a delisted row.
+- Reporting does not clear copyright, privacy, music, likeness, or minor-consent risks. Upload terms must put responsibility on the contributor, while legal/privacy/safety reports may still cause first-party delisting.
 
-The production cookie is HTTP-only, Secure, SameSite=Lax, and carries a random opaque session ID. D1 stores only its HMAC, supports server-side logout/revocation, and expires it after seven days. Development fake auth requires `APP_ENV=development` and `ENABLE_DEV_AUTH=true`; production fails closed.
-
-Before public launch, define video deletion/retention, reporting/moderation, Stream signed-delivery policy, rate limits, and privacy notice. These are intentionally not fabricated as complete.
+Before public rollout: add rate limiting, verify Stream signed playback or equivalent origin restrictions, run deterministic expiry deletion, configure the administrator, exercise reporting/delisting against staging, and add cost alarms.

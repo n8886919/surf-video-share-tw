@@ -29,4 +29,5 @@ test("renders the product title and language", async () => {
   const html = await response.text();
   assert.match(html, /<html[^>]+lang=["']zh-Hant-TW["']/i);
   assert.match(html, /浪影互助/);
+  assert.match(html, /不預測浪好不好；只用社群共享的歷史實拍/);
 });

@@ -2,9 +2,9 @@
 
 ## Resources and secrets
 
-One Worker deployment, D1 database, Cloudflare Stream account, LINE Login channel, and marine/tide APIs. `.env.example` is the complete current variable checklist. Runtime secrets must be configured outside Git.
+One Worker deployment, D1 database, Cloudflare Stream account, LINE Login channel, and marine/tide APIs. Runtime secrets must be configured outside Git. Forecast ingestion must run on a schedule independent of uploads; do not enable a production Cron until its provider quota, retry, and idempotency behavior are tested.
 
-LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secret `LINE_CHANNEL_SECRET`, and secret `SESSION_SECRET`. Changing the callback origin requires updating both the LINE Developers Console and runtime configuration. Never put either secret in Git, browser code, D1, documentation, or chat.
+LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secret `LINE_CHANNEL_SECRET`, and secret `SESSION_SECRET`. Changing the callback origin requires updating both the LINE Developers Console and runtime configuration. Never put either secret in Git, browser code, D1, documentation, or chat. Set non-secret `ADMIN_USER_ID` to the project owner's internal ID returned by `/api/v1/me`; without it, moderation endpoints fail closed for every user.
 
 ## Deploy to the owner's Cloudflare account
 
@@ -12,7 +12,7 @@ LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secr
 2. Configure `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, and `CLOUDFLARE_STREAM_API_TOKEN` as Worker secrets, never plaintext vars.
 3. After the first deployment, set `LINE_CALLBACK_URL` and `PUBLIC_SITE_ORIGIN` to the exact `workers.dev` origin and update the LINE Developers Console callback.
 4. Run `pnpm typecheck && pnpm test && pnpm build`.
-5. Deploy with `pnpm deploy`, or connect the GitHub repository with Cloudflare Workers Builds and use `pnpm deploy` as its deploy command. This applies pending D1 migrations before publishing the Worker.
+5. Deploy only after explicit approval. The current `pnpm deploy` applies pending remote D1 migrations before publishing, so it is intentionally not used during local product work.
 
 The Worker name in Cloudflare must remain `surf-video-share-tw` because Workers Builds requires it to match `wrangler.jsonc`.
 
@@ -28,7 +28,8 @@ Watch Stream stored minutes, delivered minutes, abandoned upload reservations, W
 
 ## Emergency controls
 
-- Disable uploads: production config flag or temporarily reject `upload-request`; do not take the read path down.
+- Disable uploads: production config flag or temporarily reject `upload-request`; do not take the public read path down.
 - Compromised Stream/API key: revoke in provider console, create least-privilege replacement, update runtime secret, redeploy.
 - Compromised LINE secret/session key: rotate, invalidate sessions, update secret, redeploy.
 - Suspected abuse: disable uploads first, preserve logs/record IDs, then investigate.
+- Reported media: review the open report under 我的 → 設定. The one-action delist clears `public_at`, marks the video `delisted`, and resolves all open reports for that video; it does not revoke existing CC0 copies.

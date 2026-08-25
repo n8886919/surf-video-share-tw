@@ -1,40 +1,40 @@
-# Project State
+# Project state
 
-## Current milestone
+Last source review: 2026-08-25, GitHub `main` commit `761c6e3`.
 
-Milestone 2 identity implementation complete in source; production secret and live callback verification remain gated.
+## Current local verification
 
-## Working now
+- Typecheck, 30 unit/integration tests, production build, lint, rendered-site test, and local production HTTP smoke checks pass as of 2026-08-25.
+- React/Hono/D1 modular monolith, LINE auth/session source, mock development providers, and Cloudflare Stream direct-upload adapter exist.
+- The production health endpoint responds; only non-destructive smoke checks were performed.
+- Open-Meteo Marine currently returns total wave data for explicit `ecmwf_wam` near the launch spots, but its component swell/wind-wave arrays were null in the 2026-08-25 test. Best-match returns more components and must remain a separate model/source.
 
-- React/Hono/D1 modular monolith builds from one Cloudflare-compatible artifact.
-- Dev fake login, spot list, 5–60 second upload validation, Taipei today policy, mock upload/conditions, observation history, and identity visibility.
-- Stream direct-upload adapter exists behind explicit production config.
-- LINE Login v2.1 authorization-code/OIDC, PKCE, one-time state/nonce, verified ID tokens, D1 sessions, login UI, and logout are implemented behind production configuration.
-- 烏石港 is the sole active spot, using the user-supplied Google Maps point and recorded provenance.
-- Domain tests cover time boundaries, normalization, circular matching, missing data, identity, upload validation, and fail-closed auth.
+## Confirmed product changes
 
-## In progress
+- Core is future forecast-to-public-video matching; personal review is an upload incentive.
+- Upload window is 168 hours. Missing spot/time remains private for seven days, then expires.
+- Conditions failure never blocks upload. Users never type condition numbers.
+- Complete, terms-versioned, moderation-visible videos are public and upload includes a no-click inline CC0 notice.
+- Launch spots are 烏石港 and 雙獅.
+- Bottom navigation is 找浪／上傳／我的; own videos support spot filter, favorite, identity visibility, an optional fun reaction, and one optional 100-character public supplement. Subjective fields never enter matching.
+- Public queries accept only now through +72 hours. Current and historical sides choose the newest provider run available at the relevant moment; equal forecast lead time is not required.
+- CWA and ECMWF WAM are kept as independent provider/model features, never averaged.
+- The five-second purpose, contributor-first commons policy, CC0 intent, three-year hosting target, trust-first moderation, sustainability boundary, and exit principles are recorded in `docs/PROJECT_PRINCIPLES.md`.
+- Uploads remain capped at 60 seconds. Public reports are recorded without automatic hiding; a configured project administrator can delist in one action. There is no per-video pre-publication review.
 
-- Configure the LINE channel secret in the hosted runtime and complete a real login round trip.
+## Still unknown or operationally gated
 
-## Known problems
+- Cloudflare Stream production upload, processing, playback domain/signing, deletion, and webhook behavior need a real end-to-end test.
+- Production D1 has not received the new schema in this local branch.
+- Real scheduled CWA/ECMWF forecast ingestion is not complete. It must run independently of video uploads so historical model runs are retained.
+- Rate limits, cost alarms, and production moderation operations remain launch gates. Reporting/delisting and versioned CC0 terms now exist locally but have not been exercised against production D1.
 
-- Open-Meteo and CWA tide adapters are not implemented.
-- Remaining checklist spots are inactive; their translations and coordinates are unverified.
-- Real Stream playback/access control, webhook reconciliation, moderation, deletion, and retention are unresolved.
-- Forecast/matching UI is intentionally disabled.
+## Implemented locally in this worktree
 
-## Next 3 tasks
+- Revised specs, 168-hour validation, nullable pending metadata, owner note/favorite, public-ready query boundary, and two active launch spots.
+- Provider-separated forecast snapshot schema and deterministic per-source historical-forecast matching path. With no ingested snapshots, the UI explicitly labels results as unranked same-spot videos.
+- Public 找浪, signed-in 上傳／我的, fixed three-tab navigation, inline public notice, pending supplement UI, filters, profile settings, and the supplied logo.
+- Query-window enforcement, latest-available-run selection, uploader supplement/fun reaction boundaries, public report records, CC0 terms versioning, and administrator delisting.
+- Migrations `0003_big_sprite.sql` and `0004_outgoing_ben_urich.sql` were generated. The full 0000→0004 SQL chain passed SQLite integrity and foreign-key checks, including a legacy-video migration check. Production was not migrated.
 
-1. Add the LINE channel secret, deploy, and verify login from a real LINE account.
-2. Wire real marine/tide snapshots for 烏石港 with provenance fixtures.
-3. Finish Stream security/reconciliation, retention, rate limits, and cost alarms before inviting users.
-
-## Important recent decisions
-
-- Cloudflare-first modular monolith; Hono API boundary remains separate from React.
-- Stream direct creator uploads; video bytes never proxy through Worker.
-- Same-spot deterministic matching only; provider provenance is immutable history.
-- Mocks require explicit development mode and fail closed in production.
-- Only 烏石港 is active for the initial release; its exact point is `24.8731036, 121.8411446`.
-- Production hosting has moved to the owner's Cloudflare account. Worker `surf-video-share-tw` binds D1 `surf-video-share-tw-prod`; ChatGPT Sites is no longer the production target.
+Do not push, deploy, or migrate production without explicit authorization.

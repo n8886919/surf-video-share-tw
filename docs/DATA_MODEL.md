@@ -1,24 +1,19 @@
 # Data model
 
-## Relationships
-
 ```mermaid
 erDiagram
   USERS ||--o{ VIDEOS : uploads
-  SPOTS ||--o{ VIDEOS : observed_at
-  CONDITION_SNAPSHOTS ||--o| VIDEOS : describes
+  SPOTS ||--o{ VIDEOS : tagged_at
+  CONDITION_SNAPSHOTS ||--o{ VIDEOS : actual_context
+  SPOTS ||--o{ FORECAST_SNAPSHOTS : forecast_for
 ```
 
-`users` stores internal ID, private unique LINE subject, optional public `display_id`, and default visibility. Public APIs never select the LINE subject.
+`videos.spot_id` and `captured_at` are nullable during the seven-day private pending period. `metadata_status`, `metadata_expires_at`, and `public_at` make the lifecycle explicit. `terms_version` prevents silently applying CC0 to older uploads. `moderation_status`/`delisted_at` stop a delisted row from being republished by ordinary metadata changes. `is_favorite` is owner-private; `uploader_note`, `fun_reaction`, and the chosen public ID may be public only after completion.
 
-`spots` stores the versioned checklist and independently sourced geographic provenance. Coordinates/translations are nullable.
+`video_reports` stores a public report reason and its open/resolved lifecycle. A configured administrator can resolve all open reports for one video and delist it in one D1 batch; a report alone never automatically hides media.
 
-`videos` stores provider identity, ownership, spot, UTC capture/upload times, duration, processing status, public-identity choice, and snapshot reference.
+`condition_snapshots` describes capture-time context when a provider is available. Missing context is valid and never blocks a completed video.
 
-`condition_snapshots` uses nullable typed columns for searchable metrics plus provider/model/run/valid/retrieval/schema provenance. Optional raw payload is debugging-only.
+`forecast_snapshots` stores immutable provider/model/run/valid/lead/grid rows. Total wave, primary/secondary swell, wind wave, tide, wind, and gust fields are nullable because a provider may omit components. A unique source key prevents duplicate ingestion while never averaging models.
 
-Important indexes cover LINE subject, spot slug, video spot + capture time, snapshot reference, and provider video identity. `db/schema.ts` is authoritative; generated SQL is in `drizzle/`.
-
-All stored instants are UTC ISO strings. Only product-date decisions convert explicitly to `Asia/Taipei`.
-
-Lifecycle: request creates `awaiting_upload`; completion verifies the provider and changes to `pending`, `processing`, `ready`, or `error`. Deletion/retention policy is unresolved and must be decided before public launch.
+All instants are UTC ISO strings. Product validation compares exact elapsed time; display uses `Asia/Taipei`.

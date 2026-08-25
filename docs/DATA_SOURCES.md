@@ -1,21 +1,26 @@
 # Data sources
 
-Last verified: 2026-08-24. Re-verify official documentation before implementing or monetizing; this file does not assert unreviewed commercial licensing.
+Last checked: 2026-08-25. Provider/model values remain independent; do not average them.
 
-| Purpose | Provider / product | Variables or API | License / commercial concern | Historical | Forecast | Fallback |
-|---|---|---|---|---|---|---|
-| Video upload/transcode/delivery | Cloudflare Stream | Direct creator uploads; video details | Paid service terms and UGC handling require review | Stored app videos | n/a | Future `VideoProvider` implementation |
-| Marine conditions | Open-Meteo Marine API | wave/swell height, direction, period; secondary swell | Pricing/license/attribution must be reviewed for actual usage tier | Provider-dependent | Yes | Future alternate marine provider |
-| Tide | Taiwan CWA, product/endpoint unresolved | tide height/state | API dataset terms and coastal-datum meaning must be verified before code | TODO | TODO | Keep nullable or alternate public source |
-| Authentication | LINE Login v2.1 | OAuth authorization code + OIDC | Platform terms apply; request only needed scopes | n/a | n/a | None in production; fail closed |
-| Spot geography | User-supplied Google Maps place | 烏石港 at 24.8731036, 121.8411446 | Used only as location provenance; no copied descriptions or media | n/a | n/a | Keep spot inactive until verified |
-| Spot names checklist only | Public SwellEye guide names supplied in project brief | Names only | No crawling or copied descriptions/media/forecast/proprietary metadata | n/a | n/a | Manual checklist |
+Historical matching uses the newest forecast run issued by capture time whose valid time is near the capture. Current queries use the newest run issued by query time whose valid time is near the selected 0–72 hour target. Lead time is preserved for provenance but is not a similarity requirement. Reanalysis, hindcast, buoy, satellite, and other post-event observations may be stored only as separately labelled data; they never replace or overwrite the historical forecast used for matching.
+
+| Purpose | Preferred source | Current decision |
+|---|---|---|
+| Taiwan wave forecast | CWA F-A0020-001 | Preserve each six-hour run; total significant wave height/direction/period |
+| Tide forecast | CWA F-A0021-001 | Derive interpolated height/slope/state with datum provenance |
+| Wave model comparison | ECMWF WAM through Open-Meteo Marine | Separate feature row; explicit WAM test returned total wave fields but not components |
+| Optional component comparison | Open-Meteo best-match Marine | Separate model/source only; never silently merge with WAM |
+| Wind | Open-Meteo Weather or verified CWA dataset | Wind speed/direction/gust, separate provenance |
+| Video | Cloudflare Stream | Direct creator upload; playback/signing/deletion still require live verification |
 
 Official references:
 
-- Cloudflare Stream direct creator uploads: https://developers.cloudflare.com/stream/uploading-videos/direct-creator-uploads/
-- Open-Meteo Marine API: https://open-meteo.com/en/docs/marine-weather-api
-- LINE Login web integration: https://developers.line.biz/en/docs/line-login/integrate-line-login/
-- 烏石港 source point: https://maps.app.goo.gl/4SENnqZuYGGe8Gco7
+- CWA wave forecast: https://opendata.cwa.gov.tw/dataset/forecast/F-A0020-001
+- CWA tide forecast: https://opendata.cwa.gov.tw/dataset/forecast/F-A0021-001
+- Open-Meteo Marine: https://open-meteo.com/en/docs/marine-weather-api
+- Cloudflare Stream direct uploads: https://developers.cloudflare.com/stream/uploading-videos/direct-creator-uploads/
 
-Only 烏石港 is verified and active. Coordinates and Chinese names for the remaining checklist spots intentionally remain blank and inactive until independently verified with recorded provenance.
+Launch coordinates and provenance:
+
+- 烏石港: `24.8731036, 121.8411446`, user-supplied Google Maps point.
+- 雙獅: `24.8887597, 121.8495724`, user-supplied Google Maps place marker.

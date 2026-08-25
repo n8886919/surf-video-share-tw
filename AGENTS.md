@@ -2,15 +2,20 @@
 
 ## Product goal
 
-Build a Taiwan surf-condition service that attaches real uploaded videos to the conditions at capture time, then later finds same-spot historical videos similar to a forecast. Real-world videos—not another generic forecast dashboard—are the core value.
+Build a Taiwan surf-condition service that answers: under a selected spot and forecast time, what did the waves actually look like in comparable historical conditions? Public real-world videos—not another generic forecast dashboard or personal cloud drive—are the core value.
+
+The non-negotiable philosophy is in `docs/PROJECT_PRINCIPLES.md`. The canonical five-second copy is `PROJECT_PURPOSE` in `packages/domain/src/project-purpose.ts`; README and the rendered app must contain that exact value, enforced by tests.
 
 ## Hard MVP constraints
 
 - Taiwan, at most 100 initial users, infrastructure at most NT$1,000/month.
-- Uploads are 5–60 seconds, at most 200 MB, and captured today in `Asia/Taipei`.
+- Uploads are 5–60 seconds, at most 200 MB, and captured no more than 168 hours ago. Future capture times are invalid.
 - LINE Login is the production identity. Never expose raw LINE subjects.
-- Content requires authentication. Uploader identity is optional and uses only `display_id`.
-- No points, ads, payments, subscriptions, arbitrary backfill, or forecast-matching UI before upload is stable.
+- Complete videos are public. Uploader identity is optional and uses only `display_id`; incomplete uploads are private and expire after seven days.
+- Initial spots are 烏石港 and 雙獅 only.
+- Users enter only spot and capture time; condition numbers always come from providers.
+- No points, ads, product payments, subscriptions, arbitrary backfill, or public comment threads. Donations belong only in About/Support and never interrupt core flows.
+- An uploader may add one optional 100-character public supplement and optionally mark whether they had fun that day. Neither affects matching; never add more subjective fields or comment threads.
 
 ## Architecture rules
 
@@ -18,7 +23,8 @@ Build a Taiwan surf-condition service that attaches real uploaded videos to the 
 - Browser never reads D1 or provider secrets. Video bytes go directly to Cloudflare Stream.
 - D1 stores normalized searchable metrics and provider provenance. Never overwrite historical snapshots when providers change.
 - External video, marine, and tide systems stay behind provider interfaces.
-- Backend owns authorization and all business rules, including today-only validation.
+- Backend owns authorization and all business rules, including the 168-hour validation and public/private lifecycle.
+- Forecast runs are immutable, provider-specific snapshots. For both a future query and a historical capture, use the newest run available at that moment with a valid time near the target; do not require equal lead time. Never average CWA, ECMWF WAM, or other models into one feature row.
 - No SwellEye crawler or copied descriptions/media/forecasts. Spot names are only a checklist.
 - Never invent spot coordinates, translations, provider behavior, or licensing. Verify official docs and leave fields blank/TODO.
 
@@ -48,6 +54,7 @@ Production deployment uses the reviewed Wrangler configuration. Cloudflare Strea
 
 | Topic | Authority |
 |---|---|
+| Philosophy and project boundaries | `docs/PROJECT_PRINCIPLES.md` |
 | Product scope and UX | `docs/PRODUCT.md` |
 | Current handoff | `docs/PROJECT_STATE.md` |
 | System boundaries | `docs/ARCHITECTURE.md` and `docs/adr/` |
@@ -60,4 +67,4 @@ Production deployment uses the reviewed Wrangler configuration. Cloudflare Strea
 | Providers and provenance | `src/worker/providers/`, `docs/DATA_SOURCES.md` |
 | Secrets/deployment/cost | `docs/OPERATIONS.md`, `.env.example` |
 
-Before a task, read this file, `docs/PROJECT_STATE.md`, and only the relevant deeper document. Never guess external API behavior; verify current official documentation.
+Before a task, read this file, `docs/PROJECT_PRINCIPLES.md`, `docs/PROJECT_STATE.md`, and only the relevant deeper document. Never guess external API behavior; verify current official documentation.

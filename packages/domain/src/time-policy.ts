@@ -1,25 +1,43 @@
 export const PRODUCT_TIME_ZONE = "Asia/Taipei";
+export const UPLOAD_WINDOW_HOURS = 7 * 24;
+export const FORECAST_LOOKAHEAD_HOURS = 72;
+export const FORECAST_PAST_TOLERANCE_MINUTES = 5;
 
-function dateKey(date: Date): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: PRODUCT_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const value = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value ?? "";
-  return `${value("year")}-${value("month")}-${value("day")}`;
-}
-
-export function isTodayInTaipei(capturedAt: string | Date, now = new Date()): boolean {
+export function isWithinUploadWindow(
+  capturedAt: string | Date,
+  now = new Date(),
+  windowHours = UPLOAD_WINDOW_HOURS,
+): boolean {
   const captured = capturedAt instanceof Date ? capturedAt : new Date(capturedAt);
-  if (Number.isNaN(captured.getTime())) return false;
-  return dateKey(captured) === dateKey(now) && captured.getTime() <= now.getTime();
+  if (Number.isNaN(captured.getTime()) || !Number.isFinite(windowHours) || windowHours < 0) {
+    return false;
+  }
+  const ageMs = now.getTime() - captured.getTime();
+  return ageMs >= 0 && ageMs <= windowHours * 60 * 60 * 1000;
 }
 
-export function assertTodayInTaipei(capturedAt: string, now = new Date()): void {
-  if (!isTodayInTaipei(capturedAt, now)) {
-    throw new Error("影片拍攝時間必須是台北時區的今天，且不可晚於現在");
+export function assertWithinUploadWindow(capturedAt: string, now = new Date()): void {
+  if (!isWithinUploadWindow(capturedAt, now)) {
+    throw new Error("影片拍攝時間不可晚於現在，且必須在 168 小時內");
+  }
+}
+
+export function isWithinForecastWindow(
+  targetTime: string | Date,
+  now = new Date(),
+  lookaheadHours = FORECAST_LOOKAHEAD_HOURS,
+): boolean {
+  const target = targetTime instanceof Date ? targetTime : new Date(targetTime);
+  if (Number.isNaN(target.getTime()) || !Number.isFinite(lookaheadHours) || lookaheadHours < 0) {
+    return false;
+  }
+  const offsetMs = target.getTime() - now.getTime();
+  return offsetMs >= -FORECAST_PAST_TOLERANCE_MINUTES * 60_000
+    && offsetMs <= lookaheadHours * 60 * 60_000;
+}
+
+export function assertWithinForecastWindow(targetTime: string, now = new Date()): void {
+  if (!isWithinForecastWindow(targetTime, now)) {
+    throw new Error("查詢時間必須是現在至未來 72 小時內");
   }
 }

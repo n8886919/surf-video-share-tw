@@ -70,4 +70,18 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
       durationSeconds: payload.result.duration ?? null,
     };
   }
+
+  async deleteVideo(providerVideoId: string): Promise<void> {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/stream/${providerVideoId}`,
+      {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${this.config.apiToken}` },
+      },
+    );
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as StreamEnvelope<unknown> | null;
+      throw new Error(payload?.errors?.[0]?.message ?? "Cloudflare Stream 影片刪除失敗");
+    }
+  }
 }
