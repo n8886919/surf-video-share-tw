@@ -1,4 +1,5 @@
--- One-time production bootstrap for Cloudflare D1 Console.
+-- One-time production bootstrap for Cloudflare D1 Console. This file lives
+-- outside drizzle/ so Wrangler never treats it as a pending migration.
 -- Historical one-time bootstrap through drizzle/0002. After using it, apply
 -- drizzle/0003 and later with Wrangler; do not treat this file as the latest schema.
 

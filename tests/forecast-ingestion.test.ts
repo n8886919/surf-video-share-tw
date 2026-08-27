@@ -309,4 +309,34 @@ describe("scheduled forecast normalization", () => {
     expect(snapshots).toHaveLength(1);
     expect(snapshots[0]).toMatchObject({ waveHeight: 0.82, tideHeight: 0.2 });
   });
+
+  it("redacts the CWA key from partial tide warnings", async () => {
+    const apiKey = "sensitive-cwa-test-key";
+    const warnings: string[] = [];
+    const fetchImpl = (async (input: URL | RequestInfo) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (!url.pathname.includes("fileapi")) {
+        throw new Error(`tide fetch failed: ${url.toString()} key=${apiKey}`);
+      }
+      const archive = cwaWaveFixture();
+      const body = archive.buffer.slice(
+        archive.byteOffset,
+        archive.byteOffset + archive.byteLength,
+      ) as ArrayBuffer;
+      return new Response(body, { status: 200 });
+    }) as typeof fetch;
+
+    const snapshots = await fetchCwaForecasts(
+      [spot],
+      apiKey,
+      "2026-08-25T02:20:00.000Z",
+      fetchImpl,
+      (message) => warnings.push(message),
+    );
+
+    expect(snapshots).toHaveLength(1);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("[redacted]");
+    expect(warnings[0]).not.toContain(apiKey);
+  });
 });

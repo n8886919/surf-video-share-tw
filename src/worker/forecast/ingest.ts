@@ -11,9 +11,10 @@ export interface ForecastIngestionSummary {
   providers: ForecastProviderResult[];
 }
 
-function safeErrorMessage(error: unknown): string {
+function safeErrorMessage(error: unknown, sensitiveValue?: string): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message
+  const redacted = sensitiveValue ? message.replaceAll(sensitiveValue, "[redacted]") : message;
+  return redacted
     .replace(/Authorization=[^&\s]+/gi, "Authorization=[redacted]")
     .slice(0, 500);
 }
@@ -82,7 +83,7 @@ async function ingestCwa(
       attempted: 0,
       inserted: 0,
       duplicates: 0,
-      message: safeErrorMessage(error),
+      message: safeErrorMessage(error, env.CWA_API_KEY),
     };
   }
 }

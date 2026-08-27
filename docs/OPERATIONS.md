@@ -21,6 +21,7 @@ Add preview/staging later as a separate Cloudflare environment with separate D1/
 ## Forecast ingestion
 
 - Open-Meteo ECMWF WAM needs no secret. CWA is skipped, without blocking ECMWF, when `CWA_API_KEY` is absent.
+- Before enabling CWA in production, set and verify `observability.redact_query_string: true` through Cloudflare's [Patch Script Settings API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/edit/). CWA requires its authorization value in provider query strings, so production observability must not retain query parameters. The Wrangler schema does not currently accept this script-level setting in `wrangler.jsonc`; adding it there only warns and is ignored. Re-verify it after every deployment until Wrangler supports the field.
 - Each run logs one structured `forecast_ingestion` summary. A partial provider failure is a warning; the scheduled invocation fails only when every configured provider fails.
 - CWA ZIP input is streamed with compressed/XML/file-count limits. Only leads `0, 3, …, 72` are decompressed. Do not change this to extract the full archive without measuring Worker CPU and memory first.
 - D1 writes use chunks of 50 and `INSERT OR IGNORE`. Re-running the same upstream content should report duplicates, not create another copy.
@@ -30,6 +31,8 @@ Add preview/staging later as a separate Cloudflare environment with separate D1/
 ## Backup and recovery
 
 Export D1 before destructive migrations and periodically once user data exists. Stream is the blob system of record; D1 holds IDs/metadata, so both are required for full recovery. Test restore before relying on it.
+
+`ops/bootstrap-production.sql` is only the historical one-time Console bootstrap through migration `0002`; it intentionally lives outside `drizzle/` and must never be applied as a normal Wrangler migration.
 
 ## Cost monitoring
 

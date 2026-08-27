@@ -104,4 +104,33 @@ describe("API authorization boundary", () => {
     expect(statements.some((sql) => sql.includes("INSERT INTO video_reports"))).toBe(true);
     expect(statements.some((sql) => sql.includes("UPDATE videos"))).toBe(false);
   });
+
+  it("allows the configured administrator to list reports", async () => {
+    const user = { id: "user_dev_local", display_id: "wave-friend", show_identity_default: 1 };
+    const db = {
+      prepare: (sql: string) => {
+        const statement = {
+          bind: () => statement,
+          first: async () => user,
+          run: async () => ({ meta: { changes: 1 } }),
+          all: async () => ({ results: sql.includes("FROM video_reports") ? [] : [user] }),
+        };
+        return statement;
+      },
+      batch: async () => [],
+    } as unknown as D1Database;
+
+    const response = await api.fetch(
+      new Request("https://example.com/api/v1/admin/reports"),
+      {
+        APP_ENV: "development",
+        ENABLE_DEV_AUTH: "true",
+        ADMIN_USER_ID: user.id,
+        DB: db,
+      } as AppEnv,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ reports: [] });
+  });
 });

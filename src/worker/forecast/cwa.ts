@@ -485,10 +485,15 @@ export async function fetchCwaForecasts(
     fetchCwaWavePoints(apiKey, spots, fetchImpl),
     fetchCwaTideEvents(apiKey, fetchImpl)
       .then((events) => ({ events, error: null }))
-      .catch((error: unknown) => ({
-        events: [] as CwaTideEvent[],
-        error: error instanceof Error ? error.message : "unknown CWA tide error",
-      })),
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "unknown CWA tide error";
+        return {
+          events: [] as CwaTideEvent[],
+          error: message
+            .replaceAll(apiKey, "[redacted]")
+            .replace(/Authorization=[^&\s]+/gi, "Authorization=[redacted]"),
+        };
+      }),
   ]);
   if (tideResult.error) onWarning(`CWA tide enrichment skipped: ${tideResult.error}`);
   const snapshots = await buildCwaForecastSnapshots(wavePoints, tideResult.events, retrievedAt);

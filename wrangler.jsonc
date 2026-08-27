@@ -14,6 +14,7 @@
   },
   "vars": {
     "APP_ENV": "production",
+    "ADMIN_USER_ID": "2129bb4a-1100-4271-a4a6-559957cde120",
     "LINE_CHANNEL_ID": "2011238358",
     "LINE_CALLBACK_URL": "https://surf-video-share-tw.nolanasd123.workers.dev/api/v1/auth/line/callback",
     "PUBLIC_SITE_ORIGIN": "https://surf-video-share-tw.nolanasd123.workers.dev",
