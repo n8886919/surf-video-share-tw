@@ -25,6 +25,7 @@ Updated: 2026-08-28. This describes the current local worktree; production may b
 - The Windows workstation is now self-contained for this project: Node 22, the repository-pinned pnpm 11 shim, GitHub reads, Wrangler OAuth, local D1, mock-only development, builds, dry-runs, and production read-only preflight all run without the former `penguin` environment. The transferred Wrangler credential was verified on Windows and removed from `penguin`.
 - `.dev.vars.example` is the tracked mock-only Worker development template; the real `.dev.vars` is git-ignored. Local Vite therefore uses development auth plus mock video/conditions and does not load the ignored production-operation token files.
 - `@cloudflare/vite-plugin` is pinned to `1.54.1`, Wrangler to `4.127.0`, and matching Worker types to `5.20260826.1`. Their workerd `1.20260826.1` supports the configured `2026-08-24` compatibility date; the previous runtime stopped local development before startup.
+- With owner authorization, commits `2e529e5` and `ead0f41` were pushed to `main` and the reviewed first-user build was published by Workers Builds. The production Stream secret and both rate-limit bindings are present, and script-level query-string redaction was patched and read back after the latest deployment.
 - Migrations `0000` through `0004` exist. This checkpoint adds no schema migration.
 
 ## Verification
@@ -40,6 +41,8 @@ Updated: 2026-08-28. This describes the current local worktree; production may b
 | `wrangler deploy --dry-run` | pass; D1 plus both rate-limit bindings present | 2026-08-28 |
 | Windows local development | pass; mock `.dev.vars`, local D1 `0000`–`0004`, home/health/spots/dev `/me` all returned `200` | 2026-08-28 |
 | Windows Wrangler/preflight | pass; OAuth authenticated and production audit completed without `penguin` | 2026-08-28 |
+| production post-deploy preflight | pass; Stream secret, both rate-limit bindings, no pending migration, and query-string redaction enabled | 2026-08-28 |
+| production public smoke | pass; health/spots/current matches `200`, ECMWF WAM forecast present, unauthenticated `/me` returned `401 UNAUTHENTICATED` | 2026-08-28 |
 | migration chain | not rerun; prior `0000`→`0004` SQLite integrity/foreign-key check passed | 2026-08-25 |
 
 ## Production status
@@ -47,32 +50,30 @@ Updated: 2026-08-28. This describes the current local worktree; production may b
 - Do not deploy, migrate production D1, modify secrets, or delete production data without explicit authorization.
 - The deployed Worker is reachable: `/health`, `/spots`, and a current `/matches` query returned `200` on 2026-08-28. Both launch spots are present, and the match response contained an ECMWF WAM snapshot issued by the deployed six-hour Cron that day.
 - An unauthenticated production `/me` returned `401 UNAUTHENTICATED`, not `AUTH_NOT_CONFIGURED`; the currently deployed Worker therefore accepts its LINE/session configuration. The actual LINE redirect/callback has not been exercised in this checkpoint because it writes an OAuth attempt and requires the user.
-- The read-only production preflight succeeded. `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, and `CWA_API_KEY` are present; `CLOUDFLARE_STREAM_API_TOKEN` is missing. No secret or plaintext binding value was printed.
-- A least-privilege Stream token is present only in the Windows git-ignored operation file and passed a read-only Stream API request. It has not been written to the production Worker.
-- Production D1 has no pending migration. The current deployment from `2026-08-28T09:29:32.355038Z` sends 100% traffic to version `d1ed66b1-f421-43c3-9028-0cd221b5a84f`.
-- The deployed script setting `observability.redact_query_string` is not enabled while `CWA_API_KEY` is present. Treat the current CWA key as potentially retained in observability and rotate it before any future CWA enablement.
-- The deployed version is behind this local checkpoint. `CWA_QUERY_STRING_REDACTION_VERIFIED`, `UPLOAD_RATE_LIMITER`, and `PLAYBACK_RATE_LIMITER` are the only local bindings not present on the active version. Signed Stream upload/thumbnail/playback code is also not deployed.
+- The post-deploy production preflight succeeded. `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, `CWA_API_KEY`, and `CLOUDFLARE_STREAM_API_TOKEN` are present. The active version includes `CWA_QUERY_STRING_REDACTION_VERIFIED`, `UPLOAD_RATE_LIMITER`, and `PLAYBACK_RATE_LIMITER`; no secret or plaintext binding value was printed.
+- Production D1 has no pending migration. The active deployment sends 100% traffic to the reviewed build with the configured Stream secret and rate-limit bindings.
+- The deployed script setting `observability.redact_query_string` is enabled and was read back after the final deployment. `CWA_QUERY_STRING_REDACTION_VERIFIED` was separately confirmed as `false`, so CWA remains guarded and ECMWF WAM remains active.
+- Because redaction was previously disabled while `CWA_API_KEY` was present, treat the current CWA key as potentially retained in observability. Revoke/rotate it at CWA before any future CWA enablement; do not change the application guard to `true` in the same unreviewed step.
 - Real Stream upload, processing, thumbnail redirect, playback/origin control, deletion, and webhook behavior still need first-user or staging end-to-end verification.
 - Cost alarms and staged reporting/delisting verification remain launch gates.
-- CWA query-string redaction must be verified before production ingestion is enabled.
+- CWA key revocation/rotation plus a fresh query-string-redaction read-back remain mandatory before production CWA ingestion is enabled.
 
 ## Next task
 
-Objective: with explicit owner authorization, remediate the two production gates and deploy the reviewed first-user build with CWA safely disabled.
+Objective: complete the owner-driven production identity and one-video Stream end-to-end check against the deployed first-user build.
 
 Scope:
 
-- Set the already verified, git-ignored least-privilege Stream token as the Worker secret `CLOUDFLARE_STREAM_API_TOKEN`; never print it, paste it into chat, or commit it.
-- Keep `CWA_QUERY_STRING_REDACTION_VERIFIED=false` for this deployment. Separately patch and read back `observability.redact_query_string=true`, rotate `CWA_API_KEY`, and leave CWA guarded until a later reviewed enablement.
-- Apply no D1 migration; the remote list is empty.
-- Commit the reviewed local change set. Push/deploy only after explicit approval because GitHub `main` is connected to Workers Builds and the deploy command publishes production.
-- After deployment, rerun `pnpm production:preflight` and require the Stream secret plus both rate-limit bindings to be present. Recheck redaction, health, spots, matches, and unauthenticated `/me` before the owner begins LINE Login.
-- The owner then completes the real LINE redirect/callback and supplies one 5–60 second, at-most-200 MB test video captured within 168 hours for upload, processing, thumbnail, selected playback, reporting, and cleanup follow-up.
+- The owner completes the real LINE redirect/callback and confirms that `/api/v1/me` reaches the signed-in UI without exposing the raw LINE subject.
+- The owner supplies one 5–60 second, at-most-200 MB test video captured within 168 hours.
+- Exercise direct upload, Stream processing readiness, metadata completion, public thumbnail, explicit selected playback, and origin/signed-URL behavior. Record the resulting non-secret IDs and statuses needed for follow-up.
+- Verify the upload/playback burst guards in a non-destructive way, then exercise reporting/delisting and seven-day cleanup in staging or with a separately reviewed safe procedure; do not shorten production expiry on user data.
+- Before any CWA enablement, revoke/rotate the old CWA key, read back query-string redaction again, and obtain separate approval to change `CWA_QUERY_STRING_REDACTION_VERIFIED` from `false`.
 
 Done when:
 
-- `CLOUDFLARE_STREAM_API_TOKEN` is present, the reviewed build is active, no unintended migration occurred, and CWA remains guarded.
-- Post-deploy preflight and public smoke checks pass without exposing credentials.
-- Real LINE Login reaches the signed-in UI and one real Stream video completes the user-visible upload-to-protected-playback path.
+- Real LINE Login reaches the signed-in UI.
+- One real Stream video completes the user-visible upload-to-protected-playback path with signed delivery and the expected public/private lifecycle.
+- Any observed production/provider mismatch is documented without exposing credentials, and destructive follow-up remains separately authorized.
 
-Out of scope: production secret changes, production migration/deploy, destructive production tests, condition-schema removal, and unrelated UI refactors.
+Out of scope: additional production secret changes, production migration/deploy, destructive production tests, CWA enablement, condition-schema removal, and unrelated UI refactors.
