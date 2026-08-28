@@ -28,6 +28,7 @@ Updated: 2026-08-29. This describes the current local worktree; production may b
 - `pnpm production:preflight` now provides a repeatable read-only remote audit. It lists secret names, active version binding names/types, pending migration filenames, and query-string redaction status while omitting all secret and plaintext binding values.
 - The preflight explicitly prefers a nonblank process token and otherwise parses `.env.cloudflare-readonly`; an inherited blank environment variable can no longer suppress the ignored file.
 - `pnpm deploy` now requires a distinct write credential before any mutation, applies reviewed remote migrations, publishes, PATCHes the complete `{ enabled: true, head_sampling_rate: 1, redact_query_string: true }` observability setting, and immediately reads it back. Missing credentials, rejected PATCHes, and false/missing read-back fail without printing token or Cloudflare response contents; `pnpm production:redaction` provides a patch/read-back-only recovery path.
+- Logged-in operators can use `pnpm deploy:oauth` or `pnpm production:redaction:oauth`; these read `wrangler auth token --json` into process memory without printing or persisting it. The first release using this code revealed that the account-owned Workers Builds deploy command still invokes framework deployment directly, so the repository guard is not yet wired into automatic `main` deployments.
 - CWA ingestion now requires both `CWA_API_KEY` and `CWA_QUERY_STRING_REDACTION_VERIFIED=true`. The reviewed first-user configuration sets the guard to `false`, so a deployment cannot issue credential-bearing CWA queries until redaction has been read back as enabled. ECMWF WAM remains independent.
 - The Windows workstation is now self-contained for this project: Node 22, the repository-pinned pnpm 11 shim, GitHub reads, Wrangler OAuth, local D1, mock-only development, builds, dry-runs, and production read-only preflight all run without the former `penguin` environment. The transferred Wrangler credential was verified on Windows and removed from `penguin`.
 - `.dev.vars.example` is the tracked mock-only Worker development template; the real `.dev.vars` is git-ignored. Local Vite therefore uses development auth plus mock video/conditions and does not load the ignored production-operation token files.
@@ -48,7 +49,7 @@ Updated: 2026-08-29. This describes the current local worktree; production may b
 | Check | Result | Last run |
 |---|---|---|
 | `pnpm typecheck` | pass | 2026-08-29 |
-| `pnpm test` | pass, 97 tests across 18 files, including deployment safeguard, 100-user registration, owner download, reporting, and provider regressions | 2026-08-29 |
+| `pnpm test` | pass, 98 tests across 18 files, including deployment safeguard/OAuth parsing, 100-user registration, owner download, reporting, and provider regressions | 2026-08-29 |
 | `pnpm lint` | pass | 2026-08-29 |
 | `pnpm build` | pass | 2026-08-29 |
 | rendered-site test | pass, 1 test; built client bundle contains 「彼日浪影」, 「問題回報」, and 「分享我的影片」 | 2026-08-29 |
@@ -61,41 +62,44 @@ Updated: 2026-08-29. This describes the current local worktree; production may b
 | production public smoke | pass; health/spots/current matches `200`, ECMWF WAM forecast present, unauthenticated `/me` returned `401 UNAUTHENTICATED` | 2026-08-28 |
 | first-user LINE/Stream E2E | pass; real login, direct upload, ready/public lifecycle, signed thumbnail/playback, origin rejection, and owner-confirmed picture/audio | 2026-08-28 |
 | migration chain | pass on fresh temporary local D1; `0000`→`0005`, SQLite integrity `ok`, no foreign-key violations, temporary database removed | 2026-08-28 |
+| internal-release production deploy | pass with recovery; Workers Builds published version `b4605499-e2bd-4d70-9b30-249a72df8b82`, local OAuth applied migrations `0005`–`0006`, and the complete observability PATCH/read-back restored redaction | 2026-08-29 |
+| internal-release production smoke | pass; brand/purpose, health, two spots, one ECMWF match group, existing thumbnail `302`, signed playback `200`, and unauthenticated `/me` `401` | 2026-08-29 |
 
 ## Production status
 
-- Do not deploy, migrate production D1, modify secrets, or delete production data without explicit authorization.
-- The deployed Worker is reachable: `/health`, `/spots`, and a current `/matches` query returned `200` on 2026-08-28. Both launch spots are present, and the match response contained an ECMWF WAM snapshot issued by the deployed six-hour Cron that day.
+- The owner explicitly authorized this internal-test release and its migrations. Future deployments, secret changes, and production deletion still require explicit authorization.
+- The current internal-test release serves 100% traffic. The rendered app is branded 「彼日浪影」 and retains the exact canonical purpose; `/health`, `/spots`, and a current `/matches` query returned `200` on 2026-08-29. Both launch spots are present and the match response contained an ECMWF WAM provider/model group.
 - Real production LINE redirect/callback and the signed-in UI succeeded with the owner. The resulting internal user ID matches `ADMIN_USER_ID`; `/api/v1/me` exposes no raw LINE subject.
-- The post-deploy production preflight succeeded. `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, `CWA_API_KEY`, and `CLOUDFLARE_STREAM_API_TOKEN` are present. The active version includes `CWA_QUERY_STRING_REDACTION_VERIFIED`, `UPLOAD_RATE_LIMITER`, and `PLAYBACK_RATE_LIMITER`; no secret or plaintext binding value was printed.
-- Production D1 is still on migrations `0000`–`0004`; local migrations `0005`–`0006`, public-name/source-size code, problem reports, and owner MP4 sharing are not deployed. The active deployment continues to send 100% traffic to the prior reviewed build with the configured Stream secret and only the existing upload/playback rate-limit bindings; `DOWNLOAD_RATE_LIMITER` exists only in local configuration.
-- Owner-download provider/API/browser paths pass local tests and dry-run, but real Stream MP4 generation, JavaScript delivery CORS, native sharing, and fallback download have not been exercised. Chrome Android, Safari iOS, and LINE's in-app browser remain required pre-release checks for this feature.
-- The deployed script setting `observability.redact_query_string` is enabled and was read back after the final deployment. `CWA_QUERY_STRING_REDACTION_VERIFIED` was separately confirmed as `false`, so CWA remains guarded and ECMWF WAM remains active.
+- The post-deploy production preflight succeeded. `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, `CWA_API_KEY`, and `CLOUDFLARE_STREAM_API_TOKEN` are present. The active version includes upload, playback, owner-download, and problem-report rate-limit bindings; no secret or plaintext binding value was printed.
+- Production D1 is on migrations `0000`–`0006`. Public-name/source-size code, anonymous problem reports, owner MP4 sharing, the 100-user cap, and the two new rate-limit bindings are deployed. A read-only query found exactly one registered user.
+- Owner-download provider/API/browser paths pass local tests and are deployed, but real Stream MP4 generation, JavaScript delivery CORS, native sharing, and fallback download have not been exercised. Chrome Android, Safari iOS, and LINE's in-app browser remain owner acceptance checks before inviting the full internal group.
+- The deployed script setting `observability.redact_query_string` is enabled after a complete local-OAuth recovery PATCH and exact read-back. `CWA_QUERY_STRING_REDACTION_VERIFIED` remains `false`, so CWA stays guarded and ECMWF WAM remains active.
 - Because redaction was previously disabled while `CWA_API_KEY` was present, treat the current CWA key as potentially retained in observability. Revoke/rotate it at CWA before any future CWA enablement; do not change the application guard to `true` in the same unreviewed step.
 - Real Stream direct upload, processing, public matching, signed thumbnail redirect, playback creation, correct-origin playback, wrong-origin playback rejection, and picture/audio playback succeeded. Cloudflare returned the signed thumbnail from a wrong `Referer` as well; this matches its documentation of Allowed Origins as a playback control, so the first-party thumbnail gate and five-minute signed token remain required.
 - The first completion attempt failed because Stream transiently returned `duration: 0`. The owner-authorized recovery conditionally updated exactly one D1 row after Stream reported `ready` and `20.1` seconds. Commit `3bc48da` fixes the timing case in production; its five regression tests pass.
 - With explicit owner approval, duplicate private Stream UID `04c511182f64c51ac6c9955f8a3f1fe3` was deleted with `200` and confirmed absent with `404`; only then was D1 video `08d8273d-ff01-4d01-bd45-e4605e0ace7b` conditionally deleted and confirmed absent. Public video `51e42f58-4330-4519-a931-1386c361ce66` remained `ready/public` and passed thumbnail/playback smoke afterward.
 - The deployment reset script-level query-string redaction. The first partial PATCH was correctly rejected by read-back despite an API `success` response; a complete observability payload restored `redact_query_string: true`, and the final preflight read it back as enabled. CWA remained guarded throughout.
+- Workers Builds reported success for commit `d863bda` but bypassed the repository's `pnpm deploy`: it published the Worker while leaving migrations `0005`–`0006` pending and redaction disabled. The local OAuth recovery immediately restored/read back redaction and applied both migrations. Updating the account-owned deploy command requires Cloudflare Builds Configuration permission that the current Wrangler OAuth and read-only token do not have.
+- The existing production video `51e42f58-4330-4519-a931-1386c361ce66` remains `ready`, `complete`, and public. Its first-party thumbnail returned `302` and explicit playback returned signed iframe data with `200` after the release; no production video was deleted, delisted, or edited.
 - General seven-day expiry deletion and webhook behavior still need staging or a separately approved safe verification.
 - Cost alarms and staged reporting/delisting verification remain launch gates.
 - CWA key revocation/rotation plus a fresh query-string-redaction read-back remain mandatory before production CWA ingestion is enabled.
 
 ## Next task
 
-Objective: publish the reviewed internal-test release under the owner's explicit authorization, then verify production without modifying or deleting the existing public video.
+Objective: wire the already-reviewed guarded deploy command into Cloudflare Workers Builds so future `main` pushes cannot bypass migrations and query-string-redaction recovery.
 
 Scope:
 
-- Commit and push the verified release to `main`; Workers Builds must run the guarded `pnpm deploy` path.
-- Apply pending migrations `0005`–`0006`, publish the public-name/source-size, problem-report, owner-sharing, 100-user-cap, and 「彼日浪影」 changes, and expose all four reviewed rate-limit bindings.
-- Require the automated complete observability PATCH and exact read-back to succeed after publishing. Keep `CWA_QUERY_STRING_REDACTION_VERIFIED=false`; do not rotate secrets or enable CWA in this release.
-- Run the read-only production preflight and public health/spots/matches/brand smoke checks. Recheck the existing public video's thumbnail and explicit playback paths without deleting, delisting, or changing it.
-- Do not use the single production video for expiry, webhook, or moderation destruction tests. Owner MP4 native sharing and fallback remain owner acceptance checks after deployment.
+- Owner action in Cloudflare Dashboard: open `surf-video-share-tw` → Settings → Build, set the production deploy command to exactly `pnpm deploy`, and ensure the selected build API token has Workers Scripts Write plus D1 Edit. The current agent credentials cannot read or edit this account-owned Builds setting (`Authentication error` from the Builds API).
+- After that one account-level change, trigger a reviewed build and require its log to show migration application, Worker publication, complete observability PATCH, and successful read-back. Then run `pnpm production:preflight`; it must show no pending migrations, all four limiter bindings, and redaction enabled without local recovery.
+- Keep `CWA_QUERY_STRING_REDACTION_VERIFIED=false`; do not rotate or enable CWA as part of the build-setting verification.
+- After CI wiring is proven, have the owner test real MP4 preparation/share/download on a phone before inviting the remaining internal users.
 
 Done when:
 
-- Production D1 reports migrations `0000`–`0006` applied, the active version exposes all four limiter bindings, and query-string redaction reads back enabled.
-- Public health, spots, current matches, rendered 「彼日浪影」 brand, existing thumbnail, and explicit playback smoke checks pass.
-- The existing public video remains `ready/public`; CWA stays guarded and ECMWF WAM remains available.
+- A Workers Builds deployment itself runs `pnpm deploy` and completes with automated redaction read-back; no manual/local repair is needed.
+- Post-deploy preflight shows no pending migrations, all four limiter bindings, and query-string redaction enabled.
+- Owner MP4 mobile acceptance passes, or its exact browser-specific fallback behavior is recorded before inviting users 2–10.
 
 Out of scope: destructive production tests, CWA key rotation/enablement, staging creation, automated multi-device tests, condition-schema removal, and unrelated UI refactors.

@@ -23,7 +23,11 @@ LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secr
 
 Workers Builds supplies its deployment token only inside Workers CI. For an approved local deployment, set `CLOUDFLARE_DEPLOY_API_TOKEN` in the parent process or in the git-ignored `.env.cloudflare-deploy`; do not place it in `.env.cloudflare-readonly`, documentation, chat, or Git. An inherited `CLOUDFLARE_API_TOKEN` is deliberately ignored outside Workers CI so a read-only audit token cannot be mistaken for deployment authority. The deployment script prints progress only and never prints token or Cloudflare response contents.
 
-If publication succeeds but the PATCH or read-back fails, `CWA_QUERY_STRING_REDACTION_VERIFIED=false` keeps credential-bearing CWA requests disabled. Correct the credential or transient Cloudflare failure and run `pnpm production:redaction`; this repeats only the complete PATCH and read-back, without publishing or migrating again. Do not change the CWA guard in the same recovery step.
+An approved operator who is already authenticated through `wrangler login` may instead run `pnpm deploy:oauth`. The script calls `wrangler auth token --json`, keeps the returned OAuth token only in process memory, and never prints it. `pnpm production:redaction:oauth` provides the equivalent redaction-only recovery.
+
+The repository cannot force the account-owned Workers Builds deploy command. In Cloudflare Dashboard → Worker → Settings → Build, set the production deploy command to exactly `pnpm deploy` and ensure its build token has Workers Scripts Write plus D1 Edit. Framework auto-detection can otherwise invoke `vinext deploy` directly, bypassing both migrations and the post-deploy redaction repair even though the repository script is correct. Treat a `main` push as unsafe until the post-deploy preflight confirms no pending migrations and redaction enabled.
+
+If publication succeeds but the PATCH or read-back fails, `CWA_QUERY_STRING_REDACTION_VERIFIED=false` keeps credential-bearing CWA requests disabled. Correct the credential or transient Cloudflare failure and run `pnpm production:redaction` (or `pnpm production:redaction:oauth` for a logged-in operator); this repeats only the complete PATCH and read-back, without publishing or migrating again. Do not change the CWA guard in the same recovery step.
 
 The Worker name in Cloudflare must remain `surf-video-share-tw` because Workers Builds requires it to match `wrangler.jsonc`.
 

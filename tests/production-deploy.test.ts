@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   enforceProductionRedaction,
+  parseWranglerAuthToken,
   REQUIRED_OBSERVABILITY,
   resolveDeployToken,
 } from "../ops/deploy-production.mjs";
@@ -41,6 +42,15 @@ describe("production deployment safeguard", () => {
       explicitDeployToken: "",
       envFileContents: null,
     })).toBe("workers-build-token");
+  });
+
+  it("parses Wrangler's machine-readable OAuth credential without logging it", () => {
+    expect(parseWranglerAuthToken(JSON.stringify({ type: "oauth", token: "oauth-token" })))
+      .toBe("oauth-token");
+    expect(() => parseWranglerAuthToken(JSON.stringify({ type: "oauth" })))
+      .toThrow("Wrangler OAuth credential is unavailable");
+    expect(() => parseWranglerAuthToken("not-json"))
+      .toThrow("Wrangler OAuth credential returned invalid JSON");
   });
 
   it("PATCHes the complete observability payload and verifies it with a GET", async () => {

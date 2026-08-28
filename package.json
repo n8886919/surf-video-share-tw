@@ -19,9 +19,11 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy": "node ops/deploy-production.mjs",
+    "deploy:oauth": "node ops/deploy-production.mjs --wrangler-oauth",
     "deploy:dry-run": "vinext deploy --dry-run",
     "production:preflight": "node ops/preflight-production.mjs",
     "production:redaction": "node ops/deploy-production.mjs --redaction-only",
+    "production:redaction:oauth": "node ops/deploy-production.mjs --redaction-only --wrangler-oauth",
     "verify": "pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {

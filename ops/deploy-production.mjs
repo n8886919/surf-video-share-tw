@@ -36,6 +36,42 @@ export function resolveDeployToken({
   return null;
 }
 
+export function parseWranglerAuthToken(output) {
+  let payload;
+  try {
+    payload = JSON.parse(output);
+  } catch {
+    throw new Error("Wrangler OAuth credential returned invalid JSON");
+  }
+  if (typeof payload?.token !== "string" || !payload.token.trim()) {
+    throw new Error("Wrangler OAuth credential is unavailable");
+  }
+  return payload.token.trim();
+}
+
+function readWranglerOAuthToken() {
+  let output;
+  try {
+    output = execFileSync(
+      process.execPath,
+      [wranglerEntryPath, "auth", "token", "--json"],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NO_COLOR: "1",
+          WRANGLER_SEND_METRICS: "false",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+  } catch {
+    throw new Error("Wrangler OAuth credential could not be retrieved");
+  }
+  return parseWranglerAuthToken(output);
+}
+
 function scriptSettingsUrl(accountId, workerName) {
   return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/script-settings`;
 }
@@ -108,10 +144,13 @@ export async function main() {
   const envFileContents = existsSync(deployTokenPath)
     ? readFileSync(deployTokenPath, "utf8")
     : null;
+  const useWranglerOAuth = process.argv.includes("--wrangler-oauth");
+  const explicitDeployToken = process.env.CLOUDFLARE_DEPLOY_API_TOKEN
+    || (useWranglerOAuth ? readWranglerOAuthToken() : null);
   const token = resolveDeployToken({
     workersCi: process.env.WORKERS_CI,
     ciToken: process.env.CLOUDFLARE_API_TOKEN,
-    explicitDeployToken: process.env.CLOUDFLARE_DEPLOY_API_TOKEN,
+    explicitDeployToken,
     envFileContents,
   });
   if (!token) {
