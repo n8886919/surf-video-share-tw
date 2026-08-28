@@ -37,6 +37,7 @@ import {
   logout,
 } from "./auth";
 import { cleanupExpiredPendingVideos } from "./video-lifecycle";
+import { resolveVideoStatus } from "./video-status";
 
 type Variables = { user: UserRow; authMode: "development" | "line" };
 
@@ -362,11 +363,14 @@ async function findPublicVideo(env: AppEnv, videoId: string): Promise<PublicVide
 
 async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
   const pending = await env.DB.prepare(
-    `SELECT id, provider_video_id, metadata_status, public_at, terms_version, moderation_status FROM videos
+    `SELECT id, provider_video_id, video_provider, duration_seconds,
+            metadata_status, public_at, terms_version, moderation_status FROM videos
      WHERE user_id = ? AND status IN ('pending', 'processing') LIMIT 5`,
   ).bind(userId).all<{
     id: string;
     provider_video_id: string;
+    video_provider: "mock" | "cloudflare-stream";
+    duration_seconds: number | null;
     metadata_status: string;
     public_at: string | null;
     terms_version: string | null;
@@ -382,18 +386,23 @@ async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
   }
   for (const video of pending.results) {
     try {
+      if (provider.provider !== video.video_provider) {
+        console.warn("Video status reconciliation skipped provider mismatch", video.id);
+        continue;
+      }
       const status = await provider.getStatus(video.provider_video_id);
+      const resolved = resolveVideoStatus(provider.provider, status, video.duration_seconds);
       const now = new Date().toISOString();
       const publicAt = video.metadata_status === "complete"
         && video.terms_version
         && video.moderation_status === "visible"
-        && status.state === "ready"
+        && resolved.canPublish
         ? video.public_at ?? now
         : null;
       await env.DB.prepare(
         `UPDATE videos SET status = ?, duration_seconds = COALESCE(?, duration_seconds),
          public_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-      ).bind(status.state, status.durationSeconds, publicAt, now, video.id, userId).run();
+      ).bind(resolved.state, resolved.durationSeconds, publicAt, now, video.id, userId).run();
     } catch (error) {
       console.warn("Video status reconciliation failed", video.id, error);
     }
@@ -732,8 +741,8 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
 
   const provider = createVideoProvider(context.env);
   const status = await provider.getStatus(input.providerVideoId);
-  const verifiedDuration = status.durationSeconds ?? video.duration_seconds;
-  if (verifiedDuration == null || verifiedDuration < 5 || verifiedDuration > 60) {
+  const resolved = resolveVideoStatus(provider.provider, status, video.duration_seconds);
+  if (resolved.invalidDuration || resolved.durationSeconds == null) {
     return context.json({ error: "INVALID_DURATION", message: "影片長度必須為 5–60 秒" }, 422);
   }
 
@@ -751,14 +760,14 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
   const publicAt = video.metadata_status === "complete"
     && video.terms_version
     && video.moderation_status === "visible"
-    && status.state === "ready"
+    && resolved.canPublish
     ? video.public_at ?? now
     : null;
   await context.env.DB.prepare(
     `UPDATE videos SET status = ?, duration_seconds = ?, uploaded_at = ?,
      condition_snapshot_id = COALESCE(?, condition_snapshot_id), public_at = ?, updated_at = ?
      WHERE id = ? AND user_id = ?`,
-  ).bind(status.state, verifiedDuration, now, conditionSnapshotId, publicAt, now, video.id, user.id).run();
+  ).bind(resolved.state, resolved.durationSeconds, now, conditionSnapshotId, publicAt, now, video.id, user.id).run();
   const observation = await findOwnedObservation(context.env, video.id, user.id);
   return context.json({ observation: observation ? serializeObservation(observation, true) : null, conditionsAttached: Boolean(conditionSnapshotId) });
 });
