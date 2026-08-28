@@ -99,6 +99,10 @@ export interface PublicMatchesResponse {
     | "same-spot-recent-until-forecast-history-is-available";
 }
 
+export type PlaybackResponse =
+  | { type: "iframe"; iframeUrl: string; expiresAt: string }
+  | { type: "mock"; iframeUrl: null; expiresAt: null };
+
 export const updateMeSchema = z.object({
   displayId: z.string().trim().min(2).max(24).regex(/^[A-Za-z0-9._-]+$/).nullable(),
   showIdentityDefault: z.boolean(),

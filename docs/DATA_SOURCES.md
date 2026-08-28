@@ -24,6 +24,7 @@ Implementation notes checked against live responses on 2026-08-25:
 
 - The current CWA wave download is a large ZIP of PascalCase XML files. The parser also accepts the older lowercase schema fixture. The archive is streamed and bounded; hourly files not on a three-hour lead are skipped without decompression to control Worker CPU and D1 writes.
 - CWA `Sent` is preserved as `issued_at`; `model_run_at` is derived from `valid_at - lead_hours`. Tide interpolation provenance stays in `raw_payload` and does not change the wave run identity.
+- Production CWA retrieval requires both the secret `CWA_API_KEY` and the explicit runtime guard `CWA_QUERY_STRING_REDACTION_VERIFIED=true`. The guard must remain false until the deployed Worker script setting `observability.redact_query_string` has been read back as true; ECMWF WAM ingestion continues independently while CWA is guarded.
 - Open-Meteo exposes grid coordinates and hourly values but not an ECMWF model-run timestamp. `issued_at` therefore records the first retrieval by this service, `model_run_at` is null, and a normalized response hash makes an identical retry idempotent. Missing component arrays remain null rather than inferred.
 
 Launch coordinates and provenance:

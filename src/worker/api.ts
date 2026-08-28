@@ -9,6 +9,7 @@ import {
   uploadRequestSchema,
   type ForecastResponse,
   type ObservationResponse,
+  type PlaybackResponse,
   type PublicMatchesResponse,
 } from "../../packages/api-contract/src";
 import {
@@ -38,6 +39,57 @@ import {
 import { cleanupExpiredPendingVideos } from "./video-lifecycle";
 
 type Variables = { user: UserRow; authMode: "development" | "line" };
+
+const RATE_LIMIT_RETRY_SECONDS = 60;
+
+function rateLimitResponse(error: "RATE_LIMITED" | "RATE_LIMIT_UNAVAILABLE", message: string, status: 429 | 503) {
+  return new Response(JSON.stringify({ error, message }), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=UTF-8",
+      "cache-control": "no-store",
+      ...(status === 429 ? { "retry-after": String(RATE_LIMIT_RETRY_SECONDS) } : {}),
+    },
+  });
+}
+
+async function enforceRateLimit(
+  env: AppEnv,
+  limiter: RateLimit | undefined,
+  key: string,
+): Promise<Response | null> {
+  if (!limiter) {
+    if (env.APP_ENV === "development") return null;
+    console.error("Required rate-limit binding is missing");
+    return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
+  }
+  try {
+    const result = await limiter.limit({ key });
+    return result.success
+      ? null
+      : rateLimitResponse("RATE_LIMITED", "操作太頻繁，請稍後再試", 429);
+  } catch (error) {
+    console.error("Rate-limit check failed", error);
+    return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
+  }
+}
+
+async function playbackClientKey(request: Request, env: AppEnv): Promise<string | null> {
+  const clientAddress = request.headers.get("cf-connecting-ip");
+  if (!clientAddress || !env.SESSION_SECRET) {
+    return env.APP_ENV === "development" ? "development-client" : null;
+  }
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(env.SESSION_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(clientAddress));
+  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 interface ObservationRow {
   id: string;
@@ -112,6 +164,12 @@ interface ForecastRow {
 
 interface HistoricalForecastRow extends ForecastRow {
   historical_video_id: string;
+}
+
+interface PublicVideoRow {
+  id: string;
+  provider_video_id: string;
+  video_provider: string;
 }
 
 interface ReportRow {
@@ -293,6 +351,15 @@ async function cleanupOwnerExpiredVideos(env: AppEnv, userId: string) {
   }
 }
 
+async function findPublicVideo(env: AppEnv, videoId: string): Promise<PublicVideoRow | null> {
+  return env.DB.prepare(
+    `SELECT id, provider_video_id, video_provider FROM videos
+     WHERE id = ? AND metadata_status = 'complete' AND status = 'ready'
+       AND public_at IS NOT NULL AND terms_version IS NOT NULL
+       AND moderation_status = 'visible'`,
+  ).bind(videoId).first<PublicVideoRow>();
+}
+
 async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
   const pending = await env.DB.prepare(
     `SELECT id, provider_video_id, metadata_status, public_at, terms_version, moderation_status FROM videos
@@ -382,16 +449,7 @@ api.post("/videos/:id/reports", zValidator("json", reportVideoSchema), async (co
 
 api.get("/videos/:id/thumbnail", async (context) => {
   await ensureDevelopmentDatabase(context.env);
-  const video = await context.env.DB.prepare(
-    `SELECT id, provider_video_id, video_provider FROM videos
-     WHERE id = ? AND metadata_status = 'complete' AND status = 'ready'
-       AND public_at IS NOT NULL AND terms_version IS NOT NULL
-       AND moderation_status = 'visible'`,
-  ).bind(context.req.param("id")).first<{
-    id: string;
-    provider_video_id: string;
-    video_provider: string;
-  }>();
+  const video = await findPublicVideo(context.env, context.req.param("id"));
   if (!video) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到公開影片" }, 404);
 
   try {
@@ -417,6 +475,32 @@ api.get("/videos/:id/thumbnail", async (context) => {
   } catch (error) {
     console.warn("Public video thumbnail lookup failed", video.id, error);
     return context.json({ error: "THUMBNAIL_UNAVAILABLE", message: "影片縮圖暫時無法使用" }, 503);
+  }
+});
+
+api.post("/videos/:id/playback", async (context) => {
+  await ensureDevelopmentDatabase(context.env);
+  const video = await findPublicVideo(context.env, context.req.param("id"));
+  if (!video) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到公開影片" }, 404);
+
+  const clientKey = await playbackClientKey(context.req.raw, context.env);
+  if (!clientKey) {
+    console.error("Playback rate-limit client key is unavailable");
+    return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
+  }
+  const limited = await enforceRateLimit(context.env, context.env.PLAYBACK_RATE_LIMITER, clientKey);
+  if (limited) return limited;
+
+  try {
+    const provider = createVideoProvider(context.env);
+    if (provider.provider !== video.video_provider) {
+      return context.json({ error: "VIDEO_PROVIDER_MISMATCH", message: "影片播放暫時無法使用" }, 503);
+    }
+    const playback: PlaybackResponse = await provider.createPlayback(video.provider_video_id);
+    return context.json(playback, 200, { "cache-control": "no-store" });
+  } catch (error) {
+    console.warn("Public video playback creation failed", video.id, error);
+    return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
   }
 });
 
@@ -580,6 +664,9 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
   if (capturedAt) assertWithinUploadWindow(capturedAt);
   const spot = await findActiveSpot(context.env, input.spotId);
   if (input.spotId && !spot) return context.json({ error: "SPOT_NOT_FOUND", message: "找不到浪點" }, 404);
+
+  const limited = await enforceRateLimit(context.env, context.env.UPLOAD_RATE_LIMITER, user.id);
+  if (limited) return limited;
 
   const provider = createVideoProvider(context.env);
   const ticket = await provider.createDirectUpload({ internalUserId: user.id, maxDurationSeconds: 60 });

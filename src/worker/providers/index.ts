@@ -8,6 +8,7 @@ export interface ProviderEnv {
   CONDITIONS_PROVIDER?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_STREAM_API_TOKEN?: string;
+  PUBLIC_SITE_ORIGIN?: string;
 }
 
 function isDevelopment(env: ProviderEnv): boolean {
@@ -26,6 +27,7 @@ export function createVideoProvider(env: ProviderEnv): VideoProvider {
     return new CloudflareStreamVideoProvider({
       accountId: env.CLOUDFLARE_ACCOUNT_ID,
       apiToken: env.CLOUDFLARE_STREAM_API_TOKEN,
+      publicSiteOrigin: env.PUBLIC_SITE_ORIGIN,
     });
   }
   throw new Error("VIDEO_PROVIDER must be explicitly configured");

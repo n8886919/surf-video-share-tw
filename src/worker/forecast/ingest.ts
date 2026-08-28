@@ -60,6 +60,16 @@ async function ingestCwa(
       message: "CWA_API_KEY is not configured",
     };
   }
+  if (env.CWA_QUERY_STRING_REDACTION_VERIFIED !== "true") {
+    return {
+      provider: "cwa/F-A0020-001+F-A0021-001",
+      status: "skipped",
+      attempted: 0,
+      inserted: 0,
+      duplicates: 0,
+      message: "CWA query-string redaction is not verified",
+    };
+  }
   const warnings: string[] = [];
   try {
     const snapshots = await fetchCwaForecasts(

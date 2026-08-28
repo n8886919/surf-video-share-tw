@@ -265,6 +265,45 @@ describe("scheduled forecast normalization", () => {
     ]);
   });
 
+  it("skips CWA when its key exists but query-string redaction is not verified", async () => {
+    const seen = new Set<string>();
+    const db = {
+      prepare: (sql: string) => {
+        if (sql.includes("FROM spots")) {
+          return { all: async () => ({ results: [spot] }) };
+        }
+        return { bind: (...values: unknown[]) => ({ values }) };
+      },
+      batch: async (statements: Array<{ values: unknown[] }>) => statements.map((statement) => {
+        const id = String(statement.values[0]);
+        const changes = seen.has(id) ? 0 : 1;
+        seen.add(id);
+        return { meta: { changes } };
+      }),
+    } as unknown as D1Database;
+    let fetchCalls = 0;
+    const fetchImpl = (async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify(openMeteoFixture), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const summary = await runForecastIngestion(
+      { DB: db, CWA_API_KEY: "configured-but-guarded" } as AppEnv,
+      new Date("2026-08-25T02:20:00.000Z"),
+      fetchImpl,
+    );
+
+    expect(summary.providers[1]).toMatchObject({
+      provider: "cwa/F-A0020-001+F-A0021-001",
+      status: "skipped",
+      message: "CWA query-string redaction is not verified",
+    });
+    expect(fetchCalls).toBe(1);
+  });
+
   it("streams CWA ZIP and tide responses through the provider boundary", async () => {
     const tidePayload = {
       records: {

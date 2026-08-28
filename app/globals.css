@@ -76,7 +76,10 @@ select:focus, input:focus { border-color: var(--sea); box-shadow: 0 0 0 3px rgba
 .observation-card { overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: white; box-shadow: 0 9px 29px rgba(10,57,65,.07); }
 .pending-card { border-color: #dfca9d; }
 .observation-visual { position: relative; height: 105px; overflow: hidden; background: linear-gradient(155deg, #0a5361, #07909a); }
+.observation-visual.playing { height: auto; aspect-ratio: 16/9; background: #03191e; }
+.observation-visual iframe { width: 100%; height: 100%; border: 0; display: block; }
 .observation-thumbnail { width: 100%; height: 100%; display: block; object-fit: cover; }
+.mock-player { height: 100%; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: white; text-align: center; }.mock-player strong { font-size: 13px; }.mock-player span { max-width: 280px; color: rgba(255,255,255,.76); font-size: 9px; line-height: 1.45; }
 .pending-card .observation-visual { background: linear-gradient(155deg, #4e6164, #879c96); }
 .wave-lines { position: absolute; inset: 0; opacity: .6; }
 .wave-lines span { position: absolute; width: 130%; height: 50px; left: -15%; border: 2px solid rgba(237,255,252,.52); border-color: rgba(237,255,252,.52) transparent transparent; border-radius: 50%; transform: rotate(-5deg); }
@@ -86,6 +89,7 @@ select:focus, input:focus { border-color: var(--sea); box-shadow: 0 0 0 3px rgba
 .observation-body { padding: 15px; }
 .observation-heading { display: flex; justify-content: space-between; align-items: start; gap: 9px; }
 .observation-heading h3 { margin: 0 0 4px; font-size: 17px; }.observation-heading p { margin: 0; color: var(--soft); font-size: 10px; }
+.playback-button { width: 100%; min-height: 44px; margin-top: 13px; border: 0; border-radius: 12px; color: white; background: var(--sea); font-size: 11px; font-weight: 850; }.playback-button:disabled { opacity: .58; cursor: wait; }
 .favorite-button { width: 38px; height: 38px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 12px; display: grid; place-items: center; background: white; color: #93a4a6; }
 .favorite-button .icon { width: 19px; }.favorite-button.selected { color: #d95f68; background: #fff0f1; border-color: #f0c8cc; }.favorite-button.selected .icon { fill: currentColor; }
 .condition-grid { margin-top: 14px; padding-top: 12px; border-top: 1px solid #edf2f0; display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; }

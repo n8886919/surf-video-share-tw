@@ -8,6 +8,8 @@ The public client selects only a spot and a time from now through +72 hours. The
 
 Public thumbnail URLs remain first-party API paths. That endpoint repeats the public lifecycle query, then delegates provider metadata lookup to the video-provider interface and redirects to the derived still image. Provider API credentials stay in the Worker.
 
+Playback is also provider-neutral and user-initiated. Only the expanded candidate exposes a play button; pressing it calls a first-party endpoint that repeats the complete/ready/public/terms/visible query before asking the configured provider for playback data. Cloudflare Stream uploads require signed URLs and the configured site hostname as an allowed origin. The Worker creates a 15-minute iframe token and never returns Stream API credentials or an unsigned video UID. Candidate lists and selection alone still create no player, manifest, or segment request.
+
 ## Write path
 
 Upload creates a private record and direct Stream ticket. Completion verifies provider status. If spot and time are present and valid, the record can become public; otherwise it remains private until supplemented or expired. Condition enrichment runs best-effort and cannot roll back a successful media completion.

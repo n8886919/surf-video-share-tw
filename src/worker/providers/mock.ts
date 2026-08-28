@@ -6,6 +6,7 @@ import type {
   ConditionsQuery,
   MarineConditionsProvider,
   TideProvider,
+  PlaybackTicket,
   UploadTicket,
   VideoProvider,
   VideoStatus,
@@ -29,6 +30,10 @@ export class MockVideoProvider implements VideoProvider {
 
   async getThumbnailUrl(): Promise<string> {
     return "/og.png";
+  }
+
+  async createPlayback(): Promise<PlaybackTicket> {
+    return { type: "mock", iframeUrl: null, expiresAt: null };
   }
 
   async deleteVideo(): Promise<void> {}

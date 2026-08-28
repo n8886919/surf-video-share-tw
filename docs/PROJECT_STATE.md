@@ -14,7 +14,14 @@ Updated: 2026-08-28. This describes the current local worktree; production may b
 - 找浪 presents a 0–100 similarity index separately from data coverage instead of probability-like match copy.
 - Each match group now returns its fixed target forecast and every candidate video's same-source historical forecast. 找浪 keeps the target card fixed while horizontally scrolling aligned candidate forecast cards.
 - Public candidate cards use lazy Stream still thumbnails through a first-party lifecycle-checking endpoint. The comparison creates no player and requests no HLS/DASH manifest or video segment; only the selected candidate expands.
-- Stream thumbnail lookup stays behind the video-provider interface. Incomplete, non-ready, unversioned, private, delisted, provider-mismatched, and signed-only-without-token cases fail closed.
+- The selected candidate now has an explicit play action. It repeats the complete/ready/public/terms/visible D1 boundary and only then creates provider playback data; selection alone still causes no video delivery.
+- New Stream uploads require signed URLs and restrict delivery to the validated `PUBLIC_SITE_ORIGIN` hostname. Protected thumbnails use five-minute tokens and playback uses a `no-store` 15-minute iframe token. Unsigned legacy videos fail closed.
+- Stream thumbnail and playback lookup stay behind the video-provider interface. Incomplete, non-ready, unversioned, private, delisted, provider-mismatched, and provider-error cases fail closed without exposing Stream credentials or unsigned UIDs.
+- Cost-bearing upload-ticket creation is limited to three requests per user per minute. Playback-token creation is limited to 20 requests per HMAC-pseudonymized client per minute. Rejected bursts return `429` before Stream or D1 video-write cost; missing production bindings fail closed.
+- Wrangler configuration contains separate Rate Limiting API namespaces for upload and playback, and the rebuilt deployment artifact exposes both bindings.
+- `pnpm production:preflight` now provides a repeatable read-only remote audit. It lists secret names, active version binding names/types, pending migration filenames, and query-string redaction status while omitting all secret and plaintext binding values.
+- The preflight explicitly prefers a nonblank process token and otherwise parses `.env.cloudflare-readonly`; an inherited blank environment variable can no longer suppress the ignored file.
+- CWA ingestion now requires both `CWA_API_KEY` and `CWA_QUERY_STRING_REDACTION_VERIFIED=true`. The reviewed first-user configuration sets the guard to `false`, so a deployment cannot issue credential-bearing CWA queries until redaction has been read back as enabled. ECMWF WAM remains independent.
 - Migrations `0000` through `0004` exist. This checkpoint adds no schema migration.
 
 ## Verification
@@ -22,36 +29,44 @@ Updated: 2026-08-28. This describes the current local worktree; production may b
 | Check | Result | Last run |
 |---|---|---|
 | `pnpm typecheck` | pass | 2026-08-28 |
-| `pnpm test` | pass, 52 tests | 2026-08-28 |
+| `pnpm test` | pass, 68 tests | 2026-08-28 |
 | `pnpm lint` | pass | 2026-08-28 |
 | `pnpm build` | pass | 2026-08-28 |
 | rendered-site test | pass, 1 test | 2026-08-28 |
+| `pnpm deploy:dry-run` | pass; generated files only, no deployment | 2026-08-28 |
+| `wrangler deploy --dry-run` | pass; D1 plus both rate-limit bindings present | 2026-08-28 |
 | migration chain | not rerun; prior `0000`→`0004` SQLite integrity/foreign-key check passed | 2026-08-25 |
 
 ## Production status
 
 - Do not deploy, migrate production D1, modify secrets, or delete production data without explicit authorization.
-- Production D1 has not received the pending local migrations; scheduled ingestion and lifecycle cleanup are not deployed.
-- Real Stream upload, processing, thumbnail redirect, playback signing/origin control, deletion, and webhook behavior still need staging or production-like end-to-end verification.
-- Rate limits, playback cost guards, cost alarms, and staged moderation verification remain launch gates.
+- The deployed Worker is reachable: `/health`, `/spots`, and a current `/matches` query returned `200` on 2026-08-28. Both launch spots are present, and the match response contained an ECMWF WAM snapshot issued by the deployed six-hour Cron that day.
+- An unauthenticated production `/me` returned `401 UNAUTHENTICATED`, not `AUTH_NOT_CONFIGURED`; the currently deployed Worker therefore accepts its LINE/session configuration. The actual LINE redirect/callback has not been exercised in this checkpoint because it writes an OAuth attempt and requires the user.
+- The read-only production preflight succeeded. `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, and `CWA_API_KEY` are present; `CLOUDFLARE_STREAM_API_TOKEN` is missing. No secret or plaintext binding value was printed.
+- Production D1 has no pending migration. The current deployment from `2026-08-28T09:29:32.355038Z` sends 100% traffic to version `d1ed66b1-f421-43c3-9028-0cd221b5a84f`.
+- The deployed script setting `observability.redact_query_string` is not enabled while `CWA_API_KEY` is present. Treat the current CWA key as potentially retained in observability and rotate it before any future CWA enablement.
+- The deployed version is behind this local checkpoint. `CWA_QUERY_STRING_REDACTION_VERIFIED`, `UPLOAD_RATE_LIMITER`, and `PLAYBACK_RATE_LIMITER` are the only local bindings not present on the active version. Signed Stream upload/thumbnail/playback code is also not deployed.
+- Real Stream upload, processing, thumbnail redirect, playback/origin control, deletion, and webhook behavior still need first-user or staging end-to-end verification.
+- Cost alarms and staged reporting/delisting verification remain launch gates.
 - CWA query-string redaction must be verified before production ingestion is enabled.
 
 ## Next task
 
-Objective: add user-initiated protected playback for the one candidate selected in the forecast comparison.
+Objective: with explicit owner authorization, remediate the two production gates and deploy the reviewed first-user build with CWA safely disabled.
 
 Scope:
 
-- Add an on-demand public playback endpoint that repeats the complete/ready/public/terms/visible D1 boundary before asking the provider for playback data.
-- For Cloudflare Stream, use the official low-volume signed-token flow appropriate to fewer than 100 initial users, set new direct uploads to require signed URLs, and restrict allowed origins from verified runtime configuration. Do not invent the customer delivery host; derive it from verified provider metadata or require explicit configuration.
-- Request playback only after the user selects a candidate and presses play. Do not preload players, manifests, or segments for the candidate strip.
-- Keep a deterministic mock playback path and add tests proving private, pending, failed, unversioned, and delisted rows never trigger token generation.
-- Update shared DTOs plus API, architecture, security, operations, and cost-guard documentation.
+- Obtain or roll a least-privilege Stream API token that supports direct upload creation, video details, signed-token creation, and lifecycle deletion. Set its value as the Worker secret `CLOUDFLARE_STREAM_API_TOKEN`; never paste it into chat or commit it.
+- Keep `CWA_QUERY_STRING_REDACTION_VERIFIED=false` for this deployment. Separately patch and read back `observability.redact_query_string=true`, rotate `CWA_API_KEY`, and leave CWA guarded until a later reviewed enablement.
+- Apply no D1 migration; the remote list is empty.
+- Commit the reviewed local change set. Push/deploy only after explicit approval because GitHub `main` is connected to Workers Builds and the deploy command publishes production.
+- After deployment, rerun `pnpm production:preflight` and require the Stream secret plus both rate-limit bindings to be present. Recheck redaction, health, spots, matches, and unauthenticated `/me` before the owner begins LINE Login.
+- The owner then completes the real LINE redirect/callback and supplies one 5–60 second, at-most-200 MB test video captured within 168 hours for upload, processing, thumbnail, selected playback, reporting, and cleanup follow-up.
 
 Done when:
 
-- Only an explicit play action for a selected public candidate creates playback data or video delivery.
-- A public ready observation plays without exposing Stream credentials; private/incomplete/delisted rows cannot obtain a token or playable URL.
-- Mock and Cloudflare adapters compile against the same playback contract, and typecheck, full tests, lint, build, and rendered-site test pass.
+- `CLOUDFLARE_STREAM_API_TOKEN` is present, the reviewed build is active, no unintended migration occurred, and CWA remains guarded.
+- Post-deploy preflight and public smoke checks pass without exposing credentials.
+- Real LINE Login reaches the signed-in UI and one real Stream video completes the user-visible upload-to-protected-playback path.
 
 Out of scope: production secret changes, production migration/deploy, destructive production tests, condition-schema removal, and unrelated UI refactors.

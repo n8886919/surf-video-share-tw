@@ -19,7 +19,8 @@
     "LINE_CALLBACK_URL": "https://surf-video-share-tw.nolanasd123.workers.dev/api/v1/auth/line/callback",
     "PUBLIC_SITE_ORIGIN": "https://surf-video-share-tw.nolanasd123.workers.dev",
     "VIDEO_PROVIDER": "cloudflare-stream",
-    "CLOUDFLARE_ACCOUNT_ID": "722749fe02e89bd904fe46fcdd05d106"
+    "CLOUDFLARE_ACCOUNT_ID": "722749fe02e89bd904fe46fcdd05d106",
+    "CWA_QUERY_STRING_REDACTION_VERIFIED": "false"
   },
   "d1_databases": [
     {
@@ -27,6 +28,24 @@
       "database_name": "surf-video-share-tw-prod",
       "database_id": "64d2d226-36cb-405e-8ed0-9b07f274a14a",
       "migrations_dir": "drizzle"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "UPLOAD_RATE_LIMITER",
+      "namespace_id": "2026082801",
+      "simple": {
+        "limit": 3,
+        "period": 60
+      }
+    },
+    {
+      "name": "PLAYBACK_RATE_LIMITER",
+      "namespace_id": "2026082802",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
     }
   ]
 }

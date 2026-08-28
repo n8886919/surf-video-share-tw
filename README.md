@@ -54,7 +54,7 @@ pnpm db:migrate:local
 4. Production deploys to Cloudflare Worker `surf-video-share-tw` with D1 binding `DB`. `pnpm deploy` applies pending remote migrations before publishing, and is also the deploy command for Cloudflare Workers Builds on GitHub `main`.
 5. Configure secrets from `.env.example`, including `CWA_API_KEY`, in Cloudflare Worker settings; never commit `.env.local`.
 
-LINE Login remains fail-closed when production values are incomplete. Scheduled CWA wave/tide and Open-Meteo ECMWF WAM ingestion is implemented but not deployed; production Stream playback/access control is still unverified. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
+LINE Login remains fail-closed when production values are incomplete. Signed, origin-restricted Stream upload/thumbnail/playback support is implemented locally but still needs a real end-to-end check. Scheduled ECMWF WAM ingestion is deployed; CWA ingestion is guarded until production query-string redaction is verified. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
 
 ## Documentation
 

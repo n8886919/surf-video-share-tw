@@ -16,20 +16,29 @@ LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secr
 
 The Worker name in Cloudflare must remain `surf-video-share-tw` because Workers Builds requires it to match `wrangler.jsonc`.
 
+### Read-only production preflight
+
+Before requesting migration or deploy approval, create the git-ignored `.env.cloudflare-readonly` locally with one line, `CLOUDFLARE_API_TOKEN=<scoped token>`. Do not paste the token into chat, commit it, or reuse the Stream runtime token. At this stage the token needs only account-scoped Workers Scripts Read and D1 Read permissions.
+
+Run `pnpm production:preflight`. The script performs only reads: secret-name listing, latest deployment/version binding inspection, pending D1 migration listing, and the official script-settings query for `observability.redact_query_string`. Its output intentionally excludes secret values and plaintext binding values. Remove the local token file after the reviewed deployment work is complete.
+
 The Stream token must include `Stream Write`; the scheduled lifecycle job uses the official [delete-video API](https://developers.cloudflare.com/api/resources/stream/methods/delete/) after the seven-day pending window.
 
 ## Candidate thumbnails
 
-- 找浪 comparison does not create a Stream player or request HLS/DASH manifests. Cloudflare documents that playback, preloading, and delivered video segments count toward [Stream delivery usage](https://developers.cloudflare.com/stream/pricing/), so players remain user-initiated work for the next checkpoint.
+- 找浪 comparison does not create a Stream player or request HLS/DASH manifests. Cloudflare documents that playback, preloading, and delivered video segments count toward [Stream delivery usage](https://developers.cloudflare.com/stream/pricing/), so only an explicit play action on the selected candidate creates playback data.
 - The public thumbnail endpoint uses the official [retrieve-video-details API](https://developers.cloudflare.com/api/resources/stream/methods/get/) and adds the documented `time=1s`, `height=270`, and `fit=crop` [thumbnail parameters](https://developers.cloudflare.com/stream/viewing-videos/displaying-thumbnails/). Redirects are browser-private cached for five minutes.
-- Videos marked `requireSignedURLs` return no thumbnail until the signed-token flow is implemented. Cloudflare requires the token to replace the video ID for protected thumbnails as well as playback; never fall back to an unsigned UID URL.
+- New uploads set `requireSignedURLs: true` and `allowedOrigins` to the hostname derived from validated HTTPS `PUBLIC_SITE_ORIGIN`. A missing or malformed origin fails before Stream creates an upload ticket.
+- Protected thumbnails receive a five-minute signed token and protected playback receives a 15-minute signed iframe token through Cloudflare's low-volume token endpoint. The token replaces the video ID; never fall back to an unsigned UID URL. Playback API responses are `no-store`.
+- The low-volume endpoint is appropriate for the first-user rollout, but every play and protected thumbnail miss makes control-plane requests. Watch token request volume and Stream delivery minutes; keep candidate images lazy, cache thumbnail redirects privately for five minutes, and do not preload iframe players.
 
 Add preview/staging later as a separate Cloudflare environment with separate D1/Stream credentials, not shared production data.
 
 ## Forecast ingestion
 
-- Open-Meteo ECMWF WAM needs no secret. CWA is skipped, without blocking ECMWF, when `CWA_API_KEY` is absent.
+- Open-Meteo ECMWF WAM needs no secret. CWA is skipped, without blocking ECMWF, when `CWA_API_KEY` is absent or `CWA_QUERY_STRING_REDACTION_VERIFIED` is not exactly `true`. The reviewed production configuration keeps that guard `false` for the first-user deployment.
 - Before enabling CWA in production, set and verify `observability.redact_query_string: true` through Cloudflare's [Patch Script Settings API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/edit/). CWA requires its authorization value in provider query strings, so production observability must not retain query parameters. The Wrangler schema does not currently accept this script-level setting in `wrangler.jsonc`; adding it there only warns and is ignored. Re-verify it after every deployment until Wrangler supports the field.
+- Never set the application guard to `true` based only on an intended dashboard/API change. Read the deployed script setting back as `true` with `pnpm production:preflight` first. If redaction was ever disabled while a CWA key was active, treat that key as potentially retained in observability and rotate it before re-enabling ingestion.
 - Each run logs one structured `forecast_ingestion` summary. A partial provider failure is a warning; the scheduled invocation fails only when every configured provider fails.
 - CWA ZIP input is streamed with compressed/XML/file-count limits. Only leads `0, 3, …, 72` are decompressed. Do not change this to extract the full archive without measuring Worker CPU and memory first.
 - D1 writes use chunks of 50 and `INSERT OR IGNORE`. Re-running the same upstream content should report duplicates, not create another copy.
@@ -53,6 +62,13 @@ Export D1 before destructive migrations and periodically once user data exists. 
 ## Cost monitoring
 
 Watch Stream stored minutes, delivered minutes, abandoned upload reservations, Workers requests/CPU, D1 reads/writes/storage, and any external API plan. Do not hard-code prices; check current provider dashboards and terms. Set budget alerts below NT$1,000/month.
+
+## Cost-bearing route limits
+
+- `UPLOAD_RATE_LIMITER` permits three upload-ticket creations per internal user ID per 60 seconds. It runs after input/spot validation and before Stream ticket creation or the D1 video insert.
+- `PLAYBACK_RATE_LIMITER` permits 20 playback-token creations per privacy-preserving client key per 60 seconds. The key is an HMAC of Cloudflare's client address using `SESSION_SECRET`; raw addresses are not logged, stored in D1, or passed as limiter keys.
+- Both bindings use separate account-unique namespaces in `wrangler.jsonc`. A rejected request returns `429`, `Retry-After: 60`, and creates no Stream control-plane request. A missing or failed binding returns `503` in production; explicit development mode may run without a binding for deterministic unit/local work.
+- Cloudflare documents the [Workers Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) counters as per-location, permissive, and eventually consistent. They are a burst guard, not billing-grade accounting or a substitute for Stream/Workers budget alerts. Monitor Worker `429` logs and provider usage, and disable uploads if usage is abnormal.
 
 ## Emergency controls
 

@@ -17,12 +17,16 @@ export interface AppEnv {
   CONDITIONS_PROVIDER?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_STREAM_API_TOKEN?: string;
+  PUBLIC_SITE_ORIGIN?: string;
+  UPLOAD_RATE_LIMITER?: RateLimit;
+  PLAYBACK_RATE_LIMITER?: RateLimit;
   LINE_CHANNEL_ID?: string;
   LINE_CHANNEL_SECRET?: string;
   LINE_CALLBACK_URL?: string;
   SESSION_SECRET?: string;
   ADMIN_USER_ID?: string;
   CWA_API_KEY?: string;
+  CWA_QUERY_STRING_REDACTION_VERIFIED?: string;
 }
 
 export interface UserRow {

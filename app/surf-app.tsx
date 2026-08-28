@@ -5,6 +5,7 @@ import type {
   ForecastResponse as Forecast,
   MatchGroupResponse as MatchGroup,
   ObservationResponse as Observation,
+  PlaybackResponse,
   PublicMatchesResponse,
 } from "../packages/api-contract/src";
 import { PROJECT_PURPOSE } from "../packages/domain/src/project-purpose";
@@ -136,8 +137,9 @@ const REPORT_REASONS = [
   ["irrelevant", "與浪況無關"],
 ] as const;
 
-function ObservationCard({ observation, ownerActions }: {
+function ObservationCard({ observation, ownerActions, enablePlayback = false }: {
   observation: Observation;
+  enablePlayback?: boolean;
   ownerActions?: {
     spots: Spot[];
     onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
@@ -151,6 +153,8 @@ function ObservationCard({ observation, ownerActions }: {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
+  const [playbackLoading, setPlaybackLoading] = useState(false);
   const c = observation.conditions;
   const pending = observation.metadataStatus === "pending";
   const remainingDays = observation.metadataExpiresAt
@@ -180,24 +184,51 @@ function ObservationCard({ observation, ownerActions }: {
     }
   }
 
+  async function startPlayback() {
+    setError(null);
+    setPlaybackLoading(true);
+    try {
+      const result = await api<PlaybackResponse>(`/videos/${observation.id}/playback`, {
+        method: "POST",
+      });
+      setPlayback(result);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "影片播放失敗");
+    } finally {
+      setPlaybackLoading(false);
+    }
+  }
+
   return (
     <article className={`observation-card ${pending ? "pending-card" : ""}`}>
-      <div className="observation-visual">
-        {observation.video.thumbnailUrl && !thumbnailFailed
+      <div className={`observation-visual ${playback ? "playing" : ""}`}>
+        {playback?.type === "iframe"
+          ? <iframe
+              src={playback.iframeUrl}
+              title={`${observation.spot?.name || "浪點"}實拍影片`}
+              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          : playback?.type === "mock"
+            ? <div className="mock-player"><Icon name="wave"/><strong>Mock 播放已啟動</strong><span>正式環境會在此載入受保護的 Stream 播放器。</span></div>
+            : observation.video.thumbnailUrl && !thumbnailFailed
           ? <>
               {/* Runtime provider thumbnails use a first-party lifecycle-checking endpoint. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img className="observation-thumbnail" src={observation.video.thumbnailUrl} alt={`${observation.spot?.name || "浪點"}實拍縮圖`} loading="lazy" decoding="async" onError={() => setThumbnailFailed(true)} />
             </>
           : <div className="wave-lines"><span/><span/><span/></div>}
-        <span className="status-pill">{observation.moderationStatus === "delisted" ? "已下架" : pending ? `待補 · ${remainingDays ?? 7} 天` : !observation.termsVersion ? "舊版不公開" : observation.status === "ready" ? "公開" : "處理中"}</span>
-        <span className="duration-pill">{observation.durationSeconds ? `${Math.round(observation.durationSeconds)} 秒` : "—"}</span>
+        {!playback && <><span className="status-pill">{observation.moderationStatus === "delisted" ? "已下架" : pending ? `待補 · ${remainingDays ?? 7} 天` : !observation.termsVersion ? "舊版不公開" : observation.status === "ready" ? "公開" : "處理中"}</span>
+        <span className="duration-pill">{observation.durationSeconds ? `${Math.round(observation.durationSeconds)} 秒` : "—"}</span></>}
       </div>
       <div className="observation-body">
         <div className="observation-heading">
           <div><h3>{observation.spot?.name || "待補浪點"}</h3><p>{formatTime(observation.capturedAt)} · {observation.uploaderDisplayId || "匿名上傳"}</p></div>
           {ownerActions && <button className={`favorite-button ${observation.isFavorite ? "selected" : ""}`} aria-label="收藏" onClick={() => void patch({ isFavorite: !observation.isFavorite })}><Icon name="heart"/></button>}
         </div>
+
+        {enablePlayback && !playback && <button className="playback-button" type="button" disabled={playbackLoading} onClick={() => void startPlayback()}>{playbackLoading ? "建立安全播放連結…" : "▶ 播放這段實拍"}</button>}
 
         {pending && ownerActions && (
           <div className="metadata-editor">
@@ -312,9 +343,10 @@ function MatchComparisonGroup({ group }: { group: MatchGroup }) {
             );
           })}
         </div>
+
       </div>
       <p className="comparison-help">目前預報固定在左側；左右滑動縮圖與歷史預報，選定後才展開單一實拍。</p>
-      {selected && <div className="selected-observation"><div className="section-heading"><h4>已選實拍</h4><small>{formatTime(selected.observation.capturedAt)}</small></div><ObservationCard observation={selected.observation}/></div>}
+      {selected && <div className="selected-observation"><div className="section-heading"><h4>已選實拍</h4><small>{formatTime(selected.observation.capturedAt)}</small></div><ObservationCard key={selected.observation.id} observation={selected.observation} enablePlayback/></div>}
     </section>
   );
 }

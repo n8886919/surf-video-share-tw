@@ -8,6 +8,7 @@ Base path: `/api/v1`.
 | Public | GET | `/spots` | Active launch spots |
 | Public | GET | `/matches?spotId=&targetTime=` | Public forecast context and same-spot videos |
 | Public | GET | `/videos/:id/thumbnail` | Revalidate public lifecycle and redirect to a provider thumbnail |
+| Public | POST | `/videos/:id/playback` | Revalidate public lifecycle and create short-lived provider playback data |
 | Public | POST | `/videos/:id/reports` | Record a report against a currently public video |
 | Public | GET | `/auth/line` | Start LINE Login |
 | Public | GET | `/auth/line/callback` | Complete LINE Login |
@@ -23,4 +24,8 @@ Base path: `/api/v1`.
 
 `/videos/:id/thumbnail` repeats the complete/ready/public/terms/visible D1 check on every uncached request, then asks the configured video provider for a still-image URL. Missing, private, delisted, provider-mismatched, and signed-only-without-token cases do not redirect.
 
-DTOs never include LINE subjects or internal owner IDs. Shared observation, forecast, match-group, and public-match response types live in `packages/api-contract/src/index.ts` and are used by both the Worker serializers and React find flow.
+`POST /videos/:id/playback` repeats the same lifecycle check and is called only after an explicit play action on the selected candidate. Cloudflare Stream responses contain a 15-minute signed iframe URL and ISO expiry; the mock provider returns a deterministic non-video response. Responses are `no-store`. Missing, incomplete, non-ready, unversioned, private, delisted, provider-mismatched, unsigned legacy, and provider-error cases never expose an unsigned Stream UID or API credential.
+
+Upload-ticket and playback-token creation are cost-bearing and rate limited before their provider calls. A rejected burst returns `429` with `Retry-After: 60`; unavailable required limiter configuration returns `503` in production. Public read routes such as health, spots, matches, and thumbnail redirects are not blocked by these route-specific counters.
+
+DTOs never include LINE subjects or internal owner IDs. Shared observation, forecast, match-group, public-match, and playback response types live in `packages/api-contract/src/index.ts` and are used by both the Worker serializers and React find flow.

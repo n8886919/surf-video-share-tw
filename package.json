@@ -20,6 +20,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy": "pnpm db:migrate:remote && vinext deploy",
     "deploy:dry-run": "vinext deploy --dry-run",
+    "production:preflight": "node ops/preflight-production.mjs",
     "verify": "pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
