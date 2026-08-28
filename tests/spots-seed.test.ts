@@ -16,7 +16,7 @@ const columns = [
 function readSpots() {
   const rows = readFileSync(new URL("../data/spots.csv", import.meta.url), "utf8")
     .trim()
-    .split("\n")
+    .split(/\r?\n/)
     .slice(1);
 
   return rows.map((row) =>

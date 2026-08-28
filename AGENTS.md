@@ -68,3 +68,11 @@ Production deployment uses the reviewed Wrangler configuration. Cloudflare Strea
 | Secrets/deployment/cost | `docs/OPERATIONS.md`, `.env.example` |
 
 Before a task, read this file, `docs/PROJECT_PRINCIPLES.md`, `docs/PROJECT_STATE.md`, and only the relevant deeper document. Never guess external API behavior; verify current official documentation.
+
+## Session checkpoints
+
+- After a coherent change set, run proportional verification and update `docs/PROJECT_STATE.md` with the completed checkpoint and one exact next task.
+- Recommend opening a new session when the next task changes domain or the current session has accumulated broad context.
+- Do not recommend a new session while tests fail, required documentation is stale, or work is half-complete.
+- A new session follows `PROJECT_STATE.md`'s `Next task` unless the user overrides it.
+- Keep handoff facts in `PROJECT_STATE.md`; use Git status, log, and diff as the authority for current files and uncommitted work.

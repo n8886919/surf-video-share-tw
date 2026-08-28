@@ -7,6 +7,9 @@ import {
   updateMeSchema,
   updateVideoSchema,
   uploadRequestSchema,
+  type ForecastResponse,
+  type ObservationResponse,
+  type PublicMatchesResponse,
 } from "../../packages/api-contract/src";
 import {
   assertWithinForecastWindow,
@@ -32,6 +35,7 @@ import {
   isLineAuthConfigured,
   logout,
 } from "./auth";
+import { cleanupExpiredPendingVideos } from "./video-lifecycle";
 
 type Variables = { user: UserRow; authMode: "development" | "line" };
 
@@ -142,11 +146,16 @@ const observationSelect = `
   JOIN users u ON u.id = v.user_id
   LEFT JOIN condition_snapshots c ON c.id = v.condition_snapshot_id`;
 
-function serializeObservation(row: ObservationRow, ownerView = false) {
+function serializeObservation(row: ObservationRow, ownerView = false): ObservationResponse {
+  const hasPublicThumbnail = row.status === "ready"
+    && row.metadata_status === "complete"
+    && row.public_at !== null
+    && row.terms_version !== null
+    && row.moderation_status === "visible";
   return {
     id: row.id,
     status: row.status,
-    metadataStatus: row.metadata_status,
+    metadataStatus: row.metadata_status === "complete" ? "complete" : "pending",
     metadataExpiresAt: ownerView ? row.metadata_expires_at : null,
     publicAt: row.public_at,
     capturedAt: row.captured_at,
@@ -159,11 +168,18 @@ function serializeObservation(row: ObservationRow, ownerView = false) {
       : null,
     license: row.terms_version ? PUBLIC_MEDIA_LICENSE : null,
     termsVersion: row.terms_version,
-    moderationStatus: ownerView ? row.moderation_status : undefined,
+    moderationStatus: ownerView
+      ? row.moderation_status === "delisted" ? "delisted" : "visible"
+      : undefined,
     delistedAt: ownerView ? row.delisted_at : null,
     isFavorite: ownerView ? Boolean(row.is_favorite) : false,
     showUploader: ownerView ? Boolean(row.show_uploader) : undefined,
-    video: { provider: row.video_provider },
+    video: {
+      provider: row.video_provider,
+      thumbnailUrl: hasPublicThumbnail
+        ? `/api/v1/videos/${encodeURIComponent(row.id)}/thumbnail`
+        : null,
+    },
     spot: row.spot_id && row.spot_slug && row.spot_name_en
       ? {
           id: row.spot_id,
@@ -190,7 +206,7 @@ function serializeObservation(row: ObservationRow, ownerView = false) {
       windGust: row.wind_gust,
       tideHeight: row.tide_height,
       tideSlope: row.tide_slope,
-      tideState: row.tide_state,
+      tideState: toTideState(row.tide_state),
     },
   };
 }
@@ -199,7 +215,7 @@ function isAdmin(env: AppEnv, user: UserRow): boolean {
   return Boolean(env.ADMIN_USER_ID) && env.ADMIN_USER_ID === user.id;
 }
 
-function serializeForecast(row: ForecastRow) {
+function serializeForecast(row: ForecastRow): ForecastResponse {
   return {
     id: row.id,
     provider: row.provider,
@@ -267,28 +283,13 @@ async function findActiveSpot(env: AppEnv, spotId: string | null | undefined) {
 }
 
 async function cleanupOwnerExpiredVideos(env: AppEnv, userId: string) {
-  const expired = await env.DB.prepare(
-    `SELECT id, provider_video_id FROM videos
-     WHERE user_id = ? AND metadata_status = 'pending'
-       AND metadata_expires_at IS NOT NULL AND metadata_expires_at <= ? LIMIT 10`,
-  ).bind(userId, new Date().toISOString()).all<{ id: string; provider_video_id: string }>();
-  if (!expired.results.length) return;
-  let provider: ReturnType<typeof createVideoProvider>;
   try {
-    provider = createVideoProvider(env);
+    const summary = await cleanupExpiredPendingVideos(env, new Date(), { userId, limit: 10 });
+    if (summary.failed) {
+      console.warn("Expired pending video cleanup had failures", summary.failures);
+    }
   } catch (error) {
     console.warn("Expired pending video cleanup is unavailable", error);
-    return;
-  }
-  for (const video of expired.results) {
-    try {
-      await provider.deleteVideo(video.provider_video_id);
-      await env.DB.prepare(`DELETE FROM videos WHERE id = ? AND user_id = ?`)
-        .bind(video.id, userId)
-        .run();
-    } catch (error) {
-      console.warn("Expired pending video cleanup failed", video.id, error);
-    }
   }
 }
 
@@ -379,6 +380,46 @@ api.post("/videos/:id/reports", zValidator("json", reportVideoSchema), async (co
   return context.json({ reportId, status: "open" }, 201);
 });
 
+api.get("/videos/:id/thumbnail", async (context) => {
+  await ensureDevelopmentDatabase(context.env);
+  const video = await context.env.DB.prepare(
+    `SELECT id, provider_video_id, video_provider FROM videos
+     WHERE id = ? AND metadata_status = 'complete' AND status = 'ready'
+       AND public_at IS NOT NULL AND terms_version IS NOT NULL
+       AND moderation_status = 'visible'`,
+  ).bind(context.req.param("id")).first<{
+    id: string;
+    provider_video_id: string;
+    video_provider: string;
+  }>();
+  if (!video) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到公開影片" }, 404);
+
+  try {
+    const provider = createVideoProvider(context.env);
+    if (provider.provider !== video.video_provider) {
+      return context.json({ error: "VIDEO_PROVIDER_MISMATCH", message: "影片縮圖暫時無法使用" }, 503);
+    }
+    const thumbnailUrl = await provider.getThumbnailUrl(video.provider_video_id);
+    if (!thumbnailUrl) {
+      return context.json({ error: "THUMBNAIL_UNAVAILABLE", message: "影片縮圖尚未提供" }, 404);
+    }
+    const redirectTarget = new URL(thumbnailUrl, context.req.url);
+    if (redirectTarget.protocol !== "https:" && redirectTarget.protocol !== "http:") {
+      throw new Error("Video provider returned an invalid thumbnail URL");
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: redirectTarget.toString(),
+        "cache-control": "private, max-age=300",
+      },
+    });
+  } catch (error) {
+    console.warn("Public video thumbnail lookup failed", video.id, error);
+    return context.json({ error: "THUMBNAIL_UNAVAILABLE", message: "影片縮圖暫時無法使用" }, 503);
+  }
+});
+
 api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   await ensureDevelopmentDatabase(context.env);
   const input = context.req.valid("query");
@@ -452,16 +493,25 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     return {
       provider: targetForecast.provider,
       model: targetForecast.model,
+      targetForecast: serializeForecast(targetForecast),
       observations: rankSimilarConditions(forecastConditions(targetForecast), candidates)
-        .filter((match) => match.components.length > 0)
-        .map((match) => ({
-          score: match.score,
-          observation: serializeObservation(observationById.get(match.id)!),
-        })),
+        .map((match) => {
+          const historicalForecast = historicalByVideoAndSource.get(
+            `${match.id}:${targetForecast.provider}:${targetForecast.model}`,
+          )!;
+          return {
+            score: match.score,
+            availableWeight: match.availableWeight,
+            matchedWeight: match.matchedWeight,
+            coverage: match.coverage,
+            candidateForecast: serializeForecast(historicalForecast),
+            observation: serializeObservation(observationById.get(match.id)!),
+          };
+        }),
     };
   }).filter((group) => group.observations.length > 0);
 
-  return context.json({
+  const response: PublicMatchesResponse = {
     spot: { id: spot.id, slug: spot.slug, name: spot.name_zh || spot.name_en },
     targetTime: input.targetTime,
     forecasts: forecastResult.results.map(serializeForecast),
@@ -470,7 +520,8 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     ranking: matchesBySource.length
       ? "provider-separated-historical-forecast"
       : "same-spot-recent-until-forecast-history-is-available",
-  });
+  };
+  return context.json(response);
 });
 
 api.use("*", async (context, next) => {
@@ -637,8 +688,8 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
   const input = context.req.valid("json");
   const current = await context.env.DB.prepare(
     `SELECT id, spot_id, captured_at, status, show_uploader, is_favorite, uploader_note,
-            fun_reaction, terms_version, moderation_status,
-            metadata_expires_at, public_at, condition_snapshot_id, created_at
+            fun_reaction, terms_version, moderation_status, metadata_status,
+            metadata_expires_at, public_at, condition_snapshot_id, created_at, updated_at
      FROM videos WHERE id = ? AND user_id = ?`,
   ).bind(context.req.param("id"), user.id).first<{
     id: string;
@@ -651,12 +702,21 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
     fun_reaction: string | null;
     terms_version: string | null;
     moderation_status: string;
+    metadata_status: string;
     metadata_expires_at: string | null;
     public_at: string | null;
     condition_snapshot_id: string | null;
     created_at: string;
+    updated_at: string;
   }>();
   if (!current) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到影片" }, 404);
+
+  const now = new Date();
+  if (current.metadata_status !== "complete"
+    && current.metadata_expires_at
+    && current.metadata_expires_at <= now.toISOString()) {
+    return context.json({ error: "VIDEO_EXPIRED", message: "這支待補影片已超過七天期限" }, 410);
+  }
 
   const capturedAt = input.capturedAt === undefined ? current.captured_at : input.capturedAt;
   if (capturedAt) assertWithinUploadWindow(capturedAt, new Date(current.created_at));
@@ -664,17 +724,16 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
   const spot = await findActiveSpot(context.env, requestedSpotId);
   if (requestedSpotId && !spot) return context.json({ error: "SPOT_NOT_FOUND", message: "找不到浪點" }, 404);
   const complete = Boolean(spot && capturedAt);
-  const now = new Date();
   const publicAt = complete
     && current.status === "ready"
     && current.terms_version
     && current.moderation_status === "visible"
     ? current.public_at ?? now.toISOString()
     : null;
-  await context.env.DB.prepare(
+  const update = await context.env.DB.prepare(
     `UPDATE videos SET spot_id = ?, captured_at = ?, show_uploader = ?, is_favorite = ?,
      uploader_note = ?, fun_reaction = ?, metadata_status = ?, metadata_expires_at = ?, public_at = ?, updated_at = ?
-     WHERE id = ? AND user_id = ?`,
+     WHERE id = ? AND user_id = ? AND metadata_status = ? AND updated_at = ?`,
   ).bind(
     spot?.id ?? null,
     capturedAt,
@@ -688,7 +747,12 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
     now.toISOString(),
     current.id,
     user.id,
+    current.metadata_status,
+    current.updated_at,
   ).run();
+  if (update.meta.changes !== 1) {
+    return context.json({ error: "VIDEO_CHANGED", message: "影片狀態已更新，請重新載入" }, 409);
+  }
   if (complete && !current.condition_snapshot_id && capturedAt && spot?.latitude != null && spot.longitude != null) {
     const snapshotId = await attachConditionsBestEffort(context.env, {
       latitude: spot.latitude,

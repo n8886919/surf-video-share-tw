@@ -203,7 +203,7 @@ function parseSeedCsv(): Array<{
   sourceNotes: string | null;
   active: number;
 }> {
-  return spotCsv.trim().split("\n").slice(1).map((line) => {
+  return spotCsv.trim().split(/\r?\n/).slice(1).map((line) => {
     const [slug, nameEn, nameZh, region, latitude, longitude, coordinateSource, sourceNotes, active] = line.split(",");
     return {
       slug,

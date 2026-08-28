@@ -4,6 +4,7 @@ import handler from "vinext/server/app-router-entry";
 import { api } from "../src/worker/api";
 import type { AppEnv } from "../src/worker/db";
 import { runScheduledForecastIngestion } from "../src/worker/forecast/ingest";
+import { runScheduledExpiredVideoCleanup } from "../src/worker/video-lifecycle";
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -38,7 +39,15 @@ const worker = {
     return handler.fetch(request, env, ctx);
   },
   async scheduled(controller: ScheduledController, env: AppEnv): Promise<void> {
-    await runScheduledForecastIngestion(env, new Date(controller.scheduledTime));
+    const scheduledAt = new Date(controller.scheduledTime);
+    const results = await Promise.allSettled([
+      runScheduledForecastIngestion(env, scheduledAt),
+      runScheduledExpiredVideoCleanup(env, scheduledAt),
+    ]);
+    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length) {
+      throw new AggregateError(failures, "One or more scheduled tasks failed");
+    }
   },
 };
 

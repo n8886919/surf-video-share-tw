@@ -1,41 +1,57 @@
 # Project state
 
-Last source review: 2026-08-25. This file describes the current local worktree; production may be behind it.
+Updated: 2026-08-28. This describes the current local worktree; production may be behind it.
 
-## Current local verification
+## Completed checkpoint
 
-- Typecheck, 38 unit/integration tests, lint, production build, and rendered-site test pass for the current forecast-ingestion work. The earlier 0000→0004 migration-chain verification remains applicable because this batch adds no schema migration; `sqlite3` is unavailable in the current runtime, so it was not rerun.
-- React/Hono/D1 modular monolith, LINE auth/session source, mock development providers, and Cloudflare Stream direct-upload adapter exist.
-- The production health endpoint responds; only non-destructive smoke checks were performed.
-- Open-Meteo Marine currently returns total wave data for explicit `ecmwf_wam` near the launch spots, but its component swell/wind-wave arrays were null in the 2026-08-25 test. Best-match returns more components and must remain a separate model/source.
+- React/Hono/D1 modular monolith, LINE auth/session, direct Stream uploads, public reports, administrator delisting, and the three-tab mobile UI exist locally.
+- Public matching uses immutable, provider-separated CWA and ECMWF WAM forecast snapshots. Current and historical sides select the newest run available at the relevant time; models are never averaged.
+- Six-hour Cron ingestion isolates provider failures and preserves run/valid/grid provenance.
+- Expired pending videos now have a six-hour global cleanup with bounded batches, optimistic D1 claims, retry leases, structured results, and owner-list fallback cleanup.
+- Spot CSV seeding handles LF and CRLF checkouts while keeping only 烏石港 and 雙獅 active.
+- Deterministic matching now reports target-available weight, candidate-matched weight, and coverage; candidates below 50% coverage cannot enter a provider/model ranking.
+- Observation, forecast, match-group, and public-match response types are shared through `packages/api-contract`. Worker serializers, the public match route, and the React find flow compile against them.
+- 找浪 presents a 0–100 similarity index separately from data coverage instead of probability-like match copy.
+- Each match group now returns its fixed target forecast and every candidate video's same-source historical forecast. 找浪 keeps the target card fixed while horizontally scrolling aligned candidate forecast cards.
+- Public candidate cards use lazy Stream still thumbnails through a first-party lifecycle-checking endpoint. The comparison creates no player and requests no HLS/DASH manifest or video segment; only the selected candidate expands.
+- Stream thumbnail lookup stays behind the video-provider interface. Incomplete, non-ready, unversioned, private, delisted, provider-mismatched, and signed-only-without-token cases fail closed.
+- Migrations `0000` through `0004` exist. This checkpoint adds no schema migration.
 
-## Confirmed product changes
+## Verification
 
-- Core is future forecast-to-public-video matching; personal review is an upload incentive.
-- Upload window is 168 hours. Missing spot/time remains private for seven days, then expires.
-- Conditions failure never blocks upload. Users never type condition numbers.
-- Complete, terms-versioned, moderation-visible videos are public and upload includes a no-click inline CC0 notice.
-- Launch spots are 烏石港 and 雙獅.
-- Bottom navigation is 找浪／上傳／我的; own videos support spot filter, favorite, identity visibility, an optional fun reaction, and one optional 100-character public supplement. Subjective fields never enter matching.
-- Public queries accept only now through +72 hours. Current and historical sides choose the newest provider run available at the relevant moment; equal forecast lead time is not required.
-- CWA and ECMWF WAM are kept as independent provider/model features, never averaged.
-- The five-second purpose, contributor-first commons policy, CC0 intent, three-year hosting target, trust-first moderation, sustainability boundary, and exit principles are recorded in `docs/PROJECT_PRINCIPLES.md`.
-- Uploads remain capped at 60 seconds. Public reports are recorded without automatic hiding; a configured project administrator can delist in one action. There is no per-video pre-publication review.
+| Check | Result | Last run |
+|---|---|---|
+| `pnpm typecheck` | pass | 2026-08-28 |
+| `pnpm test` | pass, 52 tests | 2026-08-28 |
+| `pnpm lint` | pass | 2026-08-28 |
+| `pnpm build` | pass | 2026-08-28 |
+| rendered-site test | pass, 1 test | 2026-08-28 |
+| migration chain | not rerun; prior `0000`→`0004` SQLite integrity/foreign-key check passed | 2026-08-25 |
 
-## Still unknown or operationally gated
+## Production status
 
-- Cloudflare Stream production upload, processing, playback domain/signing, deletion, and webhook behavior need a real end-to-end test.
-- Production D1 has not received the new schema in this local branch.
-- Scheduled ingestion is not deployed. Production needs the pending D1 migrations, `CWA_API_KEY`, Cron deployment, and one production-like scheduled/D1 verification.
-- Rate limits, cost alarms, and production moderation operations remain launch gates. Reporting/delisting and versioned CC0 terms now exist locally but have not been exercised against production D1.
+- Do not deploy, migrate production D1, modify secrets, or delete production data without explicit authorization.
+- Production D1 has not received the pending local migrations; scheduled ingestion and lifecycle cleanup are not deployed.
+- Real Stream upload, processing, thumbnail redirect, playback signing/origin control, deletion, and webhook behavior still need staging or production-like end-to-end verification.
+- Rate limits, playback cost guards, cost alarms, and staged moderation verification remain launch gates.
+- CWA query-string redaction must be verified before production ingestion is enabled.
 
-## Implemented locally in this worktree
+## Next task
 
-- Revised specs, 168-hour validation, nullable pending metadata, owner note/favorite, public-ready query boundary, and two active launch spots.
-- Provider-separated forecast snapshot schema and deterministic per-source historical-forecast matching path. With no ingested snapshots, the UI explicitly labels results as unranked same-spot videos.
-- Public 找浪, signed-in 上傳／我的, fixed three-tab navigation, inline public notice, pending supplement UI, filters, profile settings, and the supplied logo.
-- Query-window enforcement, latest-available-run selection, uploader supplement/fun reaction boundaries, public report records, CC0 terms versioning, and administrator delisting.
-- Six-hour Cloudflare Cron ingestion for provider-separated CWA wave/tide and Open-Meteo ECMWF WAM snapshots. It includes current/legacy CWA XML fixtures, streamed ZIP limits, nearest-sea-grid selection, tide interpolation, nullable missing fields, chunked immutable writes, stable retry IDs, and structured provider-isolated results.
-- Migrations `0003_big_sprite.sql` and `0004_outgoing_ben_urich.sql` were generated. The full 0000→0004 SQL chain passed SQLite integrity and foreign-key checks, including a legacy-video migration check. Production was not migrated.
+Objective: add user-initiated protected playback for the one candidate selected in the forecast comparison.
 
-Do not deploy or migrate production without explicit authorization.
+Scope:
+
+- Add an on-demand public playback endpoint that repeats the complete/ready/public/terms/visible D1 boundary before asking the provider for playback data.
+- For Cloudflare Stream, use the official low-volume signed-token flow appropriate to fewer than 100 initial users, set new direct uploads to require signed URLs, and restrict allowed origins from verified runtime configuration. Do not invent the customer delivery host; derive it from verified provider metadata or require explicit configuration.
+- Request playback only after the user selects a candidate and presses play. Do not preload players, manifests, or segments for the candidate strip.
+- Keep a deterministic mock playback path and add tests proving private, pending, failed, unversioned, and delisted rows never trigger token generation.
+- Update shared DTOs plus API, architecture, security, operations, and cost-guard documentation.
+
+Done when:
+
+- Only an explicit play action for a selected public candidate creates playback data or video delivery.
+- A public ready observation plays without exposing Stream credentials; private/incomplete/delisted rows cannot obtain a token or playable URL.
+- Mock and Cloudflare adapters compile against the same playback contract, and typecheck, full tests, lint, build, and rendered-site test pass.
+
+Out of scope: production secret changes, production migration/deploy, destructive production tests, condition-schema removal, and unrelated UI refactors.

@@ -12,6 +12,8 @@ interface StreamEnvelope<T> {
 }
 
 export class CloudflareStreamVideoProvider implements VideoProvider {
+  readonly provider = "cloudflare-stream" as const;
+
   constructor(private readonly config: StreamConfig) {}
 
   async createDirectUpload(input: {
@@ -71,6 +73,27 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
     };
   }
 
+  async getThumbnailUrl(providerVideoId: string): Promise<string | null> {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/stream/${providerVideoId}`,
+      { headers: { authorization: `Bearer ${this.config.apiToken}` } },
+    );
+    const payload = await response.json() as StreamEnvelope<{
+      thumbnail?: string;
+      requireSignedURLs?: boolean;
+    }>;
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.errors?.[0]?.message ?? "Cloudflare Stream 縮圖查詢失敗");
+    }
+    if (!payload.result.thumbnail || payload.result.requireSignedURLs) return null;
+    const thumbnail = new URL(payload.result.thumbnail);
+    if (thumbnail.protocol !== "https:") throw new Error("Cloudflare Stream 回傳了不安全的縮圖網址");
+    thumbnail.searchParams.set("time", "1s");
+    thumbnail.searchParams.set("height", "270");
+    thumbnail.searchParams.set("fit", "crop");
+    return thumbnail.toString();
+  }
+
   async deleteVideo(providerVideoId: string): Promise<void> {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/stream/${providerVideoId}`,
@@ -79,6 +102,7 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
         headers: { authorization: `Bearer ${this.config.apiToken}` },
       },
     );
+    if (response.status === 404) return;
     if (!response.ok) {
       const payload = await response.json().catch(() => null) as StreamEnvelope<unknown> | null;
       throw new Error(payload?.errors?.[0]?.message ?? "Cloudflare Stream 影片刪除失敗");

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MarineConditions } from "../packages/domain/src/conditions";
 import {
   circularDirectionDistance,
+  MATCH_WEIGHTS,
   rankSimilarConditions,
   selectLatestAvailableForecast,
 } from "../packages/domain/src/matching";
@@ -33,6 +34,16 @@ const base: MarineConditions = {
   schemaVersion: 1,
 };
 
+function conditionsWithOnly(
+  fields: Array<keyof typeof MATCH_WEIGHTS>,
+): MarineConditions {
+  const conditions = { ...base };
+  for (const key of Object.keys(MATCH_WEIGHTS) as Array<keyof typeof MATCH_WEIGHTS>) {
+    if (!fields.includes(key)) conditions[key] = null;
+  }
+  return conditions;
+}
+
 describe("condition matching", () => {
   it("uses circular direction distance", () => {
     expect(circularDirectionDistance(359, 1)).toBe(2);
@@ -40,16 +51,44 @@ describe("condition matching", () => {
   });
 
   it("scores identical conditions as one", () => {
-    expect(rankSimilarConditions(base, [{ id: "same", conditions: base }])[0].score).toBe(1);
+    const match = rankSimilarConditions(base, [{ id: "same", conditions: base }])[0];
+    expect(match).toMatchObject({
+      score: 1,
+      availableWeight: 9.2,
+      matchedWeight: 9.2,
+      coverage: 1,
+    });
   });
 
-  it("handles missing values without treating them as zero", () => {
+  it("excludes candidates without numeric overlap", () => {
     const missing = Object.fromEntries(Object.keys(base).map((key) => [key, null])) as unknown as MarineConditions;
     missing.validTime = base.validTime;
     missing.provider = "test";
     missing.retrievedAt = base.retrievedAt;
     missing.schemaVersion = 1;
-    expect(rankSimilarConditions(base, [{ id: "missing", conditions: missing }])[0]).toMatchObject({ score: 0, components: [] });
+    expect(rankSimilarConditions(base, [{ id: "missing", conditions: missing }])).toEqual([]);
+  });
+
+  it("excludes a coincidental single-field match below 50 percent coverage", () => {
+    const sparse = conditionsWithOnly(["swellHeight"]);
+    expect(rankSimilarConditions(base, [{ id: "sparse", conditions: sparse }])).toEqual([]);
+  });
+
+  it("includes partial data at exactly 50 percent coverage and reports its weights", () => {
+    const halfCovered = conditionsWithOnly([
+      "swellHeight",
+      "swellPeriod",
+      "swellDirection",
+      "waveHeight",
+      "tideSlope",
+    ]);
+    const match = rankSimilarConditions(base, [{ id: "half", conditions: halfCovered }])[0];
+    expect(match).toMatchObject({
+      score: 1,
+      availableWeight: 9.2,
+      matchedWeight: 4.6,
+      coverage: 0.5,
+    });
   });
 
   it("orders equal scores deterministically by id", () => {

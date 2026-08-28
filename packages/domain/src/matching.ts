@@ -13,6 +13,9 @@ export interface MatchComponent {
 
 export interface RankedMatch extends HistoricalCondition {
   score: number;
+  availableWeight: number;
+  matchedWeight: number;
+  coverage: number;
   components: MatchComponent[];
 }
 
@@ -39,6 +42,12 @@ export const MATCH_WEIGHTS = {
   windGust: { weight: 0.25, scale: 25 },
   tideSlope: { weight: 0.35, scale: 1 },
 } as const;
+
+export const MIN_MATCH_COVERAGE = 0.5;
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
 
 export function circularDirectionDistance(a: number, b: number): number {
   const raw = Math.abs((((a - b) % 360) + 360) % 360);
@@ -75,6 +84,11 @@ export function rankSimilarConditions(
   target: MarineConditions,
   candidates: HistoricalCondition[],
 ): RankedMatch[] {
+  const availableWeight = Object.entries(MATCH_WEIGHTS).reduce((sum, [key, config]) => {
+    const field = key as keyof typeof MATCH_WEIGHTS;
+    return isFiniteNumber(target[field]) ? sum + config.weight : sum;
+  }, 0);
+
   return candidates
     .map((candidate) => {
       const components: MatchComponent[] = [];
@@ -82,7 +96,7 @@ export function rankSimilarConditions(
         const field = key as keyof typeof MATCH_WEIGHTS;
         const targetValue = target[field];
         const candidateValue = candidate.conditions[field];
-        if (typeof targetValue !== "number" || typeof candidateValue !== "number") continue;
+        if (!isFiniteNumber(targetValue) || !isFiniteNumber(candidateValue)) continue;
         const difference = "circular" in config
           ? circularDirectionDistance(targetValue, candidateValue)
           : Math.abs(targetValue - candidateValue);
@@ -92,14 +106,23 @@ export function rankSimilarConditions(
           weight: config.weight,
         });
       }
-      const weightTotal = components.reduce((sum, item) => sum + item.weight, 0);
-      const distance = weightTotal === 0
+      const matchedWeight = components.reduce((sum, item) => sum + item.weight, 0);
+      const coverage = availableWeight === 0 ? 0 : matchedWeight / availableWeight;
+      const distance = matchedWeight === 0
         ? 1
         : components.reduce(
             (sum, item) => sum + item.normalizedDifference * item.weight,
             0,
-          ) / weightTotal;
-      return { ...candidate, score: Number((1 - distance).toFixed(6)), components };
+          ) / matchedWeight;
+      return {
+        ...candidate,
+        score: Number((1 - distance).toFixed(6)),
+        availableWeight,
+        matchedWeight,
+        coverage,
+        components,
+      };
     })
+    .filter((match) => match.coverage >= MIN_MATCH_COVERAGE)
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 }

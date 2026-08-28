@@ -2,7 +2,7 @@
 
 ## Resources and secrets
 
-One Worker deployment, D1 database, Cloudflare Stream account, LINE Login channel, and marine/tide APIs. Runtime secrets must be configured outside Git. `wrangler.jsonc` schedules forecast ingestion at minute 20 every six UTC hours (`20 */6 * * *`). Cloudflare Cron schedules use UTC.
+One Worker deployment, D1 database, Cloudflare Stream account, LINE Login channel, and marine/tide APIs. Runtime secrets must be configured outside Git. `wrangler.jsonc` schedules forecast ingestion and expired-video cleanup at minute 20 every six UTC hours (`20 */6 * * *`). Cloudflare Cron schedules use UTC.
 
 LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secret `LINE_CHANNEL_SECRET`, and secret `SESSION_SECRET`. Changing the callback origin requires updating both the LINE Developers Console and runtime configuration. Never put either secret in Git, browser code, D1, documentation, or chat. Set non-secret `ADMIN_USER_ID` to the project owner's internal ID returned by `/api/v1/me`; without it, moderation endpoints fail closed for every user.
 
@@ -16,6 +16,14 @@ LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secr
 
 The Worker name in Cloudflare must remain `surf-video-share-tw` because Workers Builds requires it to match `wrangler.jsonc`.
 
+The Stream token must include `Stream Write`; the scheduled lifecycle job uses the official [delete-video API](https://developers.cloudflare.com/api/resources/stream/methods/delete/) after the seven-day pending window.
+
+## Candidate thumbnails
+
+- 找浪 comparison does not create a Stream player or request HLS/DASH manifests. Cloudflare documents that playback, preloading, and delivered video segments count toward [Stream delivery usage](https://developers.cloudflare.com/stream/pricing/), so players remain user-initiated work for the next checkpoint.
+- The public thumbnail endpoint uses the official [retrieve-video-details API](https://developers.cloudflare.com/api/resources/stream/methods/get/) and adds the documented `time=1s`, `height=270`, and `fit=crop` [thumbnail parameters](https://developers.cloudflare.com/stream/viewing-videos/displaying-thumbnails/). Redirects are browser-private cached for five minutes.
+- Videos marked `requireSignedURLs` return no thumbnail until the signed-token flow is implemented. Cloudflare requires the token to replace the video ID for protected thumbnails as well as playback; never fall back to an unsigned UID URL.
+
 Add preview/staging later as a separate Cloudflare environment with separate D1/Stream credentials, not shared production data.
 
 ## Forecast ingestion
@@ -27,6 +35,14 @@ Add preview/staging later as a separate Cloudflare environment with separate D1/
 - D1 writes use chunks of 50 and `INSERT OR IGNORE`. Re-running the same upstream content should report duplicates, not create another copy.
 - For local Cron testing after local migrations, run the Worker and call `/cdn-cgi/handler/scheduled?cron=20+*/6+*+*+*&time=<unix-seconds>` as documented by Cloudflare. Never put a real CWA key in a URL, log, fixture, or Git.
 - Before enabling production, verify one scheduled invocation against production-like D1 and inspect the structured result. Code-level provider and current-format parsing are tested locally; the deployed Cron/D1 path is not yet verified.
+
+## Expired-video cleanup
+
+- Every scheduled invocation selects at most 50 globally expired incomplete videos. Opening 「我的」 also checks up to 10 videos owned by that user.
+- Cleanup first claims a row through a conditional D1 update. Metadata completion uses the same optimistic concurrency fields, so only one side can proceed.
+- A failed or interrupted provider deletion remains private and can be retried after a 15-minute lease. An already absent Stream object counts as the desired deleted state so a stale D1 row can be removed.
+- Inspect the structured `expired_video_cleanup` log for `selected`, `claimed`, `deleted`, `failed`, and `skipped`. Per-video failures are isolated; fatal D1/provider configuration errors fail the scheduled invocation without cancelling the independently executed forecast task.
+- Before public rollout, exercise one expiry against staging Stream and D1 and verify both the Stream object and D1 row are gone. Do not shorten production expiry to perform this test on user data.
 
 ## Backup and recovery
 

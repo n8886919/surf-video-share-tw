@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type {
+  ForecastResponse as Forecast,
+  MatchGroupResponse as MatchGroup,
+  ObservationResponse as Observation,
+  PublicMatchesResponse,
+} from "../packages/api-contract/src";
 import { PROJECT_PURPOSE } from "../packages/domain/src/project-purpose";
 import { PUBLIC_MEDIA_NOTICE } from "../packages/domain/src/public-terms";
 
@@ -21,76 +27,6 @@ interface Spot {
   nameEn: string;
   nameZh: string | null;
   region: string;
-}
-
-interface Conditions {
-  waveHeight: number | null;
-  waveDirection: number | null;
-  wavePeriod: number | null;
-  swellHeight: number | null;
-  swellDirection: number | null;
-  swellPeriod: number | null;
-  secondarySwellHeight: number | null;
-  secondarySwellDirection: number | null;
-  secondarySwellPeriod: number | null;
-  windWaveHeight: number | null;
-  windWaveDirection: number | null;
-  windWavePeriod: number | null;
-  windSpeed: number | null;
-  windDirection: number | null;
-  windGust: number | null;
-  tideHeight: number | null;
-  tideSlope: number | null;
-  tideState: string | null;
-}
-
-interface Observation {
-  id: string;
-  status: string;
-  metadataStatus: "pending" | "complete";
-  metadataExpiresAt: string | null;
-  publicAt: string | null;
-  capturedAt: string | null;
-  createdAt: string;
-  durationSeconds: number | null;
-  uploaderDisplayId: string | null;
-  uploaderNote: string | null;
-  funReaction: "fun" | "not_fun" | null;
-  license: "CC0-1.0" | null;
-  termsVersion: string | null;
-  moderationStatus?: "visible" | "delisted";
-  delistedAt: string | null;
-  isFavorite: boolean;
-  showUploader?: boolean;
-  video: { provider: string };
-  spot: { id: string; slug: string; name: string; nameEn: string } | null;
-  conditions: Conditions;
-}
-
-interface Forecast {
-  id: string;
-  provider: string;
-  model: string;
-  issuedAt: string;
-  validAt: string;
-  totalWave: MetricGroup;
-  primarySwell: MetricGroup;
-  secondarySwell: MetricGroup;
-  windWave: MetricGroup;
-  tide: { height: number | null; slope: number | null; state: string | null };
-  wind: { speed: number | null; direction: number | null; gust: number | null };
-}
-
-interface MetricGroup {
-  height: number | null;
-  direction: number | null;
-  period: number | null;
-}
-
-interface MatchGroup {
-  provider: string;
-  model: string;
-  observations: Array<{ score: number; observation: Observation }>;
 }
 
 interface UploadTicket {
@@ -214,6 +150,7 @@ function ObservationCard({ observation, ownerActions }: {
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const c = observation.conditions;
   const pending = observation.metadataStatus === "pending";
   const remainingDays = observation.metadataExpiresAt
@@ -246,7 +183,13 @@ function ObservationCard({ observation, ownerActions }: {
   return (
     <article className={`observation-card ${pending ? "pending-card" : ""}`}>
       <div className="observation-visual">
-        <div className="wave-lines"><span/><span/><span/></div>
+        {observation.video.thumbnailUrl && !thumbnailFailed
+          ? <>
+              {/* Runtime provider thumbnails use a first-party lifecycle-checking endpoint. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="observation-thumbnail" src={observation.video.thumbnailUrl} alt={`${observation.spot?.name || "浪點"}實拍縮圖`} loading="lazy" decoding="async" onError={() => setThumbnailFailed(true)} />
+            </>
+          : <div className="wave-lines"><span/><span/><span/></div>}
         <span className="status-pill">{observation.moderationStatus === "delisted" ? "已下架" : pending ? `待補 · ${remainingDays ?? 7} 天` : !observation.termsVersion ? "舊版不公開" : observation.status === "ready" ? "公開" : "處理中"}</span>
         <span className="duration-pill">{observation.durationSeconds ? `${Math.round(observation.durationSeconds)} 秒` : "—"}</span>
       </div>
@@ -298,6 +241,81 @@ function ForecastCard({ forecast }: { forecast: Forecast }) {
       </div>
       <p>此來源獨立顯示，未與其他模型平均。</p>
     </article>
+  );
+}
+
+function compactMetric(value: number | null, unit: string): string {
+  return value == null ? "—" : `${value.toFixed(1)}${unit}`;
+}
+
+function ForecastComparisonRows({ forecast }: { forecast: Forecast }) {
+  return (
+    <div className="comparison-metrics">
+      <div><span>總浪</span><strong>{compactMetric(forecast.totalWave.height, "m")}</strong><small>{formatDirection(forecast.totalWave.direction)} · {compactMetric(forecast.totalWave.period, "s")}</small></div>
+      <div><span>主湧浪</span><strong>{compactMetric(forecast.primarySwell.height, "m")}</strong><small>{formatDirection(forecast.primarySwell.direction)} · {compactMetric(forecast.primarySwell.period, "s")}</small></div>
+      <div><span>風</span><strong>{compactMetric(forecast.wind.speed, "m/s")}</strong><small>{formatDirection(forecast.wind.direction)} · gust {compactMetric(forecast.wind.gust, "")}</small></div>
+      <div><span>潮位</span><strong>{compactMetric(forecast.tide.height, "m")}</strong><small>{forecast.tide.state || "—"}</small></div>
+    </div>
+  );
+}
+
+function CandidateThumbnail({ observation }: { observation: Observation }) {
+  const [failed, setFailed] = useState(false);
+  if (!observation.video.thumbnailUrl || failed) {
+    return <div className="candidate-thumbnail candidate-thumbnail-fallback"><Icon name="wave"/><span>縮圖準備中</span></div>;
+  }
+  return (
+    <div className="candidate-thumbnail">
+      {/* Runtime provider thumbnails use a first-party lifecycle-checking endpoint. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={observation.video.thumbnailUrl}
+        alt={`${observation.spot?.name || "浪點"} ${formatTime(observation.capturedAt)} 實拍縮圖`}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  );
+}
+
+function MatchComparisonGroup({ group }: { group: MatchGroup }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = group.observations.find((item) => item.observation.id === selectedId) ?? null;
+  return (
+    <section className="match-comparison-group">
+      <div className="match-source-heading">
+        <div><h3>{group.provider} · {group.model}</h3><p>目標與歷史預報使用同一來源比較，不與其他模型平均。</p></div>
+        <small>{group.observations.length} 段候選</small>
+      </div>
+      <div className="forecast-comparison">
+        <article className="target-forecast-card">
+          <div className="target-forecast-marker"><span>固定</span><strong>目前預報</strong><small>{formatTime(group.targetForecast.validAt)}</small></div>
+          <ForecastComparisonRows forecast={group.targetForecast}/>
+        </article>
+        <div className="candidate-forecast-strip" aria-label={`${group.provider} 候選影片預報`}>
+          {group.observations.map((item) => {
+            const selectedCandidate = item.observation.id === selectedId;
+            return (
+              <button
+                type="button"
+                className={`candidate-forecast-card ${selectedCandidate ? "selected" : ""}`}
+                key={item.observation.id}
+                aria-pressed={selectedCandidate}
+                onClick={() => setSelectedId(item.observation.id)}
+              >
+                <CandidateThumbnail observation={item.observation}/>
+                <div className="candidate-forecast-heading"><strong>{formatTime(item.observation.capturedAt)}</strong><small>相似指數 {Math.round(item.score * 100)}/100</small></div>
+                <ForecastComparisonRows forecast={item.candidateForecast}/>
+                <span className="candidate-coverage">資料涵蓋 {Math.round(item.coverage * 100)}% · {selectedCandidate ? "已選" : "選這段"}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <p className="comparison-help">目前預報固定在左側；左右滑動縮圖與歷史預報，選定後才展開單一實拍。</p>
+      {selected && <div className="selected-observation"><div className="section-heading"><h4>已選實拍</h4><small>{formatTime(selected.observation.capturedAt)}</small></div><ObservationCard observation={selected.observation}/></div>}
+    </section>
   );
 }
 
@@ -374,7 +392,7 @@ function FindView({ spots }: { spots: Spot[] }) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setLoading(true); setError(null);
-      void api<{ forecasts: Forecast[]; observations: Observation[]; matchesBySource: MatchGroup[] }>(`/matches?spotId=${encodeURIComponent(selectedSpotId)}&targetTime=${encodeURIComponent(new Date(targetTime).toISOString())}`, { signal: controller.signal })
+      void api<PublicMatchesResponse>(`/matches?spotId=${encodeURIComponent(selectedSpotId)}&targetTime=${encodeURIComponent(new Date(targetTime).toISOString())}`, { signal: controller.signal })
         .then((result) => { setForecasts(result.forecasts); setObservations(result.observations); setMatchGroups(result.matchesBySource); })
         .catch((caught) => { if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "比對失敗"); })
         .finally(() => setLoading(false));
@@ -390,12 +408,16 @@ function FindView({ spots }: { spots: Spot[] }) {
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
     {error && <div className="error-message">{error}</div>}
-    <section className="result-section"><div className="section-heading"><h2>預報來源</h2><small>{forecasts.length ? `${forecasts.length} 筆獨立資料` : "尚無快照"}</small></div>
-      {forecasts.length ? <div className="forecast-list">{forecasts.map((item) => <ForecastCard key={item.id} forecast={item}/>)}</div> : <div className="info-state"><Icon name="wave"/><p>預報歷史抓取尚未啟用。目前不會用未驗證數值假裝完成配對。</p></div>}
+    <section className="result-section"><div className="section-heading"><h2>{matchGroups.length ? "目前預報 × 候選實拍" : "目前預報"}</h2><small>{matchGroups.length ? `${matchGroups.length} 組獨立來源` : forecasts.length ? `${forecasts.length} 筆獨立資料` : "尚無快照"}</small></div>
+      {matchGroups.length
+        ? <div className="match-group-list">{matchGroups.map((group) => <MatchComparisonGroup key={`${group.provider}:${group.model}`} group={group}/>)}</div>
+        : forecasts.length
+          ? <div className="forecast-list">{forecasts.map((item) => <ForecastCard key={item.id} forecast={item}/>)}</div>
+          : <div className="info-state"><Icon name="wave"/><p>預報歷史抓取尚未啟用。目前不會用未驗證數值假裝完成配對。</p></div>}
     </section>
-    <section className="result-section"><div className="section-heading"><h2>{matchGroups.length ? "相似情況實拍" : "同浪點近期實拍（尚未配對）"}</h2><small>{observations.length ? `${observations.length} 段` : "累積中"}</small></div>
-      {matchGroups.length ? <div className="match-group-list">{matchGroups.map((group) => <section className="match-group" key={`${group.provider}:${group.model}`}><h3>{group.provider} · {group.model}</h3><p>歷史側使用拍攝時最新可得的同來源預報；不與其他模型平均。</p><div className="record-list">{group.observations.map((item) => <div className="scored-observation" key={item.observation.id}><span className="score-badge">相似 {Math.round(item.score * 100)}%</span><ObservationCard observation={item.observation}/></div>)}</div></section>)}</div> : observations.length ? <div className="record-list">{observations.map((item) => <ObservationCard key={item.id} observation={item}/>)}</div> : <div className="info-state compact"><p>這個浪點還沒有可公開配對的實拍。</p></div>}
-    </section>
+    {!matchGroups.length && <section className="result-section"><div className="section-heading"><h2>同浪點近期實拍（尚未配對）</h2><small>{observations.length ? `${observations.length} 段` : "累積中"}</small></div>
+      {observations.length ? <div className="record-list">{observations.map((item) => <ObservationCard key={item.id} observation={item}/>)}</div> : <div className="info-state compact"><p>這個浪點還沒有可公開配對的實拍。</p></div>}
+    </section>}
   </div>;
 }
 

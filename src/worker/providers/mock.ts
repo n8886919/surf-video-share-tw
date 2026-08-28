@@ -12,6 +12,8 @@ import type {
 } from "./types";
 
 export class MockVideoProvider implements VideoProvider {
+  readonly provider = "mock" as const;
+
   async createDirectUpload(): Promise<UploadTicket> {
     return {
       provider: "mock",
@@ -23,6 +25,10 @@ export class MockVideoProvider implements VideoProvider {
 
   async getStatus(): Promise<VideoStatus> {
     return { state: "ready", durationSeconds: null };
+  }
+
+  async getThumbnailUrl(): Promise<string> {
+    return "/og.png";
   }
 
   async deleteVideo(): Promise<void> {}

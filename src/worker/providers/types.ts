@@ -13,11 +13,13 @@ export interface VideoStatus {
 }
 
 export interface VideoProvider {
+  readonly provider: "mock" | "cloudflare-stream";
   createDirectUpload(input: {
     internalUserId: string;
     maxDurationSeconds: number;
   }): Promise<UploadTicket>;
   getStatus(providerVideoId: string): Promise<VideoStatus>;
+  getThumbnailUrl(providerVideoId: string): Promise<string | null>;
   deleteVideo(providerVideoId: string): Promise<void>;
 }
 
