@@ -3,10 +3,10 @@ import "./globals.css";
 import { PROJECT_PURPOSE } from "../packages/domain/src/project-purpose";
 
 export const metadata: Metadata = {
-  title: "浪影互助",
+  title: "彼日浪影",
   description: PROJECT_PURPOSE,
   openGraph: {
-    title: "浪影互助",
+    title: "彼日浪影",
     description: PROJECT_PURPOSE,
     images: ["/brand-logo.png"],
     locale: "zh_TW",
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "浪影互助",
+    title: "彼日浪影",
     description: PROJECT_PURPOSE,
     images: ["/brand-logo.png"],
   },

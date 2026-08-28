@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import {
   completeUploadSchema,
+  MAX_UPLOAD_BYTES,
   matchQuerySchema,
+  problemReportSchema,
   reportVideoSchema,
   updateMeSchema,
   updateVideoSchema,
@@ -11,6 +13,7 @@ import {
   type ObservationResponse,
   type PlaybackResponse,
   type PublicMatchesResponse,
+  type VideoDownloadResponse,
 } from "../../packages/api-contract/src";
 import {
   assertWithinForecastWindow,
@@ -75,7 +78,7 @@ async function enforceRateLimit(
   }
 }
 
-async function playbackClientKey(request: Request, env: AppEnv): Promise<string | null> {
+async function anonymousClientKey(request: Request, env: AppEnv): Promise<string | null> {
   const clientAddress = request.headers.get("cf-connecting-ip");
   if (!clientAddress || !env.SESSION_SECRET) {
     return env.APP_ENV === "development" ? "development-client" : null;
@@ -352,6 +355,15 @@ async function cleanupOwnerExpiredVideos(env: AppEnv, userId: string) {
   }
 }
 
+interface ProblemReportRow {
+  id: string;
+  message: string;
+  view: string;
+  status: string;
+  created_at: string;
+  resolved_at: string | null;
+}
+
 async function findPublicVideo(env: AppEnv, videoId: string): Promise<PublicVideoRow | null> {
   return env.DB.prepare(
     `SELECT id, provider_video_id, video_provider FROM videos
@@ -437,6 +449,29 @@ api.get("/spots", async (context) => {
   });
 });
 
+api.post("/problem-reports", zValidator("json", problemReportSchema), async (context) => {
+  await ensureDevelopmentDatabase(context.env);
+  const clientKey = await anonymousClientKey(context.req.raw, context.env);
+  if (!clientKey) {
+    console.error("Problem-report rate-limit client key is unavailable");
+    return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法送出問題回報", 503);
+  }
+  const limited = await enforceRateLimit(
+    context.env,
+    context.env.PROBLEM_REPORT_RATE_LIMITER,
+    clientKey,
+  );
+  if (limited) return limited;
+
+  const input = context.req.valid("json");
+  const reportId = crypto.randomUUID();
+  await context.env.DB.prepare(
+    `INSERT INTO problem_reports (id, message, view, status, created_at)
+     VALUES (?, ?, ?, 'open', ?)`,
+  ).bind(reportId, input.message, input.view, new Date().toISOString()).run();
+  return context.json({ reportId, status: "open" }, 201);
+});
+
 api.post("/videos/:id/reports", zValidator("json", reportVideoSchema), async (context) => {
   await ensureDevelopmentDatabase(context.env);
   const video = await context.env.DB.prepare(
@@ -492,7 +527,7 @@ api.post("/videos/:id/playback", async (context) => {
   const video = await findPublicVideo(context.env, context.req.param("id"));
   if (!video) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到公開影片" }, 404);
 
-  const clientKey = await playbackClientKey(context.req.raw, context.env);
+  const clientKey = await anonymousClientKey(context.req.raw, context.env);
   if (!clientKey) {
     console.error("Playback rate-limit client key is unavailable");
     return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
@@ -638,6 +673,7 @@ api.get("/me", (context) => {
   const user = context.get("user");
   return context.json({
     id: user.id,
+    suggestedDisplayName: user.line_display_name,
     displayId: user.display_id,
     showIdentityDefault: Boolean(user.show_identity_default),
     authMode: context.get("authMode"),
@@ -664,6 +700,37 @@ api.get("/videos", async (context) => {
      ORDER BY COALESCE(v.captured_at, v.created_at) DESC LIMIT 50`,
   ).bind(user.id).all<ObservationRow>();
   return context.json({ observations: result.results.map((row) => serializeObservation(row, true)) });
+});
+
+api.post("/videos/:id/download", async (context) => {
+  const user = context.get("user");
+  const video = await context.env.DB.prepare(
+    `SELECT id, provider_video_id, video_provider FROM videos
+     WHERE id = ? AND user_id = ?
+       AND metadata_status = 'complete' AND status = 'ready'
+       AND public_at IS NOT NULL AND terms_version IS NOT NULL
+       AND moderation_status = 'visible'`,
+  ).bind(context.req.param("id"), user.id).first<PublicVideoRow>();
+  if (!video) {
+    return context.json({ error: "VIDEO_NOT_DOWNLOADABLE", message: "這段影片目前不能下載" }, 404);
+  }
+
+  const limited = await enforceRateLimit(context.env, context.env.DOWNLOAD_RATE_LIMITER, user.id);
+  if (limited) return limited;
+
+  try {
+    const provider = createVideoProvider(context.env);
+    if (provider.provider !== video.video_provider) {
+      return context.json({ error: "VIDEO_PROVIDER_MISMATCH", message: "影片下載目前無法使用" }, 503);
+    }
+    const download: VideoDownloadResponse = await provider.prepareDownload(video.provider_video_id);
+    return context.json(download, download.state === "preparing" ? 202 : 200, {
+      "cache-control": "no-store",
+    });
+  } catch (error) {
+    console.warn("Owner video download preparation failed", video.id, error);
+    return context.json({ error: "DOWNLOAD_UNAVAILABLE", message: "影片下載目前無法使用" }, 503);
+  }
 });
 
 api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), async (context) => {
@@ -708,7 +775,7 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
     now.toISOString(),
     now.toISOString(),
   ).run();
-  return context.json({ videoId: id, ...ticket, metadataStatus: complete ? "complete" : "pending", limits: { maxBytes: 200 * 1024 * 1024, maxDurationSeconds: 60 } }, 201);
+  return context.json({ videoId: id, ...ticket, metadataStatus: complete ? "complete" : "pending", limits: { maxBytes: MAX_UPLOAD_BYTES, maxDurationSeconds: 60 } }, 201);
 });
 
 api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async (context) => {
@@ -918,6 +985,45 @@ api.post("/admin/reports/:id/delist", async (context) => {
     ).bind(now, user.id, report.video_id),
   ]);
   return context.json({ videoId: report.video_id, moderationStatus: "delisted" });
+});
+
+api.get("/admin/problem-reports", async (context) => {
+  const user = context.get("user");
+  if (!isAdmin(context.env, user)) {
+    return context.json({ error: "FORBIDDEN", message: "沒有管理員權限" }, 403);
+  }
+  const result = await context.env.DB.prepare(
+    `SELECT id, message, view, status, created_at, resolved_at
+     FROM problem_reports WHERE status = 'open'
+     ORDER BY created_at ASC LIMIT 100`,
+  ).all<ProblemReportRow>();
+  return context.json({
+    reports: result.results.map((report) => ({
+      id: report.id,
+      message: report.message,
+      view: report.view,
+      status: report.status,
+      createdAt: report.created_at,
+      resolvedAt: report.resolved_at,
+    })),
+  });
+});
+
+api.post("/admin/problem-reports/:id/resolve", async (context) => {
+  const user = context.get("user");
+  if (!isAdmin(context.env, user)) {
+    return context.json({ error: "FORBIDDEN", message: "沒有管理員權限" }, 403);
+  }
+  const now = new Date().toISOString();
+  const result = await context.env.DB.prepare(
+    `UPDATE problem_reports
+     SET status = 'resolved', resolved_at = ?, resolved_by_user_id = ?
+     WHERE id = ? AND status = 'open'`,
+  ).bind(now, user.id, context.req.param("id")).run();
+  if (result.meta.changes !== 1) {
+    return context.json({ error: "PROBLEM_REPORT_NOT_FOUND", message: "找不到待處理問題回報" }, 404);
+  }
+  return context.json({ reportId: context.req.param("id"), status: "resolved", resolvedAt: now });
 });
 
 api.onError((error, context) => {

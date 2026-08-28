@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `line_display_name` text;

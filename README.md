@@ -1,4 +1,4 @@
-# 浪影互助
+# 彼日浪影
 
 > 不預測浪好不好；只用社群共享的歷史實拍，呈現指定浪點與時間的預報可能長什麼樣。
 
@@ -53,10 +53,10 @@ pnpm db:migrate:local
 2. Create a Stream API token scoped to Stream writes/reads.
 3. Create a LINE Login v2.1 web channel, register the exact callback URL, and configure the four `LINE_*`/session values listed in `.env.example`.
 
-4. Production deploys to Cloudflare Worker `surf-video-share-tw` with D1 binding `DB`. `pnpm deploy` applies pending remote migrations before publishing, and is also the deploy command for Cloudflare Workers Builds on GitHub `main`.
+4. Production deploys to Cloudflare Worker `surf-video-share-tw` with D1 binding `DB`. `pnpm deploy` requires a separate write credential, applies pending remote migrations, publishes, then restores and reads back query-string redaction. It is also the deploy command for Cloudflare Workers Builds on GitHub `main`.
 5. Configure secrets from `.env.example`, including `CWA_API_KEY`, in Cloudflare Worker settings; never commit `.env.local`.
 
-LINE Login remains fail-closed when production values are incomplete. Signed, origin-restricted Stream upload/thumbnail/playback support is implemented locally but still needs a real end-to-end check. Scheduled ECMWF WAM ingestion is deployed; CWA ingestion is guarded until production query-string redaction is verified. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
+LINE Login remains fail-closed when production values are incomplete. Signed, origin-restricted Stream upload/thumbnail/playback has passed the first real end-to-end check; owner MP4 sharing still needs mobile-browser acceptance testing. Scheduled ECMWF WAM ingestion is deployed; CWA ingestion remains guarded until its old key is rotated and query-string redaction is separately re-verified. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
 
 ## Documentation
 

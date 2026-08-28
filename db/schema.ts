@@ -5,6 +5,7 @@ export const users = sqliteTable(
   {
     id: text("id").primaryKey(),
     lineSubject: text("line_subject").notNull(),
+    lineDisplayName: text("line_display_name"),
     displayId: text("display_id"),
     showIdentityDefault: integer("show_identity_default", { mode: "boolean" })
       .notNull()
@@ -200,5 +201,21 @@ export const videoReports = sqliteTable(
   (table) => [
     index("video_reports_status_created_at_idx").on(table.status, table.createdAt),
     index("video_reports_video_id_idx").on(table.videoId),
+  ],
+);
+
+export const problemReports = sqliteTable(
+  "problem_reports",
+  {
+    id: text("id").primaryKey(),
+    message: text("message").notNull(),
+    view: text("view").notNull(),
+    status: text("status").notNull().default("open"),
+    createdAt: text("created_at").notNull(),
+    resolvedAt: text("resolved_at"),
+    resolvedByUserId: text("resolved_by_user_id").references(() => users.id),
+  },
+  (table) => [
+    index("problem_reports_status_created_at_idx").on(table.status, table.createdAt),
   ],
 );

@@ -1,4 +1,10 @@
-import type { PlaybackTicket, UploadTicket, VideoProvider, VideoStatus } from "./types";
+import type {
+  DownloadTicket,
+  PlaybackTicket,
+  UploadTicket,
+  VideoProvider,
+  VideoStatus,
+} from "./types";
 
 interface StreamConfig {
   accountId: string;
@@ -22,8 +28,19 @@ interface StreamVideoDetails {
   requireSignedURLs?: boolean;
 }
 
+interface StreamDownloadDetails {
+  status?: "inprogress" | "ready" | "error";
+  percentComplete?: number;
+  url?: string;
+}
+
+interface StreamDownloads {
+  default?: StreamDownloadDetails;
+}
+
 const THUMBNAIL_TOKEN_SECONDS = 5 * 60;
 const PLAYBACK_TOKEN_SECONDS = 15 * 60;
+const DOWNLOAD_TOKEN_SECONDS = 15 * 60;
 
 export class CloudflareStreamVideoProvider implements VideoProvider {
   readonly provider = "cloudflare-stream" as const;
@@ -61,6 +78,7 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
   private async createSignedToken(
     providerVideoId: string,
     expiresAtSeconds: number,
+    downloadable = false,
   ): Promise<string> {
     const response = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/stream/${providerVideoId}/token`,
@@ -70,7 +88,10 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
           authorization: `Bearer ${this.config.apiToken}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ exp: expiresAtSeconds }),
+        body: JSON.stringify({
+          exp: expiresAtSeconds,
+          ...(downloadable ? { downloadable: true } : {}),
+        }),
       },
     );
     const payload = await response.json() as StreamEnvelope<{ token?: string }>;
@@ -78,6 +99,29 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
       throw new Error(payload.errors?.[0]?.message ?? "Cloudflare Stream signed token 建立失敗");
     }
     return payload.result.token;
+  }
+
+  private async getOrCreateDownload(providerVideoId: string): Promise<StreamDownloadDetails> {
+    const endpoint = `https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/stream/${providerVideoId}/downloads`;
+    const headers = { authorization: `Bearer ${this.config.apiToken}` };
+    const currentResponse = await fetch(endpoint, { headers });
+    const currentPayload = await currentResponse.json().catch(() => null) as StreamEnvelope<StreamDownloads> | null;
+    if (currentResponse.ok && currentPayload?.success && currentPayload.result.default) {
+      return currentPayload.result.default;
+    }
+    if (currentResponse.ok && currentPayload && !currentPayload.success) {
+      throw new Error(currentPayload.errors?.[0]?.message ?? "Cloudflare Stream download lookup failed");
+    }
+    if (!currentResponse.ok && currentResponse.status !== 404) {
+      throw new Error(currentPayload?.errors?.[0]?.message ?? "Cloudflare Stream download lookup failed");
+    }
+
+    const createResponse = await fetch(endpoint, { method: "POST", headers });
+    const createPayload = await createResponse.json() as StreamEnvelope<StreamDownloads>;
+    if (!createResponse.ok || !createPayload.success || !createPayload.result.default) {
+      throw new Error(createPayload.errors?.[0]?.message ?? "Cloudflare Stream download preparation failed");
+    }
+    return createPayload.result.default;
   }
 
   private streamDeliveryOrigin(details: StreamVideoDetails): URL {
@@ -181,6 +225,51 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
     return {
       type: "iframe",
       iframeUrl: iframeUrl.toString(),
+      expiresAt: new Date(expiresAtSeconds * 1000).toISOString(),
+    };
+  }
+
+  async prepareDownload(providerVideoId: string, now = new Date()): Promise<DownloadTicket> {
+    const details = await this.getVideoDetails(providerVideoId);
+    if (!details.readyToStream) throw new Error("Cloudflare Stream video is not ready for download");
+    if (!details.requireSignedURLs) {
+      throw new Error("Cloudflare Stream video does not require signed URLs");
+    }
+
+    const download = await this.getOrCreateDownload(providerVideoId);
+    if (download.status === "error") throw new Error("Cloudflare Stream MP4 preparation failed");
+    if (download.status === "inprogress") {
+      const rawPercent = download.percentComplete;
+      return {
+        type: "download",
+        state: "preparing",
+        percentComplete: typeof rawPercent === "number" && Number.isFinite(rawPercent)
+          ? Math.min(99, Math.max(0, Math.round(rawPercent)))
+          : null,
+        downloadUrl: null,
+        expiresAt: null,
+      };
+    }
+    if (download.status !== "ready" || !download.url) {
+      throw new Error("Cloudflare Stream returned an unknown download state");
+    }
+
+    const deliveryOrigin = this.streamDeliveryOrigin(details);
+    const downloadUrl = new URL(download.url);
+    if (downloadUrl.protocol !== "https:" || downloadUrl.origin !== deliveryOrigin.origin) {
+      throw new Error("Cloudflare Stream returned an unexpected download URL");
+    }
+    const expiresAtSeconds = Math.floor(now.getTime() / 1000) + DOWNLOAD_TOKEN_SECONDS;
+    const token = await this.createSignedToken(providerVideoId, expiresAtSeconds, true);
+    downloadUrl.pathname = `/${encodeURIComponent(token)}/downloads/default.mp4`;
+    downloadUrl.search = "";
+    downloadUrl.searchParams.set("filename", "surf-video.mp4");
+    downloadUrl.hash = "";
+    return {
+      type: "download",
+      state: "ready",
+      percentComplete: 100,
+      downloadUrl: downloadUrl.toString(),
       expiresAt: new Date(expiresAtSeconds * 1000).toISOString(),
     };
   }

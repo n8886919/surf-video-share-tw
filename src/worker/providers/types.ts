@@ -16,6 +16,29 @@ export type PlaybackTicket =
   | { type: "iframe"; iframeUrl: string; expiresAt: string }
   | { type: "mock"; iframeUrl: null; expiresAt: null };
 
+export type DownloadTicket =
+  | {
+      type: "download";
+      state: "preparing";
+      percentComplete: number | null;
+      downloadUrl: null;
+      expiresAt: null;
+    }
+  | {
+      type: "download";
+      state: "ready";
+      percentComplete: 100;
+      downloadUrl: string;
+      expiresAt: string;
+    }
+  | {
+      type: "mock";
+      state: "ready";
+      percentComplete: 100;
+      downloadUrl: null;
+      expiresAt: null;
+    };
+
 export interface VideoProvider {
   readonly provider: "mock" | "cloudflare-stream";
   createDirectUpload(input: {
@@ -25,6 +48,7 @@ export interface VideoProvider {
   getStatus(providerVideoId: string): Promise<VideoStatus>;
   getThumbnailUrl(providerVideoId: string): Promise<string | null>;
   createPlayback(providerVideoId: string, now?: Date): Promise<PlaybackTicket>;
+  prepareDownload(providerVideoId: string, now?: Date): Promise<DownloadTicket>;
   deleteVideo(providerVideoId: string): Promise<void>;
 }
 

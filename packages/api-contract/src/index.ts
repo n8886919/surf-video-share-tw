@@ -103,8 +103,39 @@ export type PlaybackResponse =
   | { type: "iframe"; iframeUrl: string; expiresAt: string }
   | { type: "mock"; iframeUrl: null; expiresAt: null };
 
+export type VideoDownloadResponse =
+  | {
+      type: "download";
+      state: "preparing";
+      percentComplete: number | null;
+      downloadUrl: null;
+      expiresAt: null;
+    }
+  | {
+      type: "download";
+      state: "ready";
+      percentComplete: 100;
+      downloadUrl: string;
+      expiresAt: string;
+    }
+  | {
+      type: "mock";
+      state: "ready";
+      percentComplete: 100;
+      downloadUrl: null;
+      expiresAt: null;
+    };
+
+export const MAX_UPLOAD_BYTES = 200_000_000;
+
+export const publicDisplayNameSchema = z.string()
+  .trim()
+  .min(2)
+  .max(24)
+  .regex(/^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u, "公開名稱不可包含控制或隱藏格式字元");
+
 export const updateMeSchema = z.object({
-  displayId: z.string().trim().min(2).max(24).regex(/^[A-Za-z0-9._-]+$/).nullable(),
+  displayId: publicDisplayNameSchema.nullable(),
   showIdentityDefault: z.boolean(),
 });
 
@@ -112,7 +143,7 @@ export const uploadRequestSchema = z.object({
   spotId: z.string().min(1).nullable().optional(),
   capturedAt: z.string().datetime({ offset: true }).nullable().optional(),
   durationSeconds: z.number().min(5).max(60),
-  sizeBytes: z.number().int().positive().max(200 * 1024 * 1024),
+  sizeBytes: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   fileName: z.string().min(1).max(255),
   contentType: z.string().startsWith("video/"),
   showUploader: z.boolean().optional(),
@@ -140,4 +171,10 @@ export const reportVideoSchema = z.object({
   reason: z.enum(["privacy", "minor", "copyright", "irrelevant"]),
 });
 
+export const problemReportSchema = z.object({
+  message: z.string().trim().min(5).max(300),
+  view: z.enum(["find", "upload", "mine"]),
+});
+
 export type UploadRequestInput = z.infer<typeof uploadRequestSchema>;
+export type ProblemReportInput = z.infer<typeof problemReportSchema>;

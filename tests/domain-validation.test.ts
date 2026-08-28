@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_UPLOAD_BYTES,
   reportVideoSchema,
+  problemReportSchema,
+  updateMeSchema,
   updateVideoSchema,
   uploadRequestSchema,
 } from "../packages/api-contract/src";
@@ -59,8 +62,16 @@ describe("domain validation", () => {
     };
     expect(uploadRequestSchema.safeParse(base).success).toBe(true);
     expect(uploadRequestSchema.safeParse({ ...base, durationSeconds: 61 }).success).toBe(false);
-    expect(uploadRequestSchema.safeParse({ ...base, sizeBytes: 201 * 1024 * 1024 }).success).toBe(false);
+    expect(uploadRequestSchema.safeParse({ ...base, sizeBytes: MAX_UPLOAD_BYTES }).success).toBe(true);
+    expect(uploadRequestSchema.safeParse({ ...base, sizeBytes: MAX_UPLOAD_BYTES + 1 }).success).toBe(false);
     expect(uploadRequestSchema.safeParse({ ...base, contentType: "image/png" }).success).toBe(false);
+  });
+
+  it("accepts printable Unicode public names but rejects control characters", () => {
+    expect(updateMeSchema.safeParse({ displayId: "浪人小明 🏄", showIdentityDefault: false }).success).toBe(true);
+    expect(updateMeSchema.safeParse({ displayId: "浪\n人", showIdentityDefault: false }).success).toBe(false);
+    expect(updateMeSchema.safeParse({ displayId: "浪\u200b人", showIdentityDefault: false }).success).toBe(false);
+    expect(updateMeSchema.safeParse({ displayId: "浪", showIdentityDefault: false }).success).toBe(false);
   });
 
   it("allows a private pending upload without spot or capture time", () => {
@@ -83,5 +94,12 @@ describe("domain validation", () => {
   it("accepts only the fixed public report reasons", () => {
     expect(reportVideoSchema.safeParse({ reason: "privacy" }).success).toBe(true);
     expect(reportVideoSchema.safeParse({ reason: "bad_waves" }).success).toBe(false);
+  });
+
+  it("accepts a concise problem report with only a known page context", () => {
+    expect(problemReportSchema.safeParse({ message: "播放按鈕沒有反應", view: "find" }).success).toBe(true);
+    expect(problemReportSchema.safeParse({ message: "太短", view: "find" }).success).toBe(false);
+    expect(problemReportSchema.safeParse({ message: "浪".repeat(301), view: "find" }).success).toBe(false);
+    expect(problemReportSchema.safeParse({ message: "播放按鈕沒有反應", view: "admin" }).success).toBe(false);
   });
 });

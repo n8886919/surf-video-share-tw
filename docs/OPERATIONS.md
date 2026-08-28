@@ -15,11 +15,15 @@ LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secr
 
 ## Deploy to the owner's Cloudflare account
 
-1. The production D1 binding is `DB`; apply `drizzle/` migrations with `pnpm db:migrate:remote`.
+1. The production D1 binding is `DB`; reviewed deployments apply pending `drizzle/` migrations before publishing.
 2. Configure `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, `CLOUDFLARE_STREAM_API_TOKEN`, and `CWA_API_KEY` as Worker secrets, never plaintext vars. For example: `pnpm exec wrangler secret put CWA_API_KEY`.
 3. After the first deployment, set `LINE_CALLBACK_URL` and `PUBLIC_SITE_ORIGIN` to the exact `workers.dev` origin and update the LINE Developers Console callback.
 4. Run `pnpm typecheck && pnpm test && pnpm build`.
-5. Deploy only after explicit approval. The current `pnpm deploy` applies pending remote D1 migrations before publishing, so it is intentionally not used during local product work.
+5. Deploy only after explicit approval. `pnpm deploy` requires a Workers Scripts Write plus D1 Edit deployment credential before making changes, applies pending remote migrations, publishes the Worker, PATCHes the complete script-level `observability` object, and immediately reads it back. The command fails unless `enabled: true`, `head_sampling_rate: 1`, and `redact_query_string: true` are all present after deployment.
+
+Workers Builds supplies its deployment token only inside Workers CI. For an approved local deployment, set `CLOUDFLARE_DEPLOY_API_TOKEN` in the parent process or in the git-ignored `.env.cloudflare-deploy`; do not place it in `.env.cloudflare-readonly`, documentation, chat, or Git. An inherited `CLOUDFLARE_API_TOKEN` is deliberately ignored outside Workers CI so a read-only audit token cannot be mistaken for deployment authority. The deployment script prints progress only and never prints token or Cloudflare response contents.
+
+If publication succeeds but the PATCH or read-back fails, `CWA_QUERY_STRING_REDACTION_VERIFIED=false` keeps credential-bearing CWA requests disabled. Correct the credential or transient Cloudflare failure and run `pnpm production:redaction`; this repeats only the complete PATCH and read-back, without publishing or migrating again. Do not change the CWA guard in the same recovery step.
 
 The Worker name in Cloudflare must remain `surf-video-share-tw` because Workers Builds requires it to match `wrangler.jsonc`.
 
@@ -31,13 +35,15 @@ Run `pnpm production:preflight`. The script performs only reads: secret-name lis
 
 The Stream token must include `Stream Write`; the scheduled lifecycle job uses the official [delete-video API](https://developers.cloudflare.com/api/resources/stream/methods/delete/) after the seven-day pending window.
 
-## Candidate thumbnails
+## Stream delivery and owner downloads
 
 - 找浪 comparison does not create a Stream player or request HLS/DASH manifests. Cloudflare documents that playback, preloading, and delivered video segments count toward [Stream delivery usage](https://developers.cloudflare.com/stream/pricing/), so only an explicit play action on the selected candidate creates playback data.
 - The public thumbnail endpoint uses the official [retrieve-video-details API](https://developers.cloudflare.com/api/resources/stream/methods/get/) and adds the documented `time=1s`, `height=270`, and `fit=crop` [thumbnail parameters](https://developers.cloudflare.com/stream/viewing-videos/displaying-thumbnails/). Redirects are browser-private cached for five minutes.
 - New uploads set `requireSignedURLs: true` and `allowedOrigins` to the hostname derived from validated HTTPS `PUBLIC_SITE_ORIGIN`. A missing or malformed origin fails before Stream creates an upload ticket. Cloudflare documents Allowed Origins as a playback control over embeds, manifests, and segments; the first-user E2E confirmed a wrong-origin iframe receives `403`.
 - Protected thumbnails receive a five-minute signed token and protected playback receives a 15-minute signed iframe token through Cloudflare's low-volume token endpoint. The token replaces the video ID; never fall back to an unsigned UID URL. Playback API responses are `no-store`. Stream thumbnails require the signed token but are not blocked by the playback origin allowlist, so the first-party lifecycle check and short token lifetime remain their access boundary.
 - The low-volume endpoint is appropriate for the first-user rollout, but every play and protected thumbnail miss makes control-plane requests. Watch token request volume and Stream delivery minutes; keep candidate images lazy, cache thumbnail redirects privately for five minutes, and do not preload iframe players.
+- Owner sharing uses Stream's [download-video API](https://developers.cloudflare.com/stream/viewing-videos/download-videos/) to generate an encoded MP4. The owner route polls generation state and, once ready, creates a 15-minute token with `downloadable: true`; it never returns an unsigned UID or the original upload. Video bytes travel from Stream to the browser, never through the Worker.
+- Native sharing is intentionally two-stage because the Web Share call needs a fresh user action after preparation. The client first checks `navigator.canShare({ files })`, keeps a conservative 50 MiB native-share ceiling for Chromium, and always offers a signed MP4 download fallback. Stream delivery CORS is not treated as guaranteed: if JavaScript cannot fetch the file, the browser follows the short-lived URL directly. Before deployment, verify MP4 generation and CORS with the real Stream account, then test system sharing and fallback download on Chrome Android, Safari iOS, and LINE's in-app browser. Do not claim a specific share target is guaranteed.
 
 Add preview/staging later as a separate Cloudflare environment with separate D1/Stream credentials, not shared production data.
 
@@ -74,7 +80,9 @@ Watch Stream stored minutes, delivered minutes, abandoned upload reservations, W
 
 - `UPLOAD_RATE_LIMITER` permits three upload-ticket creations per internal user ID per 60 seconds. It runs after input/spot validation and before Stream ticket creation or the D1 video insert.
 - `PLAYBACK_RATE_LIMITER` permits 20 playback-token creations per privacy-preserving client key per 60 seconds. The key is an HMAC of Cloudflare's client address using `SESSION_SECRET`; raw addresses are not logged, stored in D1, or passed as limiter keys.
-- Both bindings use separate account-unique namespaces in `wrangler.jsonc`. A rejected request returns `429`, `Retry-After: 60`, and creates no Stream control-plane request. A missing or failed binding returns `503` in production; explicit development mode may run without a binding for deterministic unit/local work.
+- `DOWNLOAD_RATE_LIMITER` permits 20 owner MP4 prepare/status requests per internal user ID per 60 seconds. It runs only after the ownership and public-lifecycle lookup and before any Stream control-plane request; the five-second client poll cadence stays within this burst ceiling.
+- `PROBLEM_REPORT_RATE_LIMITER` permits three anonymous product problem reports per privacy-preserving client key per 60 seconds. The raw address is not stored in D1 or used as a limiter key.
+- All four bindings use separate account-unique namespaces in `wrangler.jsonc`. A rejected request returns `429` and `Retry-After: 60`; upload/playback/download rejection creates no Stream control-plane request, and problem-report rejection creates no D1 report row. A missing or failed binding returns `503` in production; explicit development mode may run without a binding for deterministic unit/local work.
 - Cloudflare documents the [Workers Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) counters as per-location, permissive, and eventually consistent. They are a burst guard, not billing-grade accounting or a substitute for Stream/Workers budget alerts. Monitor Worker `429` logs and provider usage, and disable uploads if usage is abnormal.
 
 ## Emergency controls

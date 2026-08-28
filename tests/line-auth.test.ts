@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { beginLineLogin, finishLineLogin } from "../src/worker/auth";
 import type { AppEnv } from "../src/worker/db";
 
@@ -15,6 +15,8 @@ function configuredEnv(db: D1Database): AppEnv {
 }
 
 describe("LINE Login", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("starts a v2.1 authorization request with state, nonce, and PKCE", async () => {
     const writes: Array<{ sql: string; values: unknown[] }> = [];
     const db = {
@@ -62,5 +64,184 @@ describe("LINE Login", () => {
     );
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("/?login=invalid");
+  });
+
+  it("stores the verified LINE display name as a private suggestion", async () => {
+    const writes: Array<{ sql: string; values: unknown[] }> = [];
+    let userReads = 0;
+    const db = {
+      prepare(sql: string) {
+        let values: unknown[] = [];
+        const statement = {
+          bind(...nextValues: unknown[]) {
+            values = nextValues;
+            return statement;
+          },
+          async first() {
+            if (sql.includes("DELETE FROM oauth_attempts")) {
+              return {
+                nonce: "expected-nonce",
+                code_verifier: "expected-verifier",
+                expires_at: new Date(Date.now() + 60_000).toISOString(),
+              };
+            }
+            if (sql.includes("FROM users WHERE line_subject")) {
+              userReads += 1;
+              if (userReads === 1) return null;
+              return {
+                id: "internal-user-id",
+                line_display_name: "浪人小明 🏄",
+                display_id: null,
+                show_identity_default: 0,
+              };
+            }
+            return null;
+          },
+          async run() {
+            writes.push({ sql, values });
+            return { success: true };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ id_token: "verified-token" }))
+      .mockResolvedValueOnce(Response.json({
+        iss: "https://access.line.me",
+        sub: "U-private-subject",
+        name: "浪人小明 🏄",
+        aud: "2011238358",
+        exp: Math.floor(Date.now() / 1000) + 300,
+        nonce: "expected-nonce",
+      }));
+
+    const response = await finishLineLogin(
+      new Request("https://example.com/api/v1/auth/line/callback?state=valid-state&code=valid-code"),
+      configuredEnv(db),
+    );
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/");
+    const userWrite = writes.find(({ sql }) => sql.includes("INSERT INTO users"));
+    expect(userWrite?.values.slice(1, 3)).toEqual(["U-private-subject", "浪人小明 🏄"]);
+    expect(userWrite?.values.at(-1)).toBe(100);
+    expect(userWrite?.sql).toContain("(SELECT COUNT(*) FROM users) < ?");
+    expect(userWrite?.sql).not.toContain("display_id = excluded");
+    const existingUserUpdate = writes.find(({ sql }) => sql.includes("UPDATE users"));
+    expect(existingUserUpdate?.values).toEqual([
+      "浪人小明 🏄",
+      expect.any(String),
+      "U-private-subject",
+    ]);
+  });
+
+  it("keeps an existing LINE user eligible when registration is full", async () => {
+    const writes: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        let values: unknown[] = [];
+        const statement = {
+          bind(...nextValues: unknown[]) {
+            values = nextValues;
+            return statement;
+          },
+          async first() {
+            if (sql.includes("DELETE FROM oauth_attempts")) {
+              return {
+                nonce: "expected-nonce",
+                code_verifier: "expected-verifier",
+                expires_at: new Date(Date.now() + 60_000).toISOString(),
+              };
+            }
+            if (sql.includes("FROM users WHERE line_subject")) {
+              return {
+                id: "existing-user-id",
+                line_display_name: "既有浪人",
+                display_id: null,
+                show_identity_default: 0,
+              };
+            }
+            return null;
+          },
+          async run() {
+            writes.push({ sql, values });
+            return { success: true };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ id_token: "verified-token" }))
+      .mockResolvedValueOnce(Response.json({
+        iss: "https://access.line.me",
+        sub: "U-existing-subject",
+        name: "既有浪人",
+        aud: "2011238358",
+        exp: Math.floor(Date.now() / 1000) + 300,
+        nonce: "expected-nonce",
+      }));
+
+    const response = await finishLineLogin(
+      new Request("https://example.com/api/v1/auth/line/callback?state=valid-state&code=valid-code"),
+      configuredEnv(db),
+    );
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/");
+    expect(writes.some(({ sql }) => sql.includes("INSERT INTO users"))).toBe(false);
+    expect(writes.some(({ sql }) => sql.includes("INSERT INTO auth_sessions"))).toBe(true);
+  });
+
+  it("rejects a new LINE user when all 100 registration slots are occupied", async () => {
+    const writes: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        let values: unknown[] = [];
+        const statement = {
+          bind(...nextValues: unknown[]) {
+            values = nextValues;
+            return statement;
+          },
+          async first() {
+            if (sql.includes("DELETE FROM oauth_attempts")) {
+              return {
+                nonce: "expected-nonce",
+                code_verifier: "expected-verifier",
+                expires_at: new Date(Date.now() + 60_000).toISOString(),
+              };
+            }
+            return null;
+          },
+          async run() {
+            writes.push({ sql, values });
+            return { success: true };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(Response.json({ id_token: "verified-token" }))
+      .mockResolvedValueOnce(Response.json({
+        iss: "https://access.line.me",
+        sub: "U-new-subject-at-capacity",
+        name: "晚來的浪人",
+        aud: "2011238358",
+        exp: Math.floor(Date.now() / 1000) + 300,
+        nonce: "expected-nonce",
+      }));
+
+    const response = await finishLineLogin(
+      new Request("https://example.com/api/v1/auth/line/callback?state=valid-state&code=valid-code"),
+      configuredEnv(db),
+    );
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/?login=capacity");
+    const attemptedInsert = writes.find(({ sql }) => sql.includes("INSERT INTO users"));
+    expect(attemptedInsert?.values.at(-1)).toBe(100);
+    expect(writes.some(({ sql }) => sql.includes("INSERT INTO auth_sessions"))).toBe(false);
   });
 });

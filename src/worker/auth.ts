@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_REGISTERED_USERS } from "../../packages/domain/src";
 import type { AppEnv, UserRow } from "./db";
 import { getOrCreateDevUser } from "./db";
 
@@ -13,6 +14,7 @@ const tokenResponseSchema = z.object({
 const verifiedIdTokenSchema = z.object({
   iss: z.literal("https://access.line.me"),
   sub: z.string().min(1),
+  name: z.string().min(1).optional(),
   aud: z.string().min(1),
   exp: z.number().int(),
   nonce: z.string().min(1),
@@ -30,6 +32,8 @@ interface OAuthAttemptRow {
   code_verifier: string;
   expires_at: string;
 }
+
+class RegistrationCapacityError extends Error {}
 
 export interface AuthenticatedUser {
   user: UserRow;
@@ -160,17 +164,40 @@ async function takeOAuthAttempt(env: AppEnv, stateHash: string): Promise<OAuthAt
   ).bind(stateHash).first<OAuthAttemptRow>();
 }
 
-async function getOrCreateLineUser(env: AppEnv, lineSubject: string): Promise<UserRow> {
+async function getOrCreateLineUser(
+  env: AppEnv,
+  lineSubject: string,
+  lineDisplayName: string | null,
+): Promise<UserRow> {
   const now = new Date().toISOString();
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO users
-     (id, line_subject, display_id, show_identity_default, created_at, updated_at)
-     VALUES (?, ?, NULL, 0, ?, ?)`,
-  ).bind(crypto.randomUUID(), lineSubject, now, now).run();
-  const user = await env.DB.prepare(
-    `SELECT id, display_id, show_identity_default FROM users WHERE line_subject = ?`,
+    `UPDATE users
+     SET line_display_name = COALESCE(?, line_display_name), updated_at = ?
+     WHERE line_subject = ?`,
+  ).bind(lineDisplayName, now, lineSubject).run();
+  const existingUser = await env.DB.prepare(
+    `SELECT id, line_display_name, display_id, show_identity_default FROM users WHERE line_subject = ?`,
   ).bind(lineSubject).first<UserRow>();
-  if (!user) throw new Error("LINE user record was not created");
+  if (existingUser) return existingUser;
+
+  await env.DB.prepare(
+    `INSERT INTO users
+     (id, line_subject, line_display_name, display_id, show_identity_default, created_at, updated_at)
+     SELECT ?, ?, ?, NULL, 0, ?, ?
+     WHERE (SELECT COUNT(*) FROM users) < ?
+     ON CONFLICT(line_subject) DO NOTHING`,
+  ).bind(
+    crypto.randomUUID(),
+    lineSubject,
+    lineDisplayName,
+    now,
+    now,
+    MAX_REGISTERED_USERS,
+  ).run();
+  const user = await env.DB.prepare(
+    `SELECT id, line_display_name, display_id, show_identity_default FROM users WHERE line_subject = ?`,
+  ).bind(lineSubject).first<UserRow>();
+  if (!user) throw new RegistrationCapacityError();
   return user;
 }
 
@@ -230,7 +257,13 @@ export async function finishLineLogin(request: Request, env: AppEnv): Promise<Re
     return redirect("/?login=failed");
   }
 
-  const user = await getOrCreateLineUser(env, verified.data.sub);
+  let user: UserRow;
+  try {
+    user = await getOrCreateLineUser(env, verified.data.sub, verified.data.name?.trim() || null);
+  } catch (error) {
+    if (error instanceof RegistrationCapacityError) return redirect("/?login=capacity");
+    throw error;
+  }
   const sessionToken = randomBase64Url(48);
   const sessionHash = await hmacHex(config.sessionSecret, sessionToken);
   const now = new Date();
@@ -257,7 +290,7 @@ export async function getAuthenticatedUser(request: Request, env: AppEnv): Promi
   const sessionHash = await hmacHex(config.sessionSecret, sessionToken);
   const now = new Date().toISOString();
   const user = await env.DB.prepare(
-    `SELECT u.id, u.display_id, u.show_identity_default
+    `SELECT u.id, u.line_display_name, u.display_id, u.show_identity_default
      FROM auth_sessions a
      JOIN users u ON u.id = a.user_id
      WHERE a.id_hash = ? AND a.expires_at > ?`,

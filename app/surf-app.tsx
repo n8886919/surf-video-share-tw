@@ -7,7 +7,9 @@ import type {
   ObservationResponse as Observation,
   PlaybackResponse,
   PublicMatchesResponse,
+  VideoDownloadResponse,
 } from "../packages/api-contract/src";
+import { MAX_UPLOAD_BYTES } from "../packages/api-contract/src";
 import { PROJECT_PURPOSE } from "../packages/domain/src/project-purpose";
 import { PUBLIC_MEDIA_NOTICE } from "../packages/domain/src/public-terms";
 
@@ -15,6 +17,7 @@ type View = "find" | "upload" | "mine";
 
 interface Me {
   id: string;
+  suggestedDisplayName: string | null;
   displayId: string | null;
   showIdentityDefault: boolean;
   authMode: string;
@@ -100,18 +103,25 @@ function Brand() {
       {/* The supplied logo is a checked-in static brand asset. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand-logo.png" alt="" width="38" height="38" className="brand-logo" />
-      <span>浪影互助</span>
+      <span>彼日浪影</span>
     </div>
   );
 }
 
-function LoginRequired({ setupError }: { setupError?: string | null }) {
+function LoginRequired({ setupError, capacityReached }: {
+  setupError?: string | null;
+  capacityReached?: boolean;
+}) {
+  const title = capacityReached ? "內部測試名額已滿" : setupError ? "登入尚未就緒" : "這裡需要登入";
+  const message = capacityReached
+    ? "目前先開放 100 位使用者；既有使用者仍可正常登入。"
+    : setupError || "使用 LINE 登入後即可上傳與管理自己的影片。";
   return (
     <section className="auth-card">
       <Icon name="user" />
-      <h2>{setupError ? "登入尚未就緒" : "這裡需要登入"}</h2>
-      <p>{setupError || "使用 LINE 登入後即可上傳與管理自己的影片。"}</p>
-      {!setupError && <a className="line-login-button" href="/api/v1/auth/line">使用 LINE 登入</a>}
+      <h2>{title}</h2>
+      <p>{message}</p>
+      {!setupError && !capacityReached && <a className="line-login-button" href="/api/v1/auth/line">使用 LINE 登入</a>}
     </section>
   );
 }
@@ -119,7 +129,7 @@ function LoginRequired({ setupError }: { setupError?: string | null }) {
 function BottomNav({ view, onChange }: { view: View; onChange: (view: View) => void }) {
   return (
     <nav className="bottom-nav" aria-label="主要分頁">
-      <button className={view === "find" ? "active" : ""} onClick={() => onChange("find")}><Icon name="search"/><span>找浪</span></button>
+      <button className={view === "find" ? "active" : ""} onClick={() => onChange("find")}><Icon name="search"/><span>彼日浪影</span></button>
       <button className={`upload-tab ${view === "upload" ? "active" : ""}`} onClick={() => onChange("upload")}><span className="upload-circle"><Icon name="upload"/></span><span>上傳</span></button>
       <button className={view === "mine" ? "active" : ""} onClick={() => onChange("mine")}><Icon name="user"/><span>我的</span></button>
     </nav>
@@ -136,6 +146,21 @@ const REPORT_REASONS = [
   ["copyright", "侵權"],
   ["irrelevant", "與浪況無關"],
 ] as const;
+
+const MAX_NATIVE_SHARE_FILE_BYTES = 50 * 1024 * 1024;
+
+type ShareStatus = "idle" | "preparing" | "loading-file" | "ready" | "download-only";
+
+function canShareFile(file: File): boolean {
+  try {
+    return typeof navigator !== "undefined"
+      && typeof navigator.share === "function"
+      && typeof navigator.canShare === "function"
+      && navigator.canShare({ files: [file] });
+  } catch {
+    return false;
+  }
+}
 
 function ObservationCard({ observation, ownerActions, enablePlayback = false }: {
   observation: Observation;
@@ -155,11 +180,29 @@ function ObservationCard({ observation, ownerActions, enablePlayback = false }: 
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
   const [playbackLoading, setPlaybackLoading] = useState(false);
+  const [shareStatus, setShareStatus] = useState<ShareStatus>("idle");
+  const [shareProgress, setShareProgress] = useState<number | null>(null);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [preparedFile, setPreparedFile] = useState<File | null>(null);
+  const [preparedObjectUrl, setPreparedObjectUrl] = useState<string | null>(null);
   const c = observation.conditions;
   const pending = observation.metadataStatus === "pending";
+  const canShareOwnerVideo = Boolean(
+    ownerActions
+    && observation.metadataStatus === "complete"
+    && observation.status === "ready"
+    && observation.publicAt
+    && observation.termsVersion
+    && observation.moderationStatus !== "delisted"
+  );
   const remainingDays = observation.metadataExpiresAt
     ? Math.max(0, Math.ceil((new Date(observation.metadataExpiresAt).getTime() - new Date().getTime()) / 86_400_000))
     : null;
+
+  useEffect(() => () => {
+    if (preparedObjectUrl) URL.revokeObjectURL(preparedObjectUrl);
+  }, [preparedObjectUrl]);
 
   async function patch(values: Record<string, unknown>) {
     if (!ownerActions) return;
@@ -196,6 +239,95 @@ function ObservationCard({ observation, ownerActions, enablePlayback = false }: 
       setError(caught instanceof Error ? caught.message : "影片播放失敗");
     } finally {
       setPlaybackLoading(false);
+    }
+  }
+
+  async function prepareShare() {
+    setError(null);
+    setShareNotice(null);
+    setShareProgress(null);
+    setDownloadUrl(null);
+    setPreparedFile(null);
+    setPreparedObjectUrl(null);
+    setShareStatus("preparing");
+
+    try {
+      let result: VideoDownloadResponse | null = null;
+      for (let attempt = 0; attempt < 13; attempt += 1) {
+        result = await api<VideoDownloadResponse>(`/videos/${observation.id}/download`, {
+          method: "POST",
+        });
+        if (result.type === "mock") {
+          throw new Error("Mock 開發模式不會產生實際 MP4。");
+        }
+        if (result.state === "ready") break;
+        setShareProgress(result.percentComplete);
+        if (attempt === 12) {
+          throw new Error("影片仍在準備中，請稍後再試。");
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 5_000));
+      }
+
+      if (!result || result.type !== "download" || result.state !== "ready") {
+        throw new Error("影片下載目前無法使用。");
+      }
+      setDownloadUrl(result.downloadUrl);
+
+      const probeFile = new File([], "surf-video.mp4", { type: "video/mp4" });
+      if (!canShareFile(probeFile)) {
+        setShareStatus("download-only");
+        setShareNotice("這個瀏覽器不支援影片檔分享；請先下載 MP4，再從 LINE 或其他 App 分享。");
+        return;
+      }
+
+      setShareStatus("loading-file");
+      let response: Response;
+      try {
+        response = await fetch(result.downloadUrl, {
+          cache: "no-store",
+          credentials: "omit",
+        });
+        if (!response.ok) throw new Error("Download failed");
+      } catch {
+        setShareStatus("download-only");
+        setShareNotice("瀏覽器無法直接讀取影片檔；請用下方連結下載後分享。");
+        return;
+      }
+
+      const contentLength = Number(response.headers.get("content-length"));
+      if (Number.isFinite(contentLength) && contentLength > MAX_NATIVE_SHARE_FILE_BYTES) {
+        await response.body?.cancel();
+        setShareStatus("download-only");
+        setShareNotice("影片超過此瀏覽器可分享的大小；請先下載 MP4，再從其他 App 分享。");
+        return;
+      }
+
+      const blob = await response.blob();
+      const file = new File([blob], "surf-video.mp4", { type: "video/mp4" });
+      const objectUrl = URL.createObjectURL(blob);
+      setPreparedObjectUrl(objectUrl);
+      if (file.size > MAX_NATIVE_SHARE_FILE_BYTES || !canShareFile(file)) {
+        setShareStatus("download-only");
+        setShareNotice("影片超過此瀏覽器可分享的大小；請先下載 MP4，再從其他 App 分享。");
+        return;
+      }
+      setPreparedFile(file);
+      setShareStatus("ready");
+      setShareNotice("影片已準備好，請再按一次開啟系統分享選單。");
+    } catch (caught) {
+      setShareStatus("idle");
+      setError(caught instanceof Error ? caught.message : "影片下載目前無法使用");
+    }
+  }
+
+  async function sharePreparedVideo() {
+    if (!preparedFile || typeof navigator.share !== "function") return;
+    setError(null);
+    try {
+      await navigator.share({ files: [preparedFile] });
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      setError(caught instanceof Error ? caught.message : "系統分享選單無法開啟");
     }
   }
 
@@ -249,8 +381,22 @@ function ObservationCard({ observation, ownerActions, enablePlayback = false }: 
         </div>
         {observation.funReaction && <p className={`fun-reaction ${observation.funReaction}`}>{observation.funReaction === "fun" ? "👍 上傳者那天玩得開心" : "👎 上傳者那天玩得不開心"}</p>}
         {observation.uploaderNote && !ownerActions && <p className="uploader-note">{observation.uploaderNote}</p>}
+        {canShareOwnerVideo && <div className="owner-share-panel">
+          {shareStatus === "idle" && <button className="share-video-button" type="button" onClick={() => void prepareShare()}>分享我的影片</button>}
+          {shareStatus === "preparing" && <button className="share-video-button" type="button" disabled>準備 MP4{shareProgress == null ? "…" : `… ${shareProgress}%`}</button>}
+          {shareStatus === "loading-file" && <button className="share-video-button" type="button" disabled>載入分享檔案…</button>}
+          {shareStatus === "ready" && <button className="share-video-button" type="button" onClick={() => void sharePreparedVideo()}>開啟系統分享選單</button>}
+          {shareStatus === "download-only" && <button className="share-video-button secondary" type="button" onClick={() => void prepareShare()}>重新準備分享</button>}
+          {shareNotice && <p aria-live="polite">{shareNotice}</p>}
+          {(preparedObjectUrl || downloadUrl) && shareStatus !== "preparing" && <a
+            className="download-video-link"
+            href={preparedObjectUrl || downloadUrl || undefined}
+            download="surf-video.mp4"
+          >下載 MP4（非原始檔）</a>}
+          <small>下載的是 Stream 轉出的 MP4；短效連結約 15 分鐘有效。</small>
+        </div>}
         {ownerActions && <div className="owner-controls">
-          <label className="switch-row"><span><strong>顯示公開 ID</strong></span><input type="checkbox" checked={Boolean(observation.showUploader)} onChange={(event) => void patch({ showUploader: event.target.checked })}/></label>
+          <label className="switch-row"><span><strong>顯示公開名稱</strong></span><input type="checkbox" checked={Boolean(observation.showUploader)} onChange={(event) => void patch({ showUploader: event.target.checked })}/></label>
           <div className="fun-field"><span>那天玩得如何？（公開、選填）</span><div><button className={observation.funReaction === "fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "fun" ? null : "fun" })}>👍 開心</button><button className={observation.funReaction === "not_fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "not_fun" ? null : "not_fun" })}>👎 不開心</button></div></div>
           <label className="note-field"><span>上傳者補充（公開、CC0、選填，最多 100 字）</span><input value={note} maxLength={100} placeholder="那天想補充什麼？" onChange={(event) => setNote(event.target.value)} onBlur={() => { if (note !== (observation.uploaderNote || "")) void patch({ uploaderNote: note.trim() || null }); }}/></label>
         </div>}
@@ -273,6 +419,78 @@ function ForecastCard({ forecast }: { forecast: Forecast }) {
       <p>此來源獨立顯示，未與其他模型平均。</p>
     </article>
   );
+}
+
+function ProblemReport({ view }: { view: View }) {
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && status !== "sending") setOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open, status]);
+
+  function close() {
+    if (status === "sending") return;
+    setOpen(false);
+    setMessage("");
+    setStatus("idle");
+    setError(null);
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus("sending");
+    setError(null);
+    try {
+      await api("/problem-reports", {
+        method: "POST",
+        body: JSON.stringify({ message, view }),
+      });
+      setStatus("sent");
+      setMessage("");
+    } catch (caught) {
+      setStatus("idle");
+      setError(caught instanceof Error ? caught.message : "問題回報送出失敗");
+    }
+  }
+
+  return <>
+    <button className="problem-report-trigger" type="button" onClick={() => setOpen(true)}>問題回報</button>
+    {open && <div className="problem-report-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+      <section className="problem-report-dialog" role="dialog" aria-modal="true" aria-labelledby="problem-report-title">
+        {status === "sent" ? <div className="problem-report-success" aria-live="polite">
+          <strong id="problem-report-title">已收到，謝謝你</strong>
+          <p>我們會查看這則問題回報。</p>
+          <button className="small-primary" type="button" onClick={close}>完成</button>
+        </div> : <form onSubmit={(event) => void submit(event)}>
+          <div className="problem-report-heading">
+            <div><h2 id="problem-report-title">問題回報</h2><p>簡短描述發生什麼事即可，不需留下個資。</p></div>
+            <button type="button" aria-label="關閉問題回報" onClick={close}>×</button>
+          </div>
+          <label htmlFor="problem-report-message">遇到什麼問題？</label>
+          <textarea
+            id="problem-report-message"
+            autoFocus
+            required
+            minLength={5}
+            maxLength={300}
+            value={message}
+            placeholder="例如：按下播放後沒有反應"
+            onChange={(event) => setMessage(event.target.value)}
+          />
+          <div className="problem-report-meta"><span>{message.length}/300</span>{error && <span className="inline-error">{error}</span>}</div>
+          <button className="small-primary" type="submit" disabled={status === "sending" || message.trim().length < 5}>{status === "sending" ? "送出中…" : "送出"}</button>
+        </form>}
+      </section>
+    </div>}
+  </>;
 }
 
 function compactMetric(value: number | null, unit: string): string {
@@ -351,7 +569,7 @@ function MatchComparisonGroup({ group }: { group: MatchGroup }) {
   );
 }
 
-export function SurfApp() {
+export function SurfApp({ capacityReached = false }: { capacityReached?: boolean }) {
   const [view, setView] = useState<View>("find");
   const [spots, setSpots] = useState<Spot[]>([]);
   const [me, setMe] = useState<Me | null>(null);
@@ -396,8 +614,9 @@ export function SurfApp() {
     <main className="app-shell">
       <header className="topbar"><Brand/>{me && <span className="public-id">{me.displayId || "匿名"}</span>}</header>
       {view === "find" && <FindView spots={spots}/>}
-      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError}/></div>)}
-      {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError}/></div>)}
+      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} capacityReached={capacityReached}/></div>)}
+      {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} capacityReached={capacityReached}/></div>)}
+      <ProblemReport view={view}/>
       <BottomNav view={view} onChange={setView}/>
     </main>
   );
@@ -464,7 +683,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   const [error, setError] = useState<string | null>(null);
 
   async function inspectVideo(selected: File) {
-    if (selected.size > 200 * 1024 * 1024) throw new Error("影片不可超過 200 MB");
+    if (selected.size > MAX_UPLOAD_BYTES) throw new Error("影片不可超過 200 MB");
     if (!selected.type.startsWith("video/")) throw new Error("請選擇影片檔案");
     const hinted = new Date(selected.lastModified);
     if (!Number.isNaN(hinted.getTime()) && hinted <= new Date() && hinted >= new Date(Date.now() - 7 * 86_400_000)) setCapturedAt(toLocalDateTime(hinted));
@@ -508,10 +727,10 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
 
   return <div className="screen upload-screen"><div className="page-title"><h1>上傳</h1><p>5–60 秒，最多 200 MB</p></div>
     <form onSubmit={submit} className="upload-form">
-      <label className={`file-picker ${file ? "has-file" : ""}`}><input type="file" accept="video/*" onChange={(event) => { const selected = event.target.files?.[0]; if (selected) void inspectVideo(selected).catch((caught) => setError(caught instanceof Error ? caught.message : "無法讀取影片")); }}/><span className="file-icon"><Icon name="upload"/></span><strong>{file?.name || "選擇影片"}</strong><small>{file && duration ? `${duration.toFixed(1)} 秒 · ${(file.size / 1024 / 1024).toFixed(1)} MB` : "會優先讀取檔案時間"}</small></label>
+      <label className={`file-picker ${file ? "has-file" : ""}`}><input type="file" accept="video/*" onChange={(event) => { const selected = event.target.files?.[0]; if (selected) void inspectVideo(selected).catch((caught) => setError(caught instanceof Error ? caught.message : "無法讀取影片")); }}/><span className="file-icon"><Icon name="upload"/></span><strong>{file?.name || "選擇影片"}</strong><small>{file && duration ? `${duration.toFixed(1)} 秒 · ${(file.size / 1_000_000).toFixed(1)} MB` : "會優先讀取檔案時間"}</small></label>
       <div className="two-fields"><label><span>浪點</span><select value={spotId} onChange={(event) => setSpotId(event.target.value)}><option value="">稍後補</option>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select></label><label><span>拍攝時間</span><input type="datetime-local" min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} value={capturedAt} onChange={(event) => setCapturedAt(event.target.value)}/></label></div>
       <p className="pending-help">缺浪點或拍攝時間仍可上傳，但不公開，需在 7 天內補齊。</p>
-      <label className="switch-row"><span><strong>顯示公開 ID</strong><small>{me.displayId || "先到「我的」設定 ID"}</small></span><input type="checkbox" disabled={!me.displayId} checked={showUploader} onChange={(event) => setShowUploader(event.target.checked)}/></label>
+      <label className="switch-row"><span><strong>顯示公開名稱</strong><small>{me.displayId || "先到「我的」確認公開名稱"}</small></span><input type="checkbox" disabled={!me.displayId} checked={showUploader} onChange={(event) => setShowUploader(event.target.checked)}/></label>
       <div className="public-notice"><strong>公開提醒</strong><span>{PUBLIC_MEDIA_NOTICE}</span></div>
       {error && <div className="error-message">{error}</div>}{progress && <div className="progress-message"><span className="spinner"/>{progress}</div>}
       <button className="submit-button" disabled={!file || Boolean(progress)}>{progress ? "處理中" : "上傳影片"}</button>
@@ -553,12 +772,12 @@ function AdminReports() {
 function MineView({ me, spots, observations, onPatch, onMeChange }: { me: Me; spots: Spot[]; observations: Observation[]; onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>; onMeChange: (me: Me) => void }) {
   const [filter, setFilter] = useState("all");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [displayId, setDisplayId] = useState(me.displayId || "");
+  const [displayId, setDisplayId] = useState(me.displayId || me.suggestedDisplayName || "");
   const [defaultVisible, setDefaultVisible] = useState(me.showIdentityDefault);
   const [error, setError] = useState<string | null>(null);
   const filtered = useMemo(() => observations.filter((item) => filter === "all" || filter === "pending" && item.metadataStatus === "pending" || item.spot?.id === filter), [filter, observations]);
   return <div className="screen mine-screen"><div className="page-title mine-title"><div><h1>我的</h1><p>{observations.length} 段影片</p></div><button className="settings-button" onClick={() => setSettingsOpen((open) => !open)}>設定</button></div>
-    {settingsOpen && <section className="profile-panel"><label><span>公開 ID</span><input value={displayId} maxLength={24} pattern="[A-Za-z0-9._-]+" onChange={(event) => setDisplayId(event.target.value)} placeholder="例如 nolan.surf"/></label><label className="switch-row"><span><strong>新影片預設顯示 ID</strong></span><input type="checkbox" checked={defaultVisible} disabled={!displayId.trim()} onChange={(event) => setDefaultVisible(event.target.checked)}/></label>{error && <p className="inline-error">{error}</p>}<button className="small-primary" onClick={() => { setError(null); void api<Pick<Me, "displayId" | "showIdentityDefault">>("/me", { method: "PATCH", body: JSON.stringify({ displayId: displayId.trim() || null, showIdentityDefault: defaultVisible }) }).then((updated) => onMeChange({ ...me, ...updated })).catch((caught) => setError(caught instanceof Error ? caught.message : "儲存失敗")); }}>儲存設定</button>{me.isAdmin && <AdminReports/>}{me.authMode === "line" && <form action="/api/v1/auth/logout" method="post"><button className="logout-button">登出 LINE</button></form>}</section>}
+    {settingsOpen && <section className="profile-panel"><label><span>公開名稱</span><input value={displayId} minLength={2} maxLength={24} onChange={(event) => setDisplayId(event.target.value)} placeholder="例如 浪人小明"/></label><label className="switch-row"><span><strong>新影片預設顯示公開名稱</strong></span><input type="checkbox" checked={defaultVisible} disabled={!displayId.trim()} onChange={(event) => setDefaultVisible(event.target.checked)}/></label>{!me.displayId && me.suggestedDisplayName && <p className="pending-help">已從 LINE 預填，儲存後才會成為本站公開名稱。</p>}{error && <p className="inline-error">{error}</p>}<button className="small-primary" onClick={() => { setError(null); void api<Pick<Me, "displayId" | "showIdentityDefault">>("/me", { method: "PATCH", body: JSON.stringify({ displayId: displayId.trim() || null, showIdentityDefault: defaultVisible }) }).then((updated) => onMeChange({ ...me, ...updated })).catch((caught) => setError(caught instanceof Error ? caught.message : "儲存失敗")); }}>儲存設定</button>{me.isAdmin && <AdminReports/>}{me.authMode === "line" && <form action="/api/v1/auth/logout" method="post"><button className="logout-button">登出 LINE</button></form>}</section>}
     <div className="filter-row"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button><button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>待補</button>{spots.map((spot) => <button key={spot.id} className={filter === spot.id ? "active" : ""} onClick={() => setFilter(spot.id)}>{spot.name}</button>)}</div>
     {filtered.length ? <div className="record-list">{filtered.map((item) => <ObservationCard key={item.id} observation={item} ownerActions={{ spots, onPatch }}/>)}</div> : <div className="info-state"><Icon name="wave"/><p>這個篩選還沒有影片。</p></div>}
   </div>;

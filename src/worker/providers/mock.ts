@@ -4,6 +4,7 @@ import {
 } from "../../../packages/domain/src";
 import type {
   ConditionsQuery,
+  DownloadTicket,
   MarineConditionsProvider,
   TideProvider,
   PlaybackTicket,
@@ -34,6 +35,16 @@ export class MockVideoProvider implements VideoProvider {
 
   async createPlayback(): Promise<PlaybackTicket> {
     return { type: "mock", iframeUrl: null, expiresAt: null };
+  }
+
+  async prepareDownload(): Promise<DownloadTicket> {
+    return {
+      type: "mock",
+      state: "ready",
+      percentComplete: 100,
+      downloadUrl: null,
+      expiresAt: null,
+    };
   }
 
   async deleteVideo(): Promise<void> {}

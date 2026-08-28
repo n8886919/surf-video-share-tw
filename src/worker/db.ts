@@ -20,6 +20,8 @@ export interface AppEnv {
   PUBLIC_SITE_ORIGIN?: string;
   UPLOAD_RATE_LIMITER?: RateLimit;
   PLAYBACK_RATE_LIMITER?: RateLimit;
+  DOWNLOAD_RATE_LIMITER?: RateLimit;
+  PROBLEM_REPORT_RATE_LIMITER?: RateLimit;
   LINE_CHANNEL_ID?: string;
   LINE_CHANNEL_SECRET?: string;
   LINE_CALLBACK_URL?: string;
@@ -31,6 +33,7 @@ export interface AppEnv {
 
 export interface UserRow {
   id: string;
+  line_display_name: string | null;
   display_id: string | null;
   show_identity_default: number;
 }
@@ -49,6 +52,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY NOT NULL,
     line_subject TEXT NOT NULL,
+    line_display_name TEXT,
     display_id TEXT,
     show_identity_default INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT NOT NULL,
@@ -194,6 +198,16 @@ const schemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS video_reports_status_created_at_idx ON video_reports (status, created_at)`,
   `CREATE INDEX IF NOT EXISTS video_reports_video_id_idx ON video_reports (video_id)`,
+  `CREATE TABLE IF NOT EXISTS problem_reports (
+    id TEXT PRIMARY KEY NOT NULL,
+    message TEXT NOT NULL,
+    view TEXT NOT NULL,
+    status TEXT DEFAULT 'open' NOT NULL,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT,
+    resolved_by_user_id TEXT REFERENCES users(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS problem_reports_status_created_at_idx ON problem_reports (status, created_at)`,
 ] as const;
 
 function parseSeedCsv(): Array<{
@@ -265,11 +279,11 @@ export async function getOrCreateDevUser(env: AppEnv): Promise<UserRow | null> {
   const now = new Date().toISOString();
   await env.DB.prepare(
     `INSERT OR IGNORE INTO users
-     (id, line_subject, display_id, show_identity_default, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).bind("user_dev_local", "dev-only-subject", "wave-friend", 1, now, now).run();
+     (id, line_subject, line_display_name, display_id, show_identity_default, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).bind("user_dev_local", "dev-only-subject", "Wave Friend", "wave-friend", 1, now, now).run();
   return env.DB.prepare(
-    `SELECT id, display_id, show_identity_default FROM users WHERE id = ?`,
+    `SELECT id, line_display_name, display_id, show_identity_default FROM users WHERE id = ?`,
   ).bind("user_dev_local").first<UserRow>();
 }
 

@@ -14,6 +14,12 @@ Playback is also provider-neutral and user-initiated. Only the expanded candidat
 
 Upload creates a private record and direct Stream ticket. Completion verifies provider status. If spot and time are present and valid, the record can become public; otherwise it remains private until supplemented or expired. Condition enrichment runs best-effort and cannot roll back a successful media completion.
 
+LINE registration has a database-enforced 100-user ceiling for the internal test. Existing subjects are looked up and updated first, so they continue to sign in at capacity. A new subject is inserted only by a single conditional `INSERT ... SELECT` whose count predicate is evaluated with the write; a full registry creates neither a user nor a session.
+
+Owner sharing remains a provider-neutral export path rather than personal-drive storage. An authenticated first-party route rechecks ownership plus the complete/ready/public/terms/visible lifecycle, asks the video provider to generate or inspect an encoded MP4, and returns only a short-lived downloadable ticket. The browser polls control-plane status, then fetches video bytes directly from Stream for native file sharing or follows the signed download URL as a fallback. The Worker never buffers or proxies the media, and D1 needs no download-state column because Stream owns that derived-asset state.
+
+Anonymous product problem reports use a separate public write route and D1 table rather than the video-moderation lifecycle. The Worker validates the single short message plus UI view and rate limits an HMAC-pseudonymized client key; the database receives no reporter identity or raw address. Only the configured administrator can list or resolve these rows.
+
 ## Lifecycle path
 
 The six-hour Cron also scans globally for incomplete videos whose seven-day metadata window has expired. A conditional D1 update claims each row with an internal `deleting` state before the provider call, so a concurrent metadata completion cannot delete a valid upload. Failed or interrupted claims become eligible again after a 15-minute lease; successful provider deletion is followed by a conditional D1 delete. Owner-list cleanup uses the same path as a low-latency fallback.
