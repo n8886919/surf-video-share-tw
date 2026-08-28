@@ -19,12 +19,14 @@ One Cloudflare Worker contains a React mobile UI and a Hono `/api/v1` boundary. 
 ## Local development
 
 ```bash
-cp .env.example .env.local
+cp .dev.vars.example .dev.vars
 pnpm install
+pnpm db:migrate:local
 pnpm dev
 ```
 
-The checked-in Vite development binding explicitly enables fake auth, mock video, and mock conditions. Production never silently falls back to mocks.
+PowerShell equivalent for the first command: `Copy-Item .dev.vars.example .dev.vars`.
+The git-ignored `.dev.vars` explicitly enables fake auth, mock video, and mock conditions. Do not put production secrets in it. Production never silently falls back to mocks.
 
 ## Verify
 

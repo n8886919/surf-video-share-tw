@@ -22,6 +22,9 @@ Updated: 2026-08-28. This describes the current local worktree; production may b
 - `pnpm production:preflight` now provides a repeatable read-only remote audit. It lists secret names, active version binding names/types, pending migration filenames, and query-string redaction status while omitting all secret and plaintext binding values.
 - The preflight explicitly prefers a nonblank process token and otherwise parses `.env.cloudflare-readonly`; an inherited blank environment variable can no longer suppress the ignored file.
 - CWA ingestion now requires both `CWA_API_KEY` and `CWA_QUERY_STRING_REDACTION_VERIFIED=true`. The reviewed first-user configuration sets the guard to `false`, so a deployment cannot issue credential-bearing CWA queries until redaction has been read back as enabled. ECMWF WAM remains independent.
+- The Windows workstation is now self-contained for this project: Node 22, the repository-pinned pnpm 11 shim, GitHub reads, Wrangler OAuth, local D1, mock-only development, builds, dry-runs, and production read-only preflight all run without the former `penguin` environment. The transferred Wrangler credential was verified on Windows and removed from `penguin`.
+- `.dev.vars.example` is the tracked mock-only Worker development template; the real `.dev.vars` is git-ignored. Local Vite therefore uses development auth plus mock video/conditions and does not load the ignored production-operation token files.
+- `@cloudflare/vite-plugin` is pinned to `1.54.1`, Wrangler to `4.127.0`, and matching Worker types to `5.20260826.1`. Their workerd `1.20260826.1` supports the configured `2026-08-24` compatibility date; the previous runtime stopped local development before startup.
 - Migrations `0000` through `0004` exist. This checkpoint adds no schema migration.
 
 ## Verification
@@ -35,6 +38,8 @@ Updated: 2026-08-28. This describes the current local worktree; production may b
 | rendered-site test | pass, 1 test | 2026-08-28 |
 | `pnpm deploy:dry-run` | pass; generated files only, no deployment | 2026-08-28 |
 | `wrangler deploy --dry-run` | pass; D1 plus both rate-limit bindings present | 2026-08-28 |
+| Windows local development | pass; mock `.dev.vars`, local D1 `0000`–`0004`, home/health/spots/dev `/me` all returned `200` | 2026-08-28 |
+| Windows Wrangler/preflight | pass; OAuth authenticated and production audit completed without `penguin` | 2026-08-28 |
 | migration chain | not rerun; prior `0000`→`0004` SQLite integrity/foreign-key check passed | 2026-08-25 |
 
 ## Production status
@@ -43,6 +48,7 @@ Updated: 2026-08-28. This describes the current local worktree; production may b
 - The deployed Worker is reachable: `/health`, `/spots`, and a current `/matches` query returned `200` on 2026-08-28. Both launch spots are present, and the match response contained an ECMWF WAM snapshot issued by the deployed six-hour Cron that day.
 - An unauthenticated production `/me` returned `401 UNAUTHENTICATED`, not `AUTH_NOT_CONFIGURED`; the currently deployed Worker therefore accepts its LINE/session configuration. The actual LINE redirect/callback has not been exercised in this checkpoint because it writes an OAuth attempt and requires the user.
 - The read-only production preflight succeeded. `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, and `CWA_API_KEY` are present; `CLOUDFLARE_STREAM_API_TOKEN` is missing. No secret or plaintext binding value was printed.
+- A least-privilege Stream token is present only in the Windows git-ignored operation file and passed a read-only Stream API request. It has not been written to the production Worker.
 - Production D1 has no pending migration. The current deployment from `2026-08-28T09:29:32.355038Z` sends 100% traffic to version `d1ed66b1-f421-43c3-9028-0cd221b5a84f`.
 - The deployed script setting `observability.redact_query_string` is not enabled while `CWA_API_KEY` is present. Treat the current CWA key as potentially retained in observability and rotate it before any future CWA enablement.
 - The deployed version is behind this local checkpoint. `CWA_QUERY_STRING_REDACTION_VERIFIED`, `UPLOAD_RATE_LIMITER`, and `PLAYBACK_RATE_LIMITER` are the only local bindings not present on the active version. Signed Stream upload/thumbnail/playback code is also not deployed.
@@ -56,7 +62,7 @@ Objective: with explicit owner authorization, remediate the two production gates
 
 Scope:
 
-- Obtain or roll a least-privilege Stream API token that supports direct upload creation, video details, signed-token creation, and lifecycle deletion. Set its value as the Worker secret `CLOUDFLARE_STREAM_API_TOKEN`; never paste it into chat or commit it.
+- Set the already verified, git-ignored least-privilege Stream token as the Worker secret `CLOUDFLARE_STREAM_API_TOKEN`; never print it, paste it into chat, or commit it.
 - Keep `CWA_QUERY_STRING_REDACTION_VERIFIED=false` for this deployment. Separately patch and read back `observability.redact_query_string=true`, rotate `CWA_API_KEY`, and leave CWA guarded until a later reviewed enablement.
 - Apply no D1 migration; the remote list is empty.
 - Commit the reviewed local change set. Push/deploy only after explicit approval because GitHub `main` is connected to Workers Builds and the deploy command publishes production.

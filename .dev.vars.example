@@ -1,0 +1,7 @@
+# Local Worker development is deliberately mock-only.
+APP_ENV=development
+ENABLE_DEV_AUTH=true
+VIDEO_PROVIDER=mock
+CONDITIONS_PROVIDER=mock
+ADMIN_USER_ID=user_dev_local
+CWA_QUERY_STRING_REDACTION_VERIFIED=false

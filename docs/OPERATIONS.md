@@ -6,6 +6,13 @@ One Worker deployment, D1 database, Cloudflare Stream account, LINE Login channe
 
 LINE Login requires the exact deployed callback URL plus `LINE_CHANNEL_ID`, secret `LINE_CHANNEL_SECRET`, and secret `SESSION_SECRET`. Changing the callback origin requires updating both the LINE Developers Console and runtime configuration. Never put either secret in Git, browser code, D1, documentation, or chat. Set non-secret `ADMIN_USER_ID` to the project owner's internal ID returned by `/api/v1/me`; without it, moderation endpoints fail closed for every user.
 
+### Windows workstation
+
+- Use Node.js 22 or newer. The repository pins `pnpm@11.19.0` through `packageManager`; enable the Corepack pnpm shim in a user-writable directory if `pnpm` is not on PATH.
+- Copy `.dev.vars.example` to the git-ignored `.dev.vars` before starting Vite. This file is deliberately mock-only and must not contain LINE, Stream, CWA, or production session secrets.
+- Authenticate the workstation with `pnpm exec wrangler login` when production reads or an approved deployment are needed. Prefer a fresh OAuth login over copying Wrangler's `default.toml`, which contains renewable credentials.
+- Keep the read-only production token and Stream runtime token only in the git-ignored `.env.cloudflare-readonly` and `.env.cloudflare-stream-runtime` files used by the reviewed operations flow. Neither file is loaded by local Vite development.
+
 ## Deploy to the owner's Cloudflare account
 
 1. The production D1 binding is `DB`; apply `drizzle/` migrations with `pnpm db:migrate:remote`.
