@@ -64,6 +64,7 @@ Updated: 2026-08-29. This describes the current local worktree; production may b
 | migration chain | pass on fresh temporary local D1; `0000`→`0005`, SQLite integrity `ok`, no foreign-key violations, temporary database removed | 2026-08-28 |
 | internal-release production deploy | pass with recovery; Workers Builds published version `b4605499-e2bd-4d70-9b30-249a72df8b82`, local OAuth applied migrations `0005`–`0006`, and the complete observability PATCH/read-back restored redaction | 2026-08-29 |
 | internal-release production smoke | pass; brand/purpose, health, two spots, one ECMWF match group, existing thumbnail `302`, signed playback `200`, and unauthenticated `/me` `401` | 2026-08-29 |
+| Workers Builds guarded-deploy verification | pass; empty commit `6ef6acb` produced version `f62123b8-40d9-4fb9-a68f-4e000ec5bb95`; post-deploy preflight found no pending migrations, all four limiter bindings, and query-string redaction enabled without local recovery | 2026-08-29 |
 
 ## Production status
 
@@ -73,13 +74,13 @@ Updated: 2026-08-29. This describes the current local worktree; production may b
 - The post-deploy production preflight succeeded. `LINE_CHANNEL_SECRET`, `SESSION_SECRET`, `CWA_API_KEY`, and `CLOUDFLARE_STREAM_API_TOKEN` are present. The active version includes upload, playback, owner-download, and problem-report rate-limit bindings; no secret or plaintext binding value was printed.
 - Production D1 is on migrations `0000`–`0006`. Public-name/source-size code, anonymous problem reports, owner MP4 sharing, the 100-user cap, and the two new rate-limit bindings are deployed. A read-only query found exactly one registered user.
 - Owner-download provider/API/browser paths pass local tests and are deployed, but real Stream MP4 generation, JavaScript delivery CORS, native sharing, and fallback download have not been exercised. Chrome Android, Safari iOS, and LINE's in-app browser remain owner acceptance checks before inviting the full internal group.
-- The deployed script setting `observability.redact_query_string` is enabled after a complete local-OAuth recovery PATCH and exact read-back. `CWA_QUERY_STRING_REDACTION_VERIFIED` remains `false`, so CWA stays guarded and ECMWF WAM remains active.
+- The deployed script setting `observability.redact_query_string` remained enabled after the verified Workers Builds `pnpm deploy` run and exact post-deploy read-back. `CWA_QUERY_STRING_REDACTION_VERIFIED` remains `false`, so CWA stays guarded and ECMWF WAM remains active.
 - Because redaction was previously disabled while `CWA_API_KEY` was present, treat the current CWA key as potentially retained in observability. Revoke/rotate it at CWA before any future CWA enablement; do not change the application guard to `true` in the same unreviewed step.
 - Real Stream direct upload, processing, public matching, signed thumbnail redirect, playback creation, correct-origin playback, wrong-origin playback rejection, and picture/audio playback succeeded. Cloudflare returned the signed thumbnail from a wrong `Referer` as well; this matches its documentation of Allowed Origins as a playback control, so the first-party thumbnail gate and five-minute signed token remain required.
 - The first completion attempt failed because Stream transiently returned `duration: 0`. The owner-authorized recovery conditionally updated exactly one D1 row after Stream reported `ready` and `20.1` seconds. Commit `3bc48da` fixes the timing case in production; its five regression tests pass.
 - With explicit owner approval, duplicate private Stream UID `04c511182f64c51ac6c9955f8a3f1fe3` was deleted with `200` and confirmed absent with `404`; only then was D1 video `08d8273d-ff01-4d01-bd45-e4605e0ace7b` conditionally deleted and confirmed absent. Public video `51e42f58-4330-4519-a931-1386c361ce66` remained `ready/public` and passed thumbnail/playback smoke afterward.
 - The deployment reset script-level query-string redaction. The first partial PATCH was correctly rejected by read-back despite an API `success` response; a complete observability payload restored `redact_query_string: true`, and the final preflight read it back as enabled. CWA remained guarded throughout.
-- Workers Builds reported success for commit `d863bda` but bypassed the repository's `pnpm deploy`: it published the Worker while leaving migrations `0005`–`0006` pending and redaction disabled. The local OAuth recovery immediately restored/read back redaction and applied both migrations. Updating the account-owned deploy command requires Cloudflare Builds Configuration permission that the current Wrangler OAuth and read-only token do not have.
+- Workers Builds reported success for commit `d863bda` but bypassed the repository's `pnpm deploy`: it published the Worker while leaving migrations `0005`–`0006` pending and redaction disabled. The local OAuth recovery restored/read back redaction and applied both migrations. The owner then set the account-owned production deploy command to `pnpm deploy` and added Workers Scripts Edit plus D1 Edit to its build token; commit `6ef6acb` produced version `f62123b8-40d9-4fb9-a68f-4e000ec5bb95`, and the post-deploy preflight proved the guard completed without local repair.
 - The existing production video `51e42f58-4330-4519-a931-1386c361ce66` remains `ready`, `complete`, and public. Its first-party thumbnail returned `302` and explicit playback returned signed iframe data with `200` after the release; no production video was deleted, delisted, or edited.
 - General seven-day expiry deletion and webhook behavior still need staging or a separately approved safe verification.
 - Cost alarms and staged reporting/delisting verification remain launch gates.
@@ -87,19 +88,19 @@ Updated: 2026-08-29. This describes the current local worktree; production may b
 
 ## Next task
 
-Objective: wire the already-reviewed guarded deploy command into Cloudflare Workers Builds so future `main` pushes cannot bypass migrations and query-string-redaction recovery.
+Objective: complete owner acceptance of real Stream MP4 preparation, native sharing, and fallback download on a phone before inviting users 2–10.
 
 Scope:
 
-- Owner action in Cloudflare Dashboard: open `surf-video-share-tw` → Settings → Build, set the production deploy command to exactly `pnpm deploy`, and ensure the selected build API token has Workers Scripts Write plus D1 Edit. The current agent credentials cannot read or edit this account-owned Builds setting (`Authentication error` from the Builds API).
-- After that one account-level change, trigger a reviewed build and require its log to show migration application, Worker publication, complete observability PATCH, and successful read-back. Then run `pnpm production:preflight`; it must show no pending migrations, all four limiter bindings, and redaction enabled without local recovery.
-- Keep `CWA_QUERY_STRING_REDACTION_VERIFIED=false`; do not rotate or enable CWA as part of the build-setting verification.
-- After CI wiring is proven, have the owner test real MP4 preparation/share/download on a phone before inviting the remaining internal users.
+- On the owner's signed-in phone, open the existing public video under 「我的」, choose 「分享我的影片」, prepare the MP4, wait for Stream to report it ready, and tap the explicit share action.
+- Record the phone/browser and whether the system share sheet accepts the file. If native file sharing is unavailable or browser fetch is blocked, follow the offered signed MP4 download fallback and confirm the file downloads and plays.
+- Keep `CWA_QUERY_STRING_REDACTION_VERIFIED=false`; do not rotate or enable CWA during this acceptance test.
+- After one mobile path passes, invite users 2–10 gradually and watch Stream/Workers usage plus upload/playback/download `429` logs.
 
 Done when:
 
-- A Workers Builds deployment itself runs `pnpm deploy` and completes with automated redaction read-back; no manual/local repair is needed.
-- Post-deploy preflight shows no pending migrations, all four limiter bindings, and query-string redaction enabled.
-- Owner MP4 mobile acceptance passes, or its exact browser-specific fallback behavior is recorded before inviting users 2–10.
+- The existing production video can be prepared as an encoded MP4 from the owner's phone.
+- Either native file sharing succeeds, or the exact browser-specific fallback downloads a playable MP4.
+- The tested device/browser and result are recorded before inviting users 2–10.
 
 Out of scope: destructive production tests, CWA key rotation/enablement, staging creation, automated multi-device tests, condition-schema removal, and unrelated UI refactors.
