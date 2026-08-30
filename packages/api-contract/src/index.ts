@@ -39,6 +39,7 @@ export interface ObservationResponse {
   delistedAt: string | null;
   isFavorite: boolean;
   showUploader?: boolean;
+  playbackCount90d?: number;
   video: {
     provider: string;
     thumbnailUrl: string | null;
@@ -50,6 +51,7 @@ export interface ObservationResponse {
     nameEn: string;
   } | null;
   conditions: ObservationConditionsResponse;
+  historicalForecasts?: ForecastResponse[];
 }
 
 export interface ForecastMetricGroupResponse {
@@ -100,8 +102,37 @@ export interface PublicMatchesResponse {
 }
 
 export type PlaybackResponse =
-  | { type: "iframe"; iframeUrl: string; expiresAt: string }
-  | { type: "mock"; iframeUrl: null; expiresAt: null };
+  | {
+      type: "iframe";
+      iframeUrl: string;
+      expiresAt: string;
+      trackingToken: string;
+      width: number | null;
+      height: number | null;
+    }
+  | {
+      type: "mock";
+      iframeUrl: null;
+      expiresAt: null;
+      trackingToken: string;
+      width: null;
+      height: null;
+    };
+
+export interface VideoShareLinkResponse {
+  path: string;
+  expiresAt: string;
+  anonymousPlayLimit: number;
+  remainingAnonymousPlays: number;
+}
+
+export const sharedPlaybackSchema = z.object({
+  shareToken: z.string().min(40).max(2_000),
+});
+
+export const playbackStartSchema = z.object({
+  trackingToken: z.string().min(20).max(2_000),
+});
 
 export type VideoDownloadResponse =
   | {
@@ -127,6 +158,8 @@ export type VideoDownloadResponse =
     };
 
 export const MAX_UPLOAD_BYTES = 200_000_000;
+export const MIN_VIDEO_DURATION_SECONDS = 10;
+export const MAX_VIDEO_DURATION_SECONDS = 60;
 
 export const publicDisplayNameSchema = z.string()
   .trim()
@@ -140,9 +173,9 @@ export const updateMeSchema = z.object({
 });
 
 export const uploadRequestSchema = z.object({
-  spotId: z.string().min(1).nullable().optional(),
+  spotId: z.string().min(1),
   capturedAt: z.string().datetime({ offset: true }).nullable().optional(),
-  durationSeconds: z.number().min(5).max(60),
+  durationSeconds: z.number().min(MIN_VIDEO_DURATION_SECONDS).max(MAX_VIDEO_DURATION_SECONDS),
   sizeBytes: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   fileName: z.string().min(1).max(255),
   contentType: z.string().startsWith("video/"),
@@ -154,7 +187,6 @@ export const completeUploadSchema = z.object({
 });
 
 export const updateVideoSchema = z.object({
-  spotId: z.string().min(1).nullable().optional(),
   capturedAt: z.string().datetime({ offset: true }).nullable().optional(),
   showUploader: z.boolean().optional(),
   isFavorite: z.boolean().optional(),

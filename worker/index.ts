@@ -5,6 +5,8 @@ import { api } from "../src/worker/api";
 import type { AppEnv } from "../src/worker/db";
 import { runScheduledForecastIngestion } from "../src/worker/forecast/ingest";
 import { runScheduledExpiredVideoCleanup } from "../src/worker/video-lifecycle";
+import { runScheduledPlaybackEventCleanup } from "../src/worker/playback-analytics";
+import { withSecurityHeaders } from "../src/worker/security-headers";
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -20,29 +22,31 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: AppEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    let response: Response;
 
     if (url.pathname.startsWith("/api/v1/")) {
-      return api.fetch(request, env);
-    }
-
-    if (url.pathname === "/_vinext/image" && env.IMAGES) {
+      response = await api.fetch(request, env);
+    } else if (url.pathname === "/_vinext/image" && env.IMAGES) {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(request, {
+      response = await handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
           const result = await env.IMAGES!.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
       }, allowedWidths);
+    } else {
+      response = await handler.fetch(request, env, ctx);
     }
 
-    return handler.fetch(request, env, ctx);
+    return withSecurityHeaders(response);
   },
   async scheduled(controller: ScheduledController, env: AppEnv): Promise<void> {
     const scheduledAt = new Date(controller.scheduledTime);
     const results = await Promise.allSettled([
       runScheduledForecastIngestion(env, scheduledAt),
       runScheduledExpiredVideoCleanup(env, scheduledAt),
+      runScheduledPlaybackEventCleanup(env, scheduledAt),
     ]);
     const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
     if (failures.length) {

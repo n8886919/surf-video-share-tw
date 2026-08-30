@@ -1,12 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { PROJECT_PURPOSE } from "../packages/domain/src/project-purpose";
+import { PROJECT_POSITION, PROJECT_PURPOSE, PROJECT_VERSION } from "../packages/domain/src/project-purpose";
 
 async function readProjectFile(path: string): Promise<string> {
   return readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
 describe("project purpose", () => {
+  it("starts the visible product version at 0.1 and renders it in help", async () => {
+    expect(PROJECT_VERSION).toBe("0.1");
+
+    const app = await readProjectFile("app/surf-app.tsx");
+    expect(app).toContain("版本 {PROJECT_VERSION}");
+  });
+
   it("keeps the five-second purpose synchronized in handoff documents", async () => {
     const [readme, principles] = await Promise.all([
       readProjectFile("README.md"),
@@ -15,5 +22,10 @@ describe("project purpose", () => {
 
     expect(readme).toContain(PROJECT_PURPOSE);
     expect(principles).toContain(PROJECT_PURPOSE);
+  });
+
+  it("keeps the help modal's Purpose and position copy synchronized with the principles", async () => {
+    const principles = await readProjectFile("docs/PROJECT_PRINCIPLES.md");
+    for (const item of PROJECT_POSITION) expect(principles).toContain(item);
   });
 });

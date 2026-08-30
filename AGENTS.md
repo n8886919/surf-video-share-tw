@@ -9,7 +9,7 @@ The non-negotiable philosophy is in `docs/PROJECT_PRINCIPLES.md`. The canonical 
 ## Hard MVP constraints
 
 - Taiwan, at most 100 initial users, infrastructure at most NT$1,000/month.
-- Uploads are 5–60 seconds, at most 200 MB, and captured no more than 168 hours ago. Future capture times are invalid.
+- Uploads are 10–60 seconds, at most 200 MB, and captured no more than 168 hours ago. Future capture times are invalid.
 - LINE Login is the production identity. Never expose raw LINE subjects.
 - Complete videos are public. Uploader identity is optional and uses only `display_id`; incomplete uploads are private and expire after seven days.
 - Initial spots are 烏石港 and 雙獅 only.

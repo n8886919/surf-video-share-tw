@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ForecastResponse as Forecast,
   MatchGroupResponse as MatchGroup,
@@ -8,10 +8,26 @@ import type {
   PlaybackResponse,
   PublicMatchesResponse,
   VideoDownloadResponse,
+  VideoShareLinkResponse,
 } from "../packages/api-contract/src";
-import { MAX_UPLOAD_BYTES } from "../packages/api-contract/src";
-import { PROJECT_PURPOSE } from "../packages/domain/src/project-purpose";
-import { PUBLIC_MEDIA_NOTICE } from "../packages/domain/src/public-terms";
+import {
+  MAX_UPLOAD_BYTES,
+  MAX_VIDEO_DURATION_SECONDS,
+  MIN_VIDEO_DURATION_SECONDS,
+} from "../packages/api-contract/src";
+import {
+  firstSelectableForecastHour,
+  FORECAST_DAY_OFFSET_MAX,
+  FORECAST_HOUR_MAX,
+  FORECAST_HOUR_MIN,
+  taipeiForecastTarget,
+} from "../packages/domain/src/time-policy";
+import { PROJECT_POSITION, PROJECT_PURPOSE, PROJECT_VERSION } from "../packages/domain/src/project-purpose";
+import {
+  PUBLIC_MEDIA_NOTICE,
+  PUBLIC_MEDIA_THIRD_PARTY_RIGHTS_NOTICE,
+} from "../packages/domain/src/public-terms";
+import { loadStreamPlayerSdk, type StreamPlayer } from "./stream-player";
 
 type View = "find" | "upload" | "mine";
 
@@ -50,6 +66,8 @@ interface ModerationReport {
   uploaderNote: string | null;
 }
 
+export type LoginStatus = "capacity" | "cancelled" | "config" | "expired" | "failed" | "invalid";
+
 class ApiFailure extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) {
     super(message);
@@ -86,13 +104,15 @@ function formatDirection(value: number | null): string {
   return value == null ? "—" : `${Math.round(value)}°`;
 }
 
-function Icon({ name }: { name: "search" | "upload" | "user" | "heart" | "wave" }) {
+function Icon({ name }: { name: "search" | "upload" | "user" | "heart" | "wave" | "help" | "more" }) {
   const paths = {
     search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></>,
     upload: <><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M5 14v5h14v-5"/></>,
     user: <><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.6-4 3-6 7-6s6.4 2 7 6"/></>,
     heart: <path d="M20.8 8.4c0 5-8.8 10.2-8.8 10.2S3.2 13.4 3.2 8.4C3.2 5.8 5 4 7.4 4c1.9 0 3.3 1 4.6 2.6C13.3 5 14.7 4 16.6 4c2.4 0 4.2 1.8 4.2 4.4Z"/>,
     wave: <><path d="M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/><path d="M5 10c2.2-4.8 7.3-6.2 11-3.2 1.7 1.4 2.2 3.2 2 5.2"/></>,
+    help: <><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 0 1 4.6.9c0 1.7-2.4 2-2.4 3.7"/><path d="M12 17.2h.01"/></>,
+    more: <><path d="M5 12h.01"/><path d="M12 12h.01"/><path d="M19 12h.01"/></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" className="icon">{paths[name]}</svg>;
 }
@@ -108,30 +128,99 @@ function Brand() {
   );
 }
 
-function LoginRequired({ setupError, capacityReached }: {
+function LoginRequired({ setupError, loginStatus }: {
   setupError?: string | null;
-  capacityReached?: boolean;
+  loginStatus?: LoginStatus;
 }) {
-  const title = capacityReached ? "內部測試名額已滿" : setupError ? "登入尚未就緒" : "這裡需要登入";
+  const capacityReached = loginStatus === "capacity";
+  const needsManualRetry = loginStatus === "expired" || loginStatus === "failed";
+  const loginCancelled = loginStatus === "cancelled";
+  const invalidLogin = loginStatus === "invalid";
+  const title = capacityReached
+    ? "內部測試名額已滿"
+    : setupError
+      ? "登入尚未就緒"
+      : needsManualRetry
+        ? "LINE 登入未完成"
+        : loginCancelled
+          ? "已取消 LINE 登入"
+          : invalidLogin
+            ? "登入連結已失效"
+            : "這裡需要登入";
   const message = capacityReached
     ? "目前先開放 100 位使用者；既有使用者仍可正常登入。"
-    : setupError || "使用 LINE 登入後即可上傳與管理自己的影片。";
+    : setupError
+      || (needsManualRetry
+        ? "LINE 自動登入可能未完成。若使用 iPhone，請關閉 Safari 私密瀏覽後，改用 LINE 登入畫面重試。"
+        : loginCancelled
+          ? "你尚未授權登入，可以隨時重新嘗試。"
+          : invalidLogin
+            ? "這次登入已過期或無法驗證，請重新開始。"
+            : "使用 LINE 登入後即可上傳與管理自己的影片。");
+  const loginHref = needsManualRetry ? "/api/v1/auth/line?manual=1" : "/api/v1/auth/line";
   return (
     <section className="auth-card">
       <Icon name="user" />
       <h2>{title}</h2>
       <p>{message}</p>
-      {!setupError && !capacityReached && <a className="line-login-button" href="/api/v1/auth/line">使用 LINE 登入</a>}
+      {!setupError && !capacityReached && <a className="line-login-button" href={loginHref}>{needsManualRetry ? "改用 LINE 登入畫面" : "使用 LINE 登入"}</a>}
     </section>
   );
+}
+
+async function exportVideoShareLink(observation: Observation): Promise<string | null> {
+  const result = await api<VideoShareLinkResponse>(`/videos/${observation.id}/share-link`, {
+    method: "POST",
+  });
+  const url = new URL(result.path, window.location.origin).toString();
+  const quotaMessage = `連結 24 小時有效；透過你本月分享連結的匿名播放額度還剩 ${result.remainingAnonymousPlays} 次。`;
+  if (typeof navigator.share === "function") {
+    try {
+      await navigator.share({
+        title: `${observation.spot?.name || "浪點"}實拍｜彼日浪影`,
+        text: "看看相似浪況下的公開實拍",
+        url,
+      });
+      return quotaMessage;
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return null;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    return `分享連結已複製。${quotaMessage}`;
+  } catch {
+    return `請複製分享連結：${url}（${quotaMessage}）`;
+  }
+}
+
+function ProjectHelp({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return <div className="help-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="project-help-title">
+      <div className="help-heading"><div><h2 id="project-help-title">操作與專案說明</h2><p>{PROJECT_PURPOSE}</p><small className="project-version">版本 {PROJECT_VERSION}</small></div><button type="button" aria-label="關閉說明" onClick={onClose}>×</button></div>
+      <section><h3>怎麼使用</h3><ol><li>在找浪頁選浪點、日期與時間，查看相似條件下的歷史實拍。</li><li>上傳 10–60 秒影片並選好浪點；拍攝時間不得晚於現在，缺時間可在七天內補齊。</li><li>在「我的」管理公開名稱、自己的影片、問題回報，以及管理者的檢舉處理。</li></ol></section>
+      <section><h3>Purpose and position</h3><ul>{PROJECT_POSITION.map((item) => <li key={item}>{item}</li>)}</ul></section>
+    </section>
+  </div>;
+}
+
+function Topbar() {
+  const [helpOpen, setHelpOpen] = useState(false);
+  return <><header className="topbar"><Brand/><button className="help-button" type="button" aria-label="操作與專案說明" onClick={() => setHelpOpen(true)}><Icon name="help"/></button></header>{helpOpen && <ProjectHelp onClose={() => setHelpOpen(false)}/>}</>;
 }
 
 function BottomNav({ view, onChange }: { view: View; onChange: (view: View) => void }) {
   return (
     <nav className="bottom-nav" aria-label="主要分頁">
-      <button className={view === "find" ? "active" : ""} onClick={() => onChange("find")}><Icon name="search"/><span>彼日浪影</span></button>
-      <button className={`upload-tab ${view === "upload" ? "active" : ""}`} onClick={() => onChange("upload")}><span className="upload-circle"><Icon name="upload"/></span><span>上傳</span></button>
-      <button className={view === "mine" ? "active" : ""} onClick={() => onChange("mine")}><Icon name="user"/><span>我的</span></button>
+      <button aria-label="找浪" className={view === "find" ? "active" : ""} onClick={() => onChange("find")}><Icon name="search"/></button>
+      <button aria-label="上傳" className={view === "upload" ? "active" : ""} onClick={() => onChange("upload")}><Icon name="upload"/></button>
+      <button aria-label="我的" className={view === "mine" ? "active" : ""} onClick={() => onChange("mine")}><Icon name="user"/></button>
     </nav>
   );
 }
@@ -147,45 +236,49 @@ const REPORT_REASONS = [
   ["irrelevant", "與浪況無關"],
 ] as const;
 
-const MAX_NATIVE_SHARE_FILE_BYTES = 50 * 1024 * 1024;
+type DownloadStatus = "idle" | "preparing" | "ready";
 
-type ShareStatus = "idle" | "preparing" | "loading-file" | "ready" | "download-only";
-
-function canShareFile(file: File): boolean {
-  try {
-    return typeof navigator !== "undefined"
-      && typeof navigator.share === "function"
-      && typeof navigator.canShare === "function"
-      && navigator.canShare({ files: [file] });
-  } catch {
-    return false;
-  }
+function compactForecastGroup(group: Forecast["primarySwell"]): string {
+  const height = group.height == null ? "—" : `${group.height.toFixed(1)}m`;
+  const direction = formatDirection(group.direction);
+  const period = group.period == null ? "—" : `${group.period.toFixed(1)}s`;
+  return `${height} / ${direction} / ${period}`;
 }
 
-function ObservationCard({ observation, ownerActions, enablePlayback = false }: {
+function HistoricalForecastTable({ forecasts }: { forecasts: Forecast[] }) {
+  if (!forecasts.length) return <p className="owner-forecast-empty">拍攝當時沒有可用的預報快照。</p>;
+  return <div className="owner-forecast-scroll">
+    <div className="owner-forecast-table">
+      <div className="owner-forecast-header"><span>預報</span><span>主浪<br/>浪高／浪向／週期</span><span>次浪<br/>浪高／浪向／週期</span><span>風<br/>風速／風向</span></div>
+      {forecasts.map((forecast) => <div className="owner-forecast-row" key={forecast.id}>
+        <span><strong>{forecast.provider}</strong><small>{forecast.model}</small></span>
+        <span>{compactForecastGroup(forecast.primarySwell)}</span>
+        <span>{compactForecastGroup(forecast.secondarySwell)}</span>
+        <span>{forecast.wind.speed == null ? "—" : `${forecast.wind.speed.toFixed(1)}m/s`} / {formatDirection(forecast.wind.direction)}</span>
+      </div>)}
+    </div>
+  </div>;
+}
+
+function ObservationCard({ observation, ownerActions }: {
   observation: Observation;
-  enablePlayback?: boolean;
   ownerActions?: {
     spots: Spot[];
     onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
   };
 }) {
   const [note, setNote] = useState(observation.uploaderNote || "");
-  const [editMetadata, setEditMetadata] = useState(observation.metadataStatus === "pending");
-  const [spotId, setSpotId] = useState(observation.spot?.id || "");
   const [capturedAt, setCapturedAt] = useState(observation.capturedAt ? toLocalDateTime(new Date(observation.capturedAt)) : "");
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
-  const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
-  const [playbackLoading, setPlaybackLoading] = useState(false);
-  const [shareStatus, setShareStatus] = useState<ShareStatus>("idle");
-  const [shareProgress, setShareProgress] = useState<number | null>(null);
+  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>("idle");
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [preparedFile, setPreparedFile] = useState<File | null>(null);
-  const [preparedObjectUrl, setPreparedObjectUrl] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(observation.metadataStatus === "pending");
+  const [ownerPlaybackOpen, setOwnerPlaybackOpen] = useState(false);
   const c = observation.conditions;
   const pending = observation.metadataStatus === "pending";
   const canShareOwnerVideo = Boolean(
@@ -199,10 +292,15 @@ function ObservationCard({ observation, ownerActions, enablePlayback = false }: 
   const remainingDays = observation.metadataExpiresAt
     ? Math.max(0, Math.ceil((new Date(observation.metadataExpiresAt).getTime() - new Date().getTime()) / 86_400_000))
     : null;
-
-  useEffect(() => () => {
-    if (preparedObjectUrl) URL.revokeObjectURL(preparedObjectUrl);
-  }, [preparedObjectUrl]);
+  const ownerStatus = observation.moderationStatus === "delisted"
+    ? "已下架"
+    : pending
+      ? `待補 · ${remainingDays ?? 7} 天`
+      : !observation.termsVersion
+        ? "舊版不公開"
+        : observation.status === "ready" && observation.publicAt
+          ? null
+          : "處理中";
 
   async function patch(values: Record<string, unknown>) {
     if (!ownerActions) return;
@@ -227,29 +325,26 @@ function ObservationCard({ observation, ownerActions, enablePlayback = false }: 
     }
   }
 
-  async function startPlayback() {
-    setError(null);
-    setPlaybackLoading(true);
-    try {
-      const result = await api<PlaybackResponse>(`/videos/${observation.id}/playback`, {
-        method: "POST",
-      });
-      setPlayback(result);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "影片播放失敗");
-    } finally {
-      setPlaybackLoading(false);
+  async function completePendingMetadata() {
+    const parsed = new Date(capturedAt);
+    const now = new Date();
+    if (!Number.isFinite(parsed.getTime()) || parsed.getTime() > now.getTime()) {
+      setError("拍攝時間不可晚於現在");
+      return;
     }
+    if (parsed.getTime() < now.getTime() - 7 * 86_400_000) {
+      setError("拍攝時間必須在 168 小時內");
+      return;
+    }
+    await patch({ capturedAt: parsed.toISOString() });
   }
 
-  async function prepareShare() {
+  async function prepareDownload() {
     setError(null);
     setShareNotice(null);
-    setShareProgress(null);
+    setDownloadProgress(null);
     setDownloadUrl(null);
-    setPreparedFile(null);
-    setPreparedObjectUrl(null);
-    setShareStatus("preparing");
+    setDownloadStatus("preparing");
 
     try {
       let result: VideoDownloadResponse | null = null;
@@ -261,7 +356,7 @@ function ObservationCard({ observation, ownerActions, enablePlayback = false }: 
           throw new Error("Mock 開發模式不會產生實際 MP4。");
         }
         if (result.state === "ready") break;
-        setShareProgress(result.percentComplete);
+        setDownloadProgress(result.percentComplete);
         if (attempt === 12) {
           throw new Error("影片仍在準備中，請稍後再試。");
         }
@@ -272,106 +367,84 @@ function ObservationCard({ observation, ownerActions, enablePlayback = false }: 
         throw new Error("影片下載目前無法使用。");
       }
       setDownloadUrl(result.downloadUrl);
-
-      const probeFile = new File([], "surf-video.mp4", { type: "video/mp4" });
-      if (!canShareFile(probeFile)) {
-        setShareStatus("download-only");
-        setShareNotice("這個瀏覽器不支援影片檔分享；請先下載 MP4，再從 LINE 或其他 App 分享。");
-        return;
-      }
-
-      setShareStatus("loading-file");
-      let response: Response;
-      try {
-        response = await fetch(result.downloadUrl, {
-          cache: "no-store",
-          credentials: "omit",
-        });
-        if (!response.ok) throw new Error("Download failed");
-      } catch {
-        setShareStatus("download-only");
-        setShareNotice("瀏覽器無法直接讀取影片檔；請用下方連結下載後分享。");
-        return;
-      }
-
-      const contentLength = Number(response.headers.get("content-length"));
-      if (Number.isFinite(contentLength) && contentLength > MAX_NATIVE_SHARE_FILE_BYTES) {
-        await response.body?.cancel();
-        setShareStatus("download-only");
-        setShareNotice("影片超過此瀏覽器可分享的大小；請先下載 MP4，再從其他 App 分享。");
-        return;
-      }
-
-      const blob = await response.blob();
-      const file = new File([blob], "surf-video.mp4", { type: "video/mp4" });
-      const objectUrl = URL.createObjectURL(blob);
-      setPreparedObjectUrl(objectUrl);
-      if (file.size > MAX_NATIVE_SHARE_FILE_BYTES || !canShareFile(file)) {
-        setShareStatus("download-only");
-        setShareNotice("影片超過此瀏覽器可分享的大小；請先下載 MP4，再從其他 App 分享。");
-        return;
-      }
-      setPreparedFile(file);
-      setShareStatus("ready");
-      setShareNotice("影片已準備好，請再按一次開啟系統分享選單。");
+      setDownloadStatus("ready");
+      setShareNotice("MP4 已準備好；短效下載連結約 15 分鐘有效。");
     } catch (caught) {
-      setShareStatus("idle");
+      setDownloadStatus("idle");
       setError(caught instanceof Error ? caught.message : "影片下載目前無法使用");
     }
   }
 
-  async function sharePreparedVideo() {
-    if (!preparedFile || typeof navigator.share !== "function") return;
+  async function sharePublicLink() {
     setError(null);
+    setShareNotice(null);
     try {
-      await navigator.share({ files: [preparedFile] });
+      setShareNotice(await exportVideoShareLink(observation));
     } catch (caught) {
-      if (caught instanceof DOMException && caught.name === "AbortError") return;
-      setError(caught instanceof Error ? caught.message : "系統分享選單無法開啟");
+      setError(caught instanceof Error ? caught.message : "分享連結暫時無法建立");
     }
   }
 
-  return (
-    <article className={`observation-card ${pending ? "pending-card" : ""}`}>
-      <div className={`observation-visual ${playback ? "playing" : ""}`}>
-        {playback?.type === "iframe"
-          ? <iframe
-              src={playback.iframeUrl}
-              title={`${observation.spot?.name || "浪點"}實拍影片`}
-              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-              allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-            />
-          : playback?.type === "mock"
-            ? <div className="mock-player"><Icon name="wave"/><strong>Mock 播放已啟動</strong><span>正式環境會在此載入受保護的 Stream 播放器。</span></div>
-            : observation.video.thumbnailUrl && !thumbnailFailed
+  if (ownerActions) {
+    return <article className={`owner-observation-card ${pending ? "pending-card" : ""}`}>
+      <div className="owner-card-visual">
+        {observation.video.thumbnailUrl && !thumbnailFailed
           ? <>
               {/* Runtime provider thumbnails use a first-party lifecycle-checking endpoint. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img className="observation-thumbnail" src={observation.video.thumbnailUrl} alt={`${observation.spot?.name || "浪點"}實拍縮圖`} loading="lazy" decoding="async" onError={() => setThumbnailFailed(true)} />
             </>
           : <div className="wave-lines"><span/><span/><span/></div>}
-        {!playback && <><span className="status-pill">{observation.moderationStatus === "delisted" ? "已下架" : pending ? `待補 · ${remainingDays ?? 7} 天` : !observation.termsVersion ? "舊版不公開" : observation.status === "ready" ? "公開" : "處理中"}</span>
-        <span className="duration-pill">{observation.durationSeconds ? `${Math.round(observation.durationSeconds)} 秒` : "—"}</span></>}
+        <div className="owner-card-shade"/>
+        <div className="owner-card-meta"><strong>{observation.spot?.name || "待補浪點"}</strong><span>{formatTime(observation.capturedAt)}</span></div>
+        {ownerStatus && <span className="owner-card-status">{ownerStatus}</span>}
+        <button className="owner-details-button" type="button" aria-label={detailsOpen ? "收起更多資訊" : "更多資訊"} aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Icon name="more"/></button>
+        <button className={`owner-favorite-button ${observation.isFavorite ? "selected" : ""}`} type="button" aria-label={observation.isFavorite ? "取消收藏" : "收藏"} onClick={() => void patch({ isFavorite: !observation.isFavorite })}><Icon name="heart"/></button>
+        {canShareOwnerVideo && <button className="owner-play-button" type="button" aria-label="播放影片" onClick={() => setOwnerPlaybackOpen(true)}><span aria-hidden="true">▶</span></button>}
+      </div>
+      {detailsOpen && <div className="owner-card-details">
+        <p className="owner-playback-count"><span>近 90 天播放</span><strong>{observation.playbackCount90d ?? 0} 次</strong><small>不含你登入時的播放；同一人重複播放會重複計算。</small></p>
+        {pending && <div className="metadata-editor">
+          <strong>補拍攝時間</strong>
+          {observation.spot ? <><small>浪點：{observation.spot.name}（上傳後不可補選或變更）</small><input type="datetime-local" value={capturedAt} min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} onChange={(event) => setCapturedAt(event.target.value)} /><button className="small-primary" type="button" disabled={!capturedAt} onClick={() => void completePendingMetadata()}>完成補資料</button></> : <small>這支既有影片沒有浪點，無法再補資料；到期後會自動刪除。</small>}
+        </div>}
+        <div className="owner-controls">
+          <label className="switch-row"><span><strong>這段影片顯示公開名稱</strong></span><input type="checkbox" checked={Boolean(observation.showUploader)} onChange={(event) => void patch({ showUploader: event.target.checked })}/></label>
+          <div className="fun-field"><span>那天玩得如何？（公開、選填）</span><div><button type="button" className={observation.funReaction === "fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "fun" ? null : "fun" })}>👍 開心</button><button type="button" className={observation.funReaction === "not_fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "not_fun" ? null : "not_fun" })}>👎 不開心</button></div></div>
+          <label className="note-field"><span>上傳者補充（公開、CC0、選填，最多 100 字）</span><input value={note} maxLength={100} placeholder="那天想補充什麼？" onChange={(event) => setNote(event.target.value)} onBlur={() => { if (note !== (observation.uploaderNote || "")) void patch({ uploaderNote: note.trim() || null }); }}/></label>
+        </div>
+        <section className="owner-forecast-section"><h4>拍攝當時預報</h4><HistoricalForecastTable forecasts={observation.historicalForecasts ?? []}/><small>每個來源獨立顯示，不與其他模型平均。</small></section>
+        {canShareOwnerVideo && <div className="owner-share-panel">
+          <button className="share-video-button" type="button" onClick={() => void sharePublicLink()}>分享連結</button>
+          {downloadStatus === "idle" && <button className="share-video-button secondary" type="button" onClick={() => void prepareDownload()}>準備下載 MP4</button>}
+          {downloadStatus === "preparing" && <button className="share-video-button secondary" type="button" disabled>準備 MP4{downloadProgress == null ? "…" : `… ${downloadProgress}%`}</button>}
+          {shareNotice && <p aria-live="polite">{shareNotice}</p>}
+          {downloadStatus === "ready" && downloadUrl && <a className="download-video-link" href={downloadUrl} download="surf-video.mp4">下載 MP4（非原始檔）</a>}
+          <small>連結固定 24 小時有效；透過分享連結的匿名播放會扣你的每月分享額度，登入者不計。下載的是 Stream 轉出的檔案。</small>
+        </div>}
+        {error && <p className="inline-error">{error}</p>}
+      </div>}
+      {ownerPlaybackOpen && <PlaybackModal observation={observation} onClose={() => setOwnerPlaybackOpen(false)}/>}
+    </article>;
+  }
+
+  return (
+    <article className={`observation-card ${pending ? "pending-card" : ""}`}>
+      <div className="observation-visual">
+        {observation.video.thumbnailUrl && !thumbnailFailed
+          ? <>
+              {/* Runtime provider thumbnails use a first-party lifecycle-checking endpoint. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img className="observation-thumbnail" src={observation.video.thumbnailUrl} alt={`${observation.spot?.name || "浪點"}實拍縮圖`} loading="lazy" decoding="async" onError={() => setThumbnailFailed(true)} />
+            </>
+          : <div className="wave-lines"><span/><span/><span/></div>}
+        <span className="status-pill">{observation.moderationStatus === "delisted" ? "已下架" : pending ? `待補 · ${remainingDays ?? 7} 天` : !observation.termsVersion ? "舊版不公開" : observation.status === "ready" ? "公開" : "處理中"}</span>
+        <span className="duration-pill">{observation.durationSeconds ? `${Math.round(observation.durationSeconds)} 秒` : "—"}</span>
       </div>
       <div className="observation-body">
         <div className="observation-heading">
           <div><h3>{observation.spot?.name || "待補浪點"}</h3><p>{formatTime(observation.capturedAt)} · {observation.uploaderDisplayId || "匿名上傳"}</p></div>
-          {ownerActions && <button className={`favorite-button ${observation.isFavorite ? "selected" : ""}`} aria-label="收藏" onClick={() => void patch({ isFavorite: !observation.isFavorite })}><Icon name="heart"/></button>}
         </div>
-
-        {enablePlayback && !playback && <button className="playback-button" type="button" disabled={playbackLoading} onClick={() => void startPlayback()}>{playbackLoading ? "建立安全播放連結…" : "▶ 播放這段實拍"}</button>}
-
-        {pending && ownerActions && (
-          <div className="metadata-editor">
-            <button className="text-button" onClick={() => setEditMetadata((open) => !open)}>{editMetadata ? "收起補資料" : "補浪點與時間"}</button>
-            {editMetadata && <>
-              <select value={spotId} onChange={(event) => setSpotId(event.target.value)}><option value="">選浪點</option>{ownerActions.spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select>
-              <input type="datetime-local" value={capturedAt} min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} onChange={(event) => setCapturedAt(event.target.value)} />
-              <button className="small-primary" disabled={!spotId || !capturedAt} onClick={() => void patch({ spotId, capturedAt: new Date(capturedAt).toISOString() })}>完成補資料</button>
-            </>}
-          </div>
-        )}
 
         <div className="condition-grid">
           <ConditionValue label="總浪" value={c.waveHeight} unit="m" />
@@ -380,43 +453,10 @@ function ObservationCard({ observation, ownerActions, enablePlayback = false }: 
           <ConditionValue label="風速" value={c.windSpeed} unit="m/s" />
         </div>
         {observation.funReaction && <p className={`fun-reaction ${observation.funReaction}`}>{observation.funReaction === "fun" ? "👍 上傳者那天玩得開心" : "👎 上傳者那天玩得不開心"}</p>}
-        {observation.uploaderNote && !ownerActions && <p className="uploader-note">{observation.uploaderNote}</p>}
-        {canShareOwnerVideo && <div className="owner-share-panel">
-          {shareStatus === "idle" && <button className="share-video-button" type="button" onClick={() => void prepareShare()}>分享我的影片</button>}
-          {shareStatus === "preparing" && <button className="share-video-button" type="button" disabled>準備 MP4{shareProgress == null ? "…" : `… ${shareProgress}%`}</button>}
-          {shareStatus === "loading-file" && <button className="share-video-button" type="button" disabled>載入分享檔案…</button>}
-          {shareStatus === "ready" && <button className="share-video-button" type="button" onClick={() => void sharePreparedVideo()}>開啟系統分享選單</button>}
-          {shareStatus === "download-only" && <button className="share-video-button secondary" type="button" onClick={() => void prepareShare()}>重新準備分享</button>}
-          {shareNotice && <p aria-live="polite">{shareNotice}</p>}
-          {(preparedObjectUrl || downloadUrl) && shareStatus !== "preparing" && <a
-            className="download-video-link"
-            href={preparedObjectUrl || downloadUrl || undefined}
-            download="surf-video.mp4"
-          >下載 MP4（非原始檔）</a>}
-          <small>下載的是 Stream 轉出的 MP4；短效連結約 15 分鐘有效。</small>
-        </div>}
-        {ownerActions && <div className="owner-controls">
-          <label className="switch-row"><span><strong>顯示公開名稱</strong></span><input type="checkbox" checked={Boolean(observation.showUploader)} onChange={(event) => void patch({ showUploader: event.target.checked })}/></label>
-          <div className="fun-field"><span>那天玩得如何？（公開、選填）</span><div><button className={observation.funReaction === "fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "fun" ? null : "fun" })}>👍 開心</button><button className={observation.funReaction === "not_fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "not_fun" ? null : "not_fun" })}>👎 不開心</button></div></div>
-          <label className="note-field"><span>上傳者補充（公開、CC0、選填，最多 100 字）</span><input value={note} maxLength={100} placeholder="那天想補充什麼？" onChange={(event) => setNote(event.target.value)} onBlur={() => { if (note !== (observation.uploaderNote || "")) void patch({ uploaderNote: note.trim() || null }); }}/></label>
-        </div>}
-        {!ownerActions && observation.publicAt && <div className="report-area">{reportStatus === "sent" ? <span>已收到檢舉</span> : <><button className="report-toggle" onClick={() => setReportOpen((open) => !open)} disabled={reportStatus === "sending"}>{reportStatus === "sending" ? "送出中…" : "檢舉"}</button>{reportOpen && <div className="report-reasons" aria-label="檢舉原因">{REPORT_REASONS.map(([reason, label]) => <button key={reason} onClick={() => void report(reason)}>{label}</button>)}</div>}</>}</div>}
+        {observation.uploaderNote && <p className="uploader-note">{observation.uploaderNote}</p>}
+        {observation.publicAt && <div className="report-area">{reportStatus === "sent" ? <span>已收到檢舉</span> : <><button className="report-toggle" onClick={() => setReportOpen((open) => !open)} disabled={reportStatus === "sending"}>{reportStatus === "sending" ? "送出中…" : "檢舉"}</button>{reportOpen && <div className="report-reasons" aria-label="檢舉原因">{REPORT_REASONS.map(([reason, label]) => <button key={reason} onClick={() => void report(reason)}>{label}</button>)}</div>}</>}</div>}
         {error && <p className="inline-error">{error}</p>}
       </div>
-    </article>
-  );
-}
-
-function ForecastCard({ forecast }: { forecast: Forecast }) {
-  return (
-    <article className="forecast-card">
-      <div className="forecast-heading"><div><strong>{forecast.provider}</strong><span>{forecast.model}</span><small>更新 {formatTime(forecast.issuedAt)}</small></div><small>{formatTime(forecast.validAt)}</small></div>
-      <div className="forecast-groups">
-        <div><span>總浪</span><strong>{forecast.totalWave.height?.toFixed(1) ?? "—"}m</strong><small>{formatDirection(forecast.totalWave.direction)} · {forecast.totalWave.period?.toFixed(1) ?? "—"}s</small></div>
-        <div><span>主湧浪</span><strong>{forecast.primarySwell.height?.toFixed(1) ?? "—"}m</strong><small>{formatDirection(forecast.primarySwell.direction)} · {forecast.primarySwell.period?.toFixed(1) ?? "—"}s</small></div>
-        <div><span>風</span><strong>{forecast.wind.speed?.toFixed(1) ?? "—"}m/s</strong><small>{formatDirection(forecast.wind.direction)} · gust {forecast.wind.gust?.toFixed(1) ?? "—"}</small></div>
-      </div>
-      <p>此來源獨立顯示，未與其他模型平均。</p>
     </article>
   );
 }
@@ -497,13 +537,19 @@ function compactMetric(value: number | null, unit: string): string {
   return value == null ? "—" : `${value.toFixed(1)}${unit}`;
 }
 
+function formatTideState(value: string | null): string {
+  return ({ rising: "漲潮", falling: "退潮", high: "滿潮", low: "乾潮", unknown: "未知" } as Record<string, string>)[value || ""] || "—";
+}
+
 function ForecastComparisonRows({ forecast }: { forecast: Forecast }) {
   return (
     <div className="comparison-metrics">
       <div><span>總浪</span><strong>{compactMetric(forecast.totalWave.height, "m")}</strong><small>{formatDirection(forecast.totalWave.direction)} · {compactMetric(forecast.totalWave.period, "s")}</small></div>
       <div><span>主湧浪</span><strong>{compactMetric(forecast.primarySwell.height, "m")}</strong><small>{formatDirection(forecast.primarySwell.direction)} · {compactMetric(forecast.primarySwell.period, "s")}</small></div>
-      <div><span>風</span><strong>{compactMetric(forecast.wind.speed, "m/s")}</strong><small>{formatDirection(forecast.wind.direction)} · gust {compactMetric(forecast.wind.gust, "")}</small></div>
-      <div><span>潮位</span><strong>{compactMetric(forecast.tide.height, "m")}</strong><small>{forecast.tide.state || "—"}</small></div>
+      <div><span>次湧浪</span><strong>{compactMetric(forecast.secondarySwell.height, "m")}</strong><small>{formatDirection(forecast.secondarySwell.direction)} · {compactMetric(forecast.secondarySwell.period, "s")}</small></div>
+      <div><span>風浪</span><strong>{compactMetric(forecast.windWave.height, "m")}</strong><small>{formatDirection(forecast.windWave.direction)} · {compactMetric(forecast.windWave.period, "s")}</small></div>
+      <div><span>風</span><strong>{compactMetric(forecast.wind.speed, "m/s")}</strong><small>{formatDirection(forecast.wind.direction)} · 陣風 {compactMetric(forecast.wind.gust, "m/s")}</small></div>
+      <div><span>潮位</span><strong>{compactMetric(forecast.tide.height, "m")}</strong><small>{formatTideState(forecast.tide.state)} · 斜率 {compactMetric(forecast.tide.slope, "m/h")}</small></div>
     </div>
   );
 }
@@ -528,9 +574,128 @@ function CandidateThumbnail({ observation }: { observation: Observation }) {
   );
 }
 
+function PlaybackModal({ observation, onClose }: { observation: Observation; onClose: () => void }) {
+  const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const playbackRecorded = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void api<PlaybackResponse>(`/videos/${observation.id}/playback`, { method: "POST" })
+      .then((result) => { if (active) setPlayback(result); })
+      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : "影片播放失敗"); });
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      active = false;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [observation.id, onClose]);
+
+  useEffect(() => {
+    if (playback?.type !== "iframe" || !iframeRef.current) return;
+    let active = true;
+    let player: StreamPlayer | null = null;
+    const recordStartedPlayback = () => {
+      if (!active || playbackRecorded.current) return;
+      playbackRecorded.current = true;
+      void api(`/videos/${observation.id}/playback-start`, {
+        method: "POST",
+        body: JSON.stringify({ trackingToken: playback.trackingToken }),
+      }).catch(() => undefined);
+    };
+    void loadStreamPlayerSdk().then((stream) => {
+      if (!active || !iframeRef.current) return;
+      player = stream(iframeRef.current);
+      player.addEventListener("playing", recordStartedPlayback);
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      player?.removeEventListener?.("playing", recordStartedPlayback);
+    };
+  }, [observation.id, playback]);
+
+  async function report(reason: typeof REPORT_REASONS[number][0]) {
+    setError(null);
+    setReportStatus("sending");
+    try {
+      await api(`/videos/${observation.id}/reports`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+      setReportStatus("sent");
+      setReportOpen(false);
+    } catch (caught) {
+      setReportStatus("idle");
+      setError(caught instanceof Error ? caught.message : "檢舉失敗");
+    }
+  }
+
+  async function share() {
+    setError(null);
+    setShareNotice(null);
+    try {
+      setShareNotice(await exportVideoShareLink(observation));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "分享連結暫時無法建立");
+    }
+  }
+
+  const portrait = playback?.width != null
+    && playback.height != null
+    && playback.height > playback.width;
+  const playerStyle = playback?.width != null && playback.height != null
+    ? {
+        aspectRatio: `${playback.width} / ${playback.height}`,
+        ...(portrait
+          ? {
+              width: `min(100%, calc(60svh * ${playback.width / playback.height}))`,
+              maxHeight: "60svh",
+              marginInline: "auto",
+            }
+          : {}),
+      }
+    : undefined;
+
+  return <div className="playback-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="playback-modal" role="dialog" aria-modal="true" aria-labelledby={`playback-title-${observation.id}`}>
+      <div className="playback-modal-heading">
+        <div><strong id={`playback-title-${observation.id}`}>{observation.spot?.name || "浪點"}實拍</strong><small>{formatTime(observation.capturedAt)}</small></div>
+        <button type="button" aria-label="關閉影片" onClick={onClose}>×</button>
+      </div>
+      <div className="playback-modal-player" style={playerStyle}>
+        {playback?.type === "iframe"
+          ? <iframe
+              ref={iframeRef}
+              src={playback.iframeUrl}
+              title={`${observation.spot?.name || "浪點"}實拍影片`}
+              allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          : playback?.type === "mock"
+            ? <div className="mock-player"><Icon name="wave"/><strong>Mock 播放已啟動</strong><span>正式環境會在此載入受保護的 Stream 播放器。</span></div>
+            : error
+              ? <div className="playback-modal-state inline-error">{error}</div>
+              : <div className="playback-modal-state"><span className="spinner"/>建立安全播放連結…</div>}
+      </div>
+      <div className="playback-modal-footer">
+        {observation.uploaderDisplayId && <span>{`id: ${observation.uploaderDisplayId}`}</span>}
+        <div><button type="button" onClick={() => void share()}>分享</button>{reportStatus === "sent" ? <strong>已收到檢舉</strong> : <button type="button" disabled={reportStatus === "sending"} onClick={() => setReportOpen((open) => !open)}>{reportStatus === "sending" ? "送出中…" : "檢舉影片"}</button>}</div>
+      </div>
+      {reportOpen && <div className="playback-report-reasons" aria-label="檢舉原因">{REPORT_REASONS.map(([reason, label]) => <button type="button" key={reason} onClick={() => void report(reason)}>{label}</button>)}</div>}
+      {shareNotice && <p className="playback-share-notice" aria-live="polite">{shareNotice}</p>}
+      {error && <p className="playback-error">{error}</p>}
+    </section>
+  </div>;
+}
+
 function MatchComparisonGroup({ group }: { group: MatchGroup }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = group.observations.find((item) => item.observation.id === selectedId) ?? null;
+  const [activeObservation, setActiveObservation] = useState<Observation | null>(null);
   return (
     <section className="match-comparison-group">
       <div className="match-source-heading">
@@ -539,38 +704,37 @@ function MatchComparisonGroup({ group }: { group: MatchGroup }) {
       </div>
       <div className="forecast-comparison">
         <article className="target-forecast-card">
-          <div className="target-forecast-marker"><span>固定</span><strong>目前預報</strong><small>{formatTime(group.targetForecast.validAt)}</small></div>
+          <div className="target-forecast-visual"><span>比較基準</span></div>
+          <div className="candidate-forecast-heading"><strong>所選預報</strong></div>
           <ForecastComparisonRows forecast={group.targetForecast}/>
         </article>
         <div className="candidate-forecast-strip" aria-label={`${group.provider} 候選影片預報`}>
           {group.observations.map((item) => {
-            const selectedCandidate = item.observation.id === selectedId;
             return (
-              <button
-                type="button"
-                className={`candidate-forecast-card ${selectedCandidate ? "selected" : ""}`}
-                key={item.observation.id}
-                aria-pressed={selectedCandidate}
-                onClick={() => setSelectedId(item.observation.id)}
-              >
-                <CandidateThumbnail observation={item.observation}/>
-                <div className="candidate-forecast-heading"><strong>{formatTime(item.observation.capturedAt)}</strong><small>相似指數 {Math.round(item.score * 100)}/100</small></div>
+              <article className="candidate-forecast-card" key={item.observation.id}>
+                <button
+                  type="button"
+                  className="candidate-play-button"
+                  aria-label={`播放 ${item.observation.spot?.name || "浪點"} ${formatTime(item.observation.capturedAt)} 實拍`}
+                  onClick={() => setActiveObservation(item.observation)}
+                >
+                  <CandidateThumbnail observation={item.observation}/>
+                  <span className="candidate-play-icon" aria-hidden="true">▶</span>
+                </button>
+                <div className="candidate-forecast-heading"><strong>{formatTime(item.observation.capturedAt)}</strong><small>相似度 {Math.round(item.score * 100)}%</small></div>
                 <ForecastComparisonRows forecast={item.candidateForecast}/>
-                <span className="candidate-coverage">資料涵蓋 {Math.round(item.coverage * 100)}% · {selectedCandidate ? "已選" : "選這段"}</span>
-              </button>
+              </article>
             );
           })}
         </div>
-
       </div>
-      <p className="comparison-help">目前預報固定在左側；左右滑動縮圖與歷史預報，選定後才展開單一實拍。</p>
-      {selected && <div className="selected-observation"><div className="section-heading"><h4>已選實拍</h4><small>{formatTime(selected.observation.capturedAt)}</small></div><ObservationCard key={selected.observation.id} observation={selected.observation} enablePlayback/></div>}
+      {activeObservation && <PlaybackModal observation={activeObservation} onClose={() => setActiveObservation(null)}/>}
     </section>
   );
 }
 
-export function SurfApp({ capacityReached = false }: { capacityReached?: boolean }) {
-  const [view, setView] = useState<View>("find");
+export function SurfApp({ loginStatus }: { loginStatus?: LoginStatus }) {
+  const [view, setView] = useState<View>(loginStatus ? "mine" : "find");
   const [spots, setSpots] = useState<Spot[]>([]);
   const [me, setMe] = useState<Me | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -609,62 +773,73 @@ export function SurfApp({ capacityReached = false }: { capacityReached?: boolean
 
   if (loading) return <main className="app-shell center-screen"><Brand/><p className="loading-purpose">{PROJECT_PURPOSE}</p><div className="loading-line"><span/></div></main>;
   if (fatalError) return <main className="app-shell center-screen"><Brand/><p>{fatalError}</p></main>;
-
   return (
     <main className="app-shell">
-      <header className="topbar"><Brand/>{me && <span className="public-id">{me.displayId || "匿名"}</span>}</header>
+      <Topbar/>
       {view === "find" && <FindView spots={spots}/>}
-      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} capacityReached={capacityReached}/></div>)}
-      {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} capacityReached={capacityReached}/></div>)}
-      <ProblemReport view={view}/>
+      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus}/></div>)}
+      {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus}/></div>)}
       <BottomNav view={view} onChange={setView}/>
     </main>
   );
 }
 
 function FindView({ spots }: { spots: Spot[] }) {
-  const [queryBounds] = useState(() => {
-    const now = new Date();
-    return {
-      min: toLocalDateTime(now),
-      max: toLocalDateTime(new Date(now.getTime() + 72 * 60 * 60_000)),
-    };
-  });
+  const [now, setNow] = useState(() => new Date());
+  const [dayOffset, setDayOffset] = useState(() => firstSelectableForecastHour(0) == null ? 1 : 0);
+  const [hour, setHour] = useState(() => firstSelectableForecastHour(0) ?? 8);
   const [spotId, setSpotId] = useState("");
-  const [targetTime, setTargetTime] = useState(toLocalDateTime(new Date(new Date().getTime() + 24 * 60 * 60_000)));
-  const [forecasts, setForecasts] = useState<Forecast[]>([]);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [matchGroups, setMatchGroups] = useState<MatchGroup[]>([]);
+  const [forecastProviders, setForecastProviders] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectedSpotId = spotId || spots[0]?.id || "";
+  const minimumDayOffset = firstSelectableForecastHour(0, now) == null ? 1 : 0;
+  const effectiveDayOffset = Math.max(dayOffset, minimumDayOffset);
+  const minimumHour = firstSelectableForecastHour(effectiveDayOffset, now) ?? FORECAST_HOUR_MIN;
+  const effectiveHour = Math.max(hour, minimumHour);
+  const targetTime = taipeiForecastTarget(effectiveDayOffset, effectiveHour, now).toISOString();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     if (!selectedSpotId || !targetTime) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      setLoading(true); setError(null);
+      setLoading(true); setError(null); setForecastProviders([]);
       void api<PublicMatchesResponse>(`/matches?spotId=${encodeURIComponent(selectedSpotId)}&targetTime=${encodeURIComponent(new Date(targetTime).toISOString())}`, { signal: controller.signal })
-        .then((result) => { setForecasts(result.forecasts); setObservations(result.observations); setMatchGroups(result.matchesBySource); })
+        .then((result) => { setObservations(result.observations); setMatchGroups(result.matchesBySource); setForecastProviders(result.forecasts.map((forecast) => forecast.provider)); })
         .catch((caught) => { if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "比對失敗"); })
         .finally(() => setLoading(false));
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [selectedSpotId, targetTime]);
 
+  const dayCells = Array.from({ length: FORECAST_DAY_OFFSET_MAX + 1 }, (_, offset) => {
+    const target = taipeiForecastTarget(offset, 12, now);
+    return {
+      date: new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric" }).format(target),
+      weekday: new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", weekday: "short" }).format(target),
+    };
+  });
+  const hasCwaForecast = forecastProviders.includes("cwa");
+
   return <div className="screen find-screen">
-    <div className="page-title"><h1>找浪</h1><p>只選浪點與未來 72 小時內的時間</p></div>
     <div className="search-panel">
       <label><span>浪點</span><select value={selectedSpotId} onChange={(event) => setSpotId(event.target.value)}>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select></label>
-      <label><span>時間</span><input type="datetime-local" min={queryBounds.min} max={queryBounds.max} value={targetTime} onChange={(event) => setTargetTime(event.target.value)}/></label>
+      <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`${offset <= 2 ? "multi-source" : "ecmwf-only"} ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散七日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>前 3 天：CWA＋ECMWF 比較區</span><span className="ecmwf-only"><i/>第 4–7 天：ECMWF</span></div>{effectiveDayOffset <= 2 && !loading && !hasCwaForecast && <small className="forecast-source-notice">此時段目前沒有 CWA 可用快照，先顯示 ECMWF；不混合或補值。</small>}</label>
+      <label className="range-field"><span>時間 <output>{String(effectiveHour).padStart(2, "0")}:00</output></span><input type="range" min={minimumHour} max={FORECAST_HOUR_MAX} step="1" value={effectiveHour} onChange={(event) => setHour(Number(event.target.value))}/></label>
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
     {error && <div className="error-message">{error}</div>}
-    <section className="result-section"><div className="section-heading"><h2>{matchGroups.length ? "目前預報 × 候選實拍" : "目前預報"}</h2><small>{matchGroups.length ? `${matchGroups.length} 組獨立來源` : forecasts.length ? `${forecasts.length} 筆獨立資料` : "尚無快照"}</small></div>
+    <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{matchGroups.length ? `${matchGroups.length} 組獨立來源` : "累積中"}</small></div>
       {matchGroups.length
         ? <div className="match-group-list">{matchGroups.map((group) => <MatchComparisonGroup key={`${group.provider}:${group.model}`} group={group}/>)}</div>
-        : forecasts.length
-          ? <div className="forecast-list">{forecasts.map((item) => <ForecastCard key={item.id} forecast={item}/>)}</div>
-          : <div className="info-state"><Icon name="wave"/><p>預報歷史抓取尚未啟用。目前不會用未驗證數值假裝完成配對。</p></div>}
+        : <div className="info-state"><Icon name="wave"/><p>這個時間目前沒有可用的相似歷史實拍，因此沒有可對齊的比較組；不會另放一張獨立預報卡取代歷史比較。</p></div>}
     </section>
     {!matchGroups.length && <section className="result-section"><div className="section-heading"><h2>同浪點近期實拍（尚未配對）</h2><small>{observations.length ? `${observations.length} 段` : "累積中"}</small></div>
       {observations.length ? <div className="record-list">{observations.map((item) => <ObservationCard key={item.id} observation={item}/>)}</div> : <div className="info-state compact"><p>這個浪點還沒有可公開配對的實拍。</p></div>}
@@ -674,11 +849,12 @@ function FindView({ spots }: { spots: Spot[] }) {
 
 function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComplete: (observation: Observation) => void }) {
   const initialSpot = typeof window !== "undefined" ? localStorage.getItem("lastSpotId") || "" : "";
-  const [spotId, setSpotId] = useState(initialSpot);
+  const [spotId, setSpotId] = useState(initialSpot || spots[0]?.id || "");
   const [capturedAt, setCapturedAt] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
-  const [showUploader, setShowUploader] = useState(me.showIdentityDefault && Boolean(me.displayId));
+  const [showUploader, setShowUploader] = useState(false);
+  const [rightsHelpOpen, setRightsHelpOpen] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -696,7 +872,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
         video.onerror = () => reject(new Error("無法讀取影片長度"));
         video.src = url;
       });
-      if (!Number.isFinite(seconds) || seconds < 5 || seconds > 60) throw new Error("影片長度必須為 5–60 秒");
+      if (!Number.isFinite(seconds) || seconds < MIN_VIDEO_DURATION_SECONDS || seconds > MAX_VIDEO_DURATION_SECONDS) throw new Error("影片長度必須為 10–60 秒");
       setFile(selected); setDuration(seconds);
     } finally { URL.revokeObjectURL(url); }
   }
@@ -704,10 +880,17 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!file || duration == null) return setError("請先選擇影片");
+    if (!spotId) return setError("請先選擇浪點");
+    if (capturedAt) {
+      const parsed = new Date(capturedAt);
+      const now = new Date();
+      if (!Number.isFinite(parsed.getTime()) || parsed.getTime() > now.getTime()) return setError("拍攝時間不可晚於現在");
+      if (parsed.getTime() < now.getTime() - 7 * 86_400_000) return setError("拍攝時間必須在 168 小時內");
+    }
     setError(null); setProgress("建立上傳連結…");
     try {
-      const ticket = await api<UploadTicket>("/videos/upload-request", { method: "POST", body: JSON.stringify({ spotId: spotId || null, capturedAt: capturedAt ? new Date(capturedAt).toISOString() : null, durationSeconds: duration, sizeBytes: file.size, fileName: file.name, contentType: file.type, showUploader }) });
-      if (spotId) localStorage.setItem("lastSpotId", spotId);
+      const ticket = await api<UploadTicket>("/videos/upload-request", { method: "POST", body: JSON.stringify({ spotId, capturedAt: capturedAt ? new Date(capturedAt).toISOString() : null, durationSeconds: duration, sizeBytes: file.size, fileName: file.name, contentType: file.type, showUploader }) });
+      localStorage.setItem("lastSpotId", spotId);
       if (ticket.uploadMethod === "POST" && ticket.uploadUrl) {
         setProgress("影片上傳中…");
         const form = new FormData(); form.append("file", file);
@@ -725,15 +908,49 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
     } catch (caught) { setError(caught instanceof Error ? caught.message : "上傳失敗"); setProgress(null); }
   }
 
-  return <div className="screen upload-screen"><div className="page-title"><h1>上傳</h1><p>5–60 秒，最多 200 MB</p></div>
+  return <div className="screen upload-screen"><div className="page-title"><h1>上傳</h1><p>10–60 秒，最多 200 MB</p></div>
     <form onSubmit={submit} className="upload-form">
       <label className={`file-picker ${file ? "has-file" : ""}`}><input type="file" accept="video/*" onChange={(event) => { const selected = event.target.files?.[0]; if (selected) void inspectVideo(selected).catch((caught) => setError(caught instanceof Error ? caught.message : "無法讀取影片")); }}/><span className="file-icon"><Icon name="upload"/></span><strong>{file?.name || "選擇影片"}</strong><small>{file && duration ? `${duration.toFixed(1)} 秒 · ${(file.size / 1_000_000).toFixed(1)} MB` : "會優先讀取檔案時間"}</small></label>
-      <div className="two-fields"><label><span>浪點</span><select value={spotId} onChange={(event) => setSpotId(event.target.value)}><option value="">稍後補</option>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select></label><label><span>拍攝時間</span><input type="datetime-local" min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} value={capturedAt} onChange={(event) => setCapturedAt(event.target.value)}/></label></div>
-      <p className="pending-help">缺浪點或拍攝時間仍可上傳，但不公開，需在 7 天內補齊。</p>
+      <div className="two-fields"><label><span>浪點</span><select required value={spotId} onChange={(event) => setSpotId(event.target.value)}>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select></label><label><span>拍攝時間</span><input type="datetime-local" min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} value={capturedAt} onChange={(event) => setCapturedAt(event.target.value)}/></label></div>
+      <p className="pending-help">浪點上傳後不可補選或變更；拍攝時間可在 7 天內補齊，補齊前影片不公開。</p>
       <label className="switch-row"><span><strong>顯示公開名稱</strong><small>{me.displayId || "先到「我的」確認公開名稱"}</small></span><input type="checkbox" disabled={!me.displayId} checked={showUploader} onChange={(event) => setShowUploader(event.target.checked)}/></label>
-      <div className="public-notice"><strong>公開提醒</strong><span>{PUBLIC_MEDIA_NOTICE}</span></div>
+      <div className="public-notice">
+        <div className="public-notice-heading">
+          <strong>公開提醒</strong>
+          <button
+            className="rights-help-button"
+            type="button"
+            aria-label="查看人物入鏡與權利說明"
+            aria-expanded={rightsHelpOpen}
+            aria-controls="upload-people-rights-help"
+            onClick={() => setRightsHelpOpen((open) => !open)}
+          >?</button>
+        </div>
+        <p>{PUBLIC_MEDIA_NOTICE}</p>
+        {rightsHelpOpen && <section className="rights-help-panel" id="upload-people-rights-help" aria-labelledby="upload-people-rights-title">
+          <h2 id="upload-people-rights-title">人物入鏡怎麼判斷？</h2>
+          <ul>
+            <li>海灘或海面的廣角浪況畫面中，人物只是附帶入鏡時，本服務不要求逐一取得每個人的同意。</li>
+            <li>若人物可辨識且是主要拍攝對象，請先取得本人同意；若是未成年人，請取得家長或監護人同意。</li>
+            <li>無法取得同意時，請裁切或模糊；不要上傳敏感、持續跟追或可能傷害當事人的內容。</li>
+            <li>公開場所不代表完全放棄肖像與隱私權；實際判斷仍會依個別情況不同。</li>
+            <li>{PUBLIC_MEDIA_THIRD_PARTY_RIGHTS_NOTICE}</li>
+            <li>當事人可使用檢舉功能提出下架要求，平台會依個案審查。</li>
+          </ul>
+          <div className="rights-help-sources">
+            <strong>官方資料</strong>
+            <ul>
+              <li><a href="https://mojlaw.moj.gov.tw/NewsContentE.aspx?id=29&lan=C" target="_blank" rel="noopener noreferrer">法務部：個人資料保護法第 51 條</a><span>說明公開場所影音在個資法中的例外範圍；不等於排除肖像或隱私等其他權利。</span></li>
+              <li><a href="https://www.tipo.gov.tw/tw/copyright/774-5048.html" target="_blank" rel="noopener noreferrer">智慧財產局：公共場合人物與肖像權</a><span>說明人物是照片主要元素時，建議先取得被拍攝者同意。</span></li>
+              <li><a href="https://cons.judicial.gov.tw/docdata.aspx?fid=100&id=310870&rn=6185" target="_blank" rel="noopener noreferrer">憲法法庭：釋字第 689 號</a><span>說明人在公共場域仍可能合理期待不受侵擾，持續跟追也有界線。</span></li>
+              <li><a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener noreferrer">Creative Commons：CC0 1.0</a><span>說明 CC0 不影響第三人可能擁有的肖像、隱私及其他權利。</span></li>
+            </ul>
+          </div>
+          <p className="rights-help-disclaimer">這是上傳判斷提示與官方資料整理，不是對個案的法律保證或法律意見。</p>
+        </section>}
+      </div>
       {error && <div className="error-message">{error}</div>}{progress && <div className="progress-message"><span className="spinner"/>{progress}</div>}
-      <button className="submit-button" disabled={!file || Boolean(progress)}>{progress ? "處理中" : "上傳影片"}</button>
+      <button className="submit-button" disabled={!file || !spotId || Boolean(progress)}>{progress ? "處理中" : "上傳影片"}</button>
     </form>
   </div>;
 }
@@ -771,13 +988,39 @@ function AdminReports() {
 
 function MineView({ me, spots, observations, onPatch, onMeChange }: { me: Me; spots: Spot[]; observations: Observation[]; onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>; onMeChange: (me: Me) => void }) {
   const [filter, setFilter] = useState("all");
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingDisplayId, setEditingDisplayId] = useState(false);
   const [displayId, setDisplayId] = useState(me.displayId || me.suggestedDisplayName || "");
-  const [defaultVisible, setDefaultVisible] = useState(me.showIdentityDefault);
+  const [profileBusy, setProfileBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const filtered = useMemo(() => observations.filter((item) => filter === "all" || filter === "pending" && item.metadataStatus === "pending" || item.spot?.id === filter), [filter, observations]);
-  return <div className="screen mine-screen"><div className="page-title mine-title"><div><h1>我的</h1><p>{observations.length} 段影片</p></div><button className="settings-button" onClick={() => setSettingsOpen((open) => !open)}>設定</button></div>
-    {settingsOpen && <section className="profile-panel"><label><span>公開名稱</span><input value={displayId} minLength={2} maxLength={24} onChange={(event) => setDisplayId(event.target.value)} placeholder="例如 浪人小明"/></label><label className="switch-row"><span><strong>新影片預設顯示公開名稱</strong></span><input type="checkbox" checked={defaultVisible} disabled={!displayId.trim()} onChange={(event) => setDefaultVisible(event.target.checked)}/></label>{!me.displayId && me.suggestedDisplayName && <p className="pending-help">已從 LINE 預填，儲存後才會成為本站公開名稱。</p>}{error && <p className="inline-error">{error}</p>}<button className="small-primary" onClick={() => { setError(null); void api<Pick<Me, "displayId" | "showIdentityDefault">>("/me", { method: "PATCH", body: JSON.stringify({ displayId: displayId.trim() || null, showIdentityDefault: defaultVisible }) }).then((updated) => onMeChange({ ...me, ...updated })).catch((caught) => setError(caught instanceof Error ? caught.message : "儲存失敗")); }}>儲存設定</button>{me.isAdmin && <AdminReports/>}{me.authMode === "line" && <form action="/api/v1/auth/logout" method="post"><button className="logout-button">登出 LINE</button></form>}</section>}
+  async function saveProfile(nextDisplayId: string | null) {
+    setError(null);
+    setProfileBusy(true);
+    try {
+      const updated = await api<Pick<Me, "displayId" | "showIdentityDefault">>("/me", {
+        method: "PATCH",
+        body: JSON.stringify({ displayId: nextDisplayId, showIdentityDefault: false }),
+      });
+      setDisplayId(updated.displayId || "");
+      onMeChange({ ...me, ...updated });
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "儲存失敗");
+      return false;
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  return <div className="screen mine-screen"><div className="page-title mine-title"><div><h1>我的</h1><p>{observations.length} 段影片</p></div></div>
+    <section className="profile-panel">
+      <button className="public-id-edit" type="button" aria-label="編輯公開名稱" onClick={() => setEditingDisplayId((open) => !open)}><span>公開名稱: {me.displayId || "未設定"}</span><b aria-hidden="true">✎</b></button>
+      {editingDisplayId && <div className="display-id-editor"><label htmlFor="display-id-input"><span>公開名稱</span></label><div><input id="display-id-input" value={displayId} minLength={2} maxLength={24} onChange={(event) => setDisplayId(event.target.value)} placeholder="例如 浪人小明"/><button className="small-primary" type="button" disabled={profileBusy} onClick={() => { const nextId = displayId.trim() || null; void saveProfile(nextId).then((saved) => { if (saved) setEditingDisplayId(false); }); }}>儲存</button></div>{!me.displayId && me.suggestedDisplayName && <p>已從 LINE 私下預填；只有儲存後才會成為本站公開名稱。</p>}</div>}
+      {me.authMode === "line" && <form action="/api/v1/auth/logout" method="post"><button className="logout-button">登出 LINE</button></form>}
+      <ProblemReport view="mine"/>
+      {error && <p className="inline-error">{error}</p>}
+    </section>
+    {me.isAdmin && <AdminReports/>}
     <div className="filter-row"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button><button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>待補</button>{spots.map((spot) => <button key={spot.id} className={filter === spot.id ? "active" : ""} onClick={() => setFilter(spot.id)}>{spot.name}</button>)}</div>
     {filtered.length ? <div className="record-list">{filtered.map((item) => <ObservationCard key={item.id} observation={item} ownerActions={{ spots, onPatch }}/>)}</div> : <div className="info-state"><Icon name="wave"/><p>這個篩選還沒有影片。</p></div>}
   </div>;

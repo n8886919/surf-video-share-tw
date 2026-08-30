@@ -1,25 +1,22 @@
 # Roadmap
 
-## Milestone A — revised local vertical slice
+## Milestone A — product vertical slice
 
-1. Public spot list and find-by-spot/time surface.
-2. Seven-day upload/pending lifecycle; condition failure does not fail completion.
-3. Three-tab mobile UI, versioned CC0 notice, two launch spots, logo, own filter/favorite/supplement/fun reaction.
-4. Public reports, administrator delisting, schema/API tests, and local migration verification.
+Complete: public spot/time matching, immutable-spot upload with a seven-day capture-time pending window, provider-authoritative 10–60 second media validation, three-tab mobile UI, versioned CC0 notice, two launch spots, owner feedback, reporting, and administrator delisting. The upload notice now distinguishes incidental people from identifiable main subjects and links to official third-party-rights guidance without adding a consent checkbox.
 
 ## Milestone B — forecast history
 
-1. Implemented locally: scheduled immutable snapshots for CWA wave/tide and ECMWF WAM, including run/valid/lead/grid provenance.
-2. Implemented locally: separate sources plus current/legacy fixture, missing-field, duplicate-run, and retry tests.
-3. Implemented locally: query same-spot videos against the newest run available at historical capture time; equal lead time is not required.
-4. Pending: production-like Cron/D1 verification, provider quota observation, and cost/CPU measurement before deployment.
-5. Implemented locally: fixed target forecast beside horizontally scrollable candidate forecasts with lazy public-video thumbnails; comparison does not preload Stream video delivery.
+Complete for ECMWF WAM: immutable run/valid/lead/grid snapshots, retry/idempotency coverage, historical run selection, provider-separated matching, and the fixed-target/horizontally-scrollable comparison UI. Production Cron/D1 behavior and the seven-day ECMWF horizon have been verified.
+
+CWA parsing and provenance are implemented and tested, but its official whole-archive ZIP exceeded Workers Free Cron CPU in a guarded production trial. Enabling Workers Paid or approving a separately reviewed chunked design remains a product/operations decision; CWA stays disabled and visibly absent rather than being inferred or mixed into ECMWF.
 
 ## Milestone C — production readiness
 
-Implemented locally: deterministic seven-day lifecycle deletion with bounded batches, concurrency claims, retry leases, and structured Cron results.
+Complete: real LINE Login, direct signed Stream upload, lifecycle-gated signed thumbnail/playback, owner MP4 download on both tested mobile platforms, HMAC-pseudonymized burst limits, private 90-day playback feedback, guarded deployments, and query-string-redacted observability.
 
-Pending: real Stream upload/playback/access control and lifecycle verification, staged moderation verification, rate limits, cost alarms, backups, and a staged rollout under 100 users and NT$1,000/month.
+Implemented locally but not yet released: 24-hour share links with a shared monthly anonymous-playback budget, adaptive portrait/landscape playback, public-write rate limiting, generic client errors with request IDs, and baseline response security headers.
+
+Remaining launch gates: isolated staging verification of seven-day expiry deletion and moderation, Cloudflare cost alarms and restore practice, plus two-phone acceptance of the new share-link/quota flow after an explicitly approved deployment.
 
 ## Later experiments
 

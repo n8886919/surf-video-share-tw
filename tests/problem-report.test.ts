@@ -32,8 +32,8 @@ describe("problem reports", () => {
         APP_ENV: "production",
         DB: db,
         SESSION_SECRET: "test-session-secret",
-        PROBLEM_REPORT_RATE_LIMITER: { limit } as unknown as RateLimit,
-      } as AppEnv,
+        PUBLIC_WRITE_RATE_LIMITER: { limit } as unknown as RateLimit,
+      } as unknown as AppEnv,
     );
 
     expect(response.status).toBe(201);
@@ -47,7 +47,7 @@ describe("problem reports", () => {
     ]);
     expect(boundValues.flat()).not.toContain("203.0.113.25");
     const limiterKey = limit.mock.calls[0]?.[0]?.key as string;
-    expect(limiterKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(limiterKey).toMatch(/^problem-report:[a-f0-9]{64}$/);
     expect(limiterKey).not.toContain("203.0.113.25");
   });
 
@@ -67,8 +67,8 @@ describe("problem reports", () => {
         APP_ENV: "production",
         DB: { prepare } as unknown as D1Database,
         SESSION_SECRET: "test-session-secret",
-        PROBLEM_REPORT_RATE_LIMITER: { limit } as unknown as RateLimit,
-      } as AppEnv,
+        PUBLIC_WRITE_RATE_LIMITER: { limit } as unknown as RateLimit,
+      } as unknown as AppEnv,
     );
 
     expect(response.status).toBe(429);
@@ -89,14 +89,62 @@ describe("problem reports", () => {
       {
         APP_ENV: "production",
         DB: { prepare } as unknown as D1Database,
-        PROBLEM_REPORT_RATE_LIMITER: { limit } as unknown as RateLimit,
-      } as AppEnv,
+        PUBLIC_WRITE_RATE_LIMITER: { limit } as unknown as RateLimit,
+      } as unknown as AppEnv,
     );
 
     expect(response.status).toBe(503);
     expect(prepare).not.toHaveBeenCalled();
     expect(limit).not.toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+
+  it("rate-limits anonymous video reports before reading or writing D1", async () => {
+    const prepare = vi.fn();
+    const limit = vi.fn().mockResolvedValue({ success: false });
+    const response = await api.fetch(
+      new Request("https://example.com/api/v1/videos/video_public/reports", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "cf-connecting-ip": "203.0.113.25",
+        },
+        body: JSON.stringify({ reason: "privacy" }),
+      }),
+      {
+        APP_ENV: "production",
+        DB: { prepare } as unknown as D1Database,
+        SESSION_SECRET: "test-session-secret",
+        PUBLIC_WRITE_RATE_LIMITER: { limit } as unknown as RateLimit,
+      } as unknown as AppEnv,
+    );
+
+    expect(response.status).toBe(429);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(limit.mock.calls[0]?.[0]?.key).toMatch(/^video-report:[a-f0-9]{64}$/);
+  });
+
+  it("rate-limits LINE login attempts before creating an OAuth record", async () => {
+    const prepare = vi.fn();
+    const limit = vi.fn().mockResolvedValue({ success: false });
+    const response = await api.fetch(
+      new Request("https://example.com/api/v1/auth/line", {
+        headers: { "cf-connecting-ip": "203.0.113.25" },
+      }),
+      {
+        APP_ENV: "production",
+        DB: { prepare } as unknown as D1Database,
+        LINE_CHANNEL_ID: "1234567890",
+        LINE_CHANNEL_SECRET: "test-channel-secret",
+        LINE_CALLBACK_URL: "https://example.com/api/v1/auth/line/callback",
+        SESSION_SECRET: "test-session-secret",
+        PUBLIC_WRITE_RATE_LIMITER: { limit } as unknown as RateLimit,
+      } as unknown as AppEnv,
+    );
+
+    expect(response.status).toBe(429);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(limit.mock.calls[0]?.[0]?.key).toMatch(/^line-login:[a-f0-9]{64}$/);
   });
 
   it("lets the configured administrator list anonymous open reports", async () => {

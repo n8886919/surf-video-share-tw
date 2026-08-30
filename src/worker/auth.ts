@@ -115,7 +115,10 @@ function redirect(path: string, cookie?: string): Response {
   return new Response(null, { status: 303, headers });
 }
 
-export async function beginLineLogin(env: AppEnv): Promise<Response> {
+export async function beginLineLogin(
+  env: AppEnv,
+  options: { disableAutoLogin?: boolean } = {},
+): Promise<Response> {
   const config = getLineConfig(env);
   if (!config) {
     return Response.json(
@@ -150,6 +153,7 @@ export async function beginLineLogin(env: AppEnv): Promise<Response> {
   authorize.searchParams.set("nonce", nonce);
   authorize.searchParams.set("code_challenge", codeChallenge);
   authorize.searchParams.set("code_challenge_method", "S256");
+  if (options.disableAutoLogin) authorize.searchParams.set("disable_auto_login", "true");
 
   return new Response(null, {
     status: 302,

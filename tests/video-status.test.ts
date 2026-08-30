@@ -41,14 +41,14 @@ describe("video status resolution", () => {
     });
   });
 
-  it("fails closed when Stream verifies a video shorter than five seconds", () => {
+  it("fails closed when Stream verifies a video shorter than ten seconds", () => {
     expect(resolveVideoStatus(
       "cloudflare-stream",
-      { state: "ready", durationSeconds: 4.9 },
+      { state: "ready", durationSeconds: 9.9 },
       20.1,
     )).toEqual({
       state: "error",
-      durationSeconds: 4.9,
+      durationSeconds: 9.9,
       invalidDuration: true,
       canPublish: false,
     });

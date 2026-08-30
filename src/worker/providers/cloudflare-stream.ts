@@ -26,6 +26,7 @@ interface StreamVideoDetails {
   preview?: string;
   playback?: { hls?: string; dash?: string };
   requireSignedURLs?: boolean;
+  input?: { width?: number; height?: number };
 }
 
 interface StreamDownloadDetails {
@@ -222,10 +223,22 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
     iframeUrl.pathname = `/${encodeURIComponent(token)}/iframe`;
     iframeUrl.search = "";
     iframeUrl.hash = "";
+    const width = typeof details.input?.width === "number"
+      && Number.isFinite(details.input.width)
+      && details.input.width > 0
+      ? details.input.width
+      : null;
+    const height = typeof details.input?.height === "number"
+      && Number.isFinite(details.input.height)
+      && details.input.height > 0
+      ? details.input.height
+      : null;
     return {
       type: "iframe",
       iframeUrl: iframeUrl.toString(),
       expiresAt: new Date(expiresAtSeconds * 1000).toISOString(),
+      width,
+      height,
     };
   }
 

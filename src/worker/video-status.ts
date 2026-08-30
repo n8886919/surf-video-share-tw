@@ -1,7 +1,8 @@
 import type { VideoProvider, VideoStatus } from "./providers/types";
-
-const MIN_VIDEO_DURATION_SECONDS = 5;
-const MAX_VIDEO_DURATION_SECONDS = 60;
+import {
+  MAX_VIDEO_DURATION_SECONDS,
+  MIN_VIDEO_DURATION_SECONDS,
+} from "../../packages/api-contract/src";
 
 export interface ResolvedVideoStatus {
   state: VideoStatus["state"];

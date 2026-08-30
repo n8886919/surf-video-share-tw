@@ -33,6 +33,7 @@ describe("cost-bearing route limits", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          spotId: "spot_wushi-harbor-north",
           durationSeconds: 20,
           sizeBytes: 1024,
           fileName: "first-user.mp4",
@@ -81,6 +82,7 @@ describe("cost-bearing route limits", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          spotId: "spot_wushi-harbor-north",
           durationSeconds: 20,
           sizeBytes: 1024,
           fileName: "first-user.mp4",
@@ -129,6 +131,7 @@ describe("cost-bearing route limits", () => {
           cookie: "__Host-surf_session=test-session",
         },
         body: JSON.stringify({
+          spotId: "spot_wushi-harbor-north",
           durationSeconds: 20,
           sizeBytes: 1024,
           fileName: "first-user.mp4",

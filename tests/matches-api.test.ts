@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PublicMatchesResponse } from "../packages/api-contract/src";
+import { firstSelectableForecastHour, taipeiForecastTarget } from "../packages/domain/src/time-policy";
 import { api } from "../src/worker/api";
 import type { AppEnv } from "../src/worker/db";
 
@@ -54,8 +55,10 @@ function observationRow(id: string, capturedAt: string) {
 
 describe("public matches response", () => {
   it("returns coverage metadata and excludes history below 50 percent coverage", async () => {
-    const now = Date.now();
-    const targetTime = new Date(now + 60 * 60_000).toISOString();
+    const current = new Date();
+    const dayOffset = firstSelectableForecastHour(0, current) == null ? 1 : 0;
+    const targetTime = taipeiForecastTarget(dayOffset, firstSelectableForecastHour(dayOffset, current) ?? 5, current).toISOString();
+    const now = current.getTime();
     const capturedAt = new Date(now - 24 * 60 * 60_000).toISOString();
     const targetForecast = {
       ...emptyForecastMetrics,

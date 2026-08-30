@@ -61,6 +61,7 @@ describe("domain validation", () => {
       contentType: "video/mp4",
     };
     expect(uploadRequestSchema.safeParse(base).success).toBe(true);
+    expect(uploadRequestSchema.safeParse({ ...base, durationSeconds: 9.9 }).success).toBe(false);
     expect(uploadRequestSchema.safeParse({ ...base, durationSeconds: 61 }).success).toBe(false);
     expect(uploadRequestSchema.safeParse({ ...base, sizeBytes: MAX_UPLOAD_BYTES }).success).toBe(true);
     expect(uploadRequestSchema.safeParse({ ...base, sizeBytes: MAX_UPLOAD_BYTES + 1 }).success).toBe(false);
@@ -74,15 +75,23 @@ describe("domain validation", () => {
     expect(updateMeSchema.safeParse({ displayId: "浪", showIdentityDefault: false }).success).toBe(false);
   });
 
-  it("allows a private pending upload without spot or capture time", () => {
+  it("requires a spot but allows capture time to remain pending", () => {
     expect(uploadRequestSchema.safeParse({
-      spotId: null,
+      spotId: "spot_donghe",
       capturedAt: null,
       durationSeconds: 10,
       sizeBytes: 10_000,
       fileName: "surf.mp4",
       contentType: "video/mp4",
     }).success).toBe(true);
+    expect(uploadRequestSchema.safeParse({
+      capturedAt: null,
+      durationSeconds: 10,
+      sizeBytes: 10_000,
+      fileName: "surf.mp4",
+      contentType: "video/mp4",
+    }).success).toBe(false);
+    expect(updateVideoSchema.safeParse({ spotId: "spot_other" }).success).toBe(false);
   });
 
   it("limits subjective input to one reaction and a 100-character supplement", () => {

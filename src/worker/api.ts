@@ -3,9 +3,12 @@ import { zValidator } from "@hono/zod-validator";
 import {
   completeUploadSchema,
   MAX_UPLOAD_BYTES,
+  MAX_VIDEO_DURATION_SECONDS,
   matchQuerySchema,
+  playbackStartSchema,
   problemReportSchema,
   reportVideoSchema,
+  sharedPlaybackSchema,
   updateMeSchema,
   updateVideoSchema,
   uploadRequestSchema,
@@ -14,6 +17,7 @@ import {
   type PlaybackResponse,
   type PublicMatchesResponse,
   type VideoDownloadResponse,
+  type VideoShareLinkResponse,
 } from "../../packages/api-contract/src";
 import {
   assertWithinForecastWindow,
@@ -45,6 +49,10 @@ import { resolveVideoStatus } from "./video-status";
 type Variables = { user: UserRow; authMode: "development" | "line" };
 
 const RATE_LIMIT_RETRY_SECONDS = 60;
+const PLAYBACK_TRACKING_TOKEN_SECONDS = 15 * 60;
+const SHARE_LINK_SECONDS = 24 * 60 * 60;
+const SHARE_MONTHLY_ANONYMOUS_PLAY_LIMIT = 100;
+type AnonymousWriteScope = "line-login" | "problem-report" | "video-report";
 
 function rateLimitResponse(error: "RATE_LIMITED" | "RATE_LIMIT_UNAVAILABLE", message: string, status: 429 | 503) {
   return new Response(JSON.stringify({ error, message }), {
@@ -95,6 +103,247 @@ async function anonymousClientKey(request: Request, env: AppEnv): Promise<string
   return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function enforceAnonymousWriteRateLimit(
+  request: Request,
+  env: AppEnv,
+  scope: AnonymousWriteScope,
+  unavailableMessage: string,
+): Promise<Response | null> {
+  const clientKey = await anonymousClientKey(request, env);
+  if (!clientKey) {
+    console.error("Anonymous public-write rate-limit client key is unavailable", { scope });
+    return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", unavailableMessage, 503);
+  }
+  return enforceRateLimit(env, env.PUBLIC_WRITE_RATE_LIMITER, `${scope}:${clientKey}`);
+}
+
+function playbackTrackingSecret(env: AppEnv): string | null {
+  return env.SESSION_SECRET
+    ?? (env.APP_ENV === "development" ? "development-only-playback-tracking-secret" : null);
+}
+
+async function hmacKey(secret: string, usage: KeyUsage[]): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    usage,
+  );
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+}
+
+function base64UrlToBytes(value: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]+$/u.test(value)) return null;
+  try {
+    const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+    return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+interface PlaybackTrackingPayload {
+  videoId: string;
+  eventId: string;
+  expiresAt: number;
+}
+
+interface SharedPlaybackPayload {
+  version: 1;
+  videoId: string;
+  exporterUserId: string;
+  budgetPeriod: string;
+  expiresAt: number;
+}
+
+function shareLinkSecret(env: AppEnv): string | null {
+  return env.SESSION_SECRET
+    ?? (env.APP_ENV === "development" ? "development-only-share-link-secret" : null);
+}
+
+async function shareLinkKey(env: AppEnv, usage: KeyUsage[]): Promise<CryptoKey | null> {
+  const secret = shareLinkSecret(env);
+  if (!secret) return null;
+  const material = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`surf-video-share-link\0${secret}`),
+  );
+  return crypto.subtle.importKey("raw", material, { name: "AES-GCM" }, false, usage);
+}
+
+function taipeiMonthPeriod(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  if (!year || !month) throw new Error("Unable to resolve Asia/Taipei budget period");
+  return `${year}-${month}`;
+}
+
+function shareBudgetId(exporterUserId: string, period: string): string {
+  return `${period}:${exporterUserId}`;
+}
+
+async function createSharedPlaybackToken(
+  env: AppEnv,
+  videoId: string,
+  exporterUserId: string,
+  now = new Date(),
+): Promise<{ token: string; payload: SharedPlaybackPayload } | null> {
+  const key = await shareLinkKey(env, ["encrypt"]);
+  if (!key) return null;
+  const payload: SharedPlaybackPayload = {
+    version: 1,
+    videoId,
+    exporterUserId,
+    budgetPeriod: taipeiMonthPeriod(now),
+    expiresAt: Math.floor(now.getTime() / 1000) + SHARE_LINK_SECONDS,
+  };
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(JSON.stringify(payload)),
+  ));
+  const tokenBytes = new Uint8Array(iv.byteLength + encrypted.byteLength);
+  tokenBytes.set(iv);
+  tokenBytes.set(encrypted, iv.byteLength);
+  return { token: bytesToBase64Url(tokenBytes), payload };
+}
+
+async function verifySharedPlaybackToken(
+  env: AppEnv,
+  token: string,
+  expectedVideoId: string,
+  now = new Date(),
+): Promise<SharedPlaybackPayload | null> {
+  const key = await shareLinkKey(env, ["decrypt"]);
+  const bytes = base64UrlToBytes(token);
+  if (!key || !bytes || bytes.byteLength <= 28) return null;
+  try {
+    const iv = bytes.slice(0, 12);
+    const encrypted = bytes.slice(12);
+    const cleartext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted);
+    const parsed = JSON.parse(new TextDecoder().decode(cleartext)) as Partial<SharedPlaybackPayload>;
+    if (
+      parsed.version !== 1
+      || parsed.videoId !== expectedVideoId
+      || typeof parsed.exporterUserId !== "string"
+      || !parsed.exporterUserId
+      || typeof parsed.budgetPeriod !== "string"
+      || !/^\d{4}-\d{2}$/u.test(parsed.budgetPeriod)
+      || typeof parsed.expiresAt !== "number"
+      || parsed.expiresAt < Math.floor(now.getTime() / 1000)
+    ) return null;
+    return parsed as SharedPlaybackPayload;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureShareBudget(
+  env: AppEnv,
+  exporterUserId: string,
+  period: string,
+  now = new Date(),
+): Promise<number> {
+  const id = shareBudgetId(exporterUserId, period);
+  const timestamp = now.toISOString();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO share_playback_budgets
+     (id, exporter_user_id, period, used, created_at, updated_at)
+     VALUES (?, ?, ?, 0, ?, ?)`,
+  ).bind(id, exporterUserId, period, timestamp, timestamp).run();
+  const budget = await env.DB.prepare(
+    "SELECT used FROM share_playback_budgets WHERE id = ?",
+  ).bind(id).first<{ used: number }>();
+  return Math.max(0, SHARE_MONTHLY_ANONYMOUS_PLAY_LIMIT - (budget?.used ?? 0));
+}
+
+async function reserveAnonymousSharePlayback(
+  env: AppEnv,
+  exporterUserId: string,
+  period: string,
+  now = new Date(),
+): Promise<boolean> {
+  await ensureShareBudget(env, exporterUserId, period, now);
+  const result = await env.DB.prepare(
+    `UPDATE share_playback_budgets
+     SET used = used + 1, updated_at = ?
+     WHERE id = ? AND used < ?`,
+  ).bind(
+    now.toISOString(),
+    shareBudgetId(exporterUserId, period),
+    SHARE_MONTHLY_ANONYMOUS_PLAY_LIMIT,
+  ).run();
+  return result.meta.changes > 0;
+}
+
+async function createPlaybackTrackingToken(
+  env: AppEnv,
+  videoId: string,
+  now = new Date(),
+): Promise<string | null> {
+  const secret = playbackTrackingSecret(env);
+  if (!secret) return null;
+  const payload: PlaybackTrackingPayload = {
+    videoId,
+    eventId: crypto.randomUUID(),
+    expiresAt: Math.floor(now.getTime() / 1000) + PLAYBACK_TRACKING_TOKEN_SECONDS,
+  };
+  const encodedPayload = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    await hmacKey(secret, ["sign"]),
+    new TextEncoder().encode(encodedPayload),
+  );
+  return `${encodedPayload}.${bytesToBase64Url(new Uint8Array(signature))}`;
+}
+
+async function verifyPlaybackTrackingToken(
+  env: AppEnv,
+  token: string,
+  expectedVideoId: string,
+  now = new Date(),
+): Promise<PlaybackTrackingPayload | null> {
+  const secret = playbackTrackingSecret(env);
+  const [encodedPayload, encodedSignature, extra] = token.split(".");
+  if (!secret || !encodedPayload || !encodedSignature || extra) return null;
+  const signature = base64UrlToBytes(encodedSignature);
+  const payloadBytes = base64UrlToBytes(encodedPayload);
+  if (!signature || !payloadBytes) return null;
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    await hmacKey(secret, ["verify"]),
+    signature.buffer.slice(
+      signature.byteOffset,
+      signature.byteOffset + signature.byteLength,
+    ) as ArrayBuffer,
+    new TextEncoder().encode(encodedPayload),
+  );
+  if (!valid) return null;
+  try {
+    const parsed = JSON.parse(new TextDecoder().decode(payloadBytes)) as Partial<PlaybackTrackingPayload>;
+    if (parsed.videoId !== expectedVideoId
+      || typeof parsed.eventId !== "string"
+      || !/^[0-9a-f-]{36}$/u.test(parsed.eventId)
+      || typeof parsed.expiresAt !== "number"
+      || parsed.expiresAt < Math.floor(now.getTime() / 1000)) return null;
+    return parsed as PlaybackTrackingPayload;
+  } catch {
+    return null;
+  }
+}
+
 interface ObservationRow {
   id: string;
   status: string;
@@ -136,6 +385,7 @@ interface ObservationRow {
   tide_height: number | null;
   tide_slope: number | null;
   tide_state: string | null;
+  playback_count_90d: number;
 }
 
 interface ForecastRow {
@@ -172,6 +422,7 @@ interface HistoricalForecastRow extends ForecastRow {
 
 interface PublicVideoRow {
   id: string;
+  user_id: string;
   provider_video_id: string;
   video_provider: string;
 }
@@ -202,13 +453,20 @@ const observationSelect = `
     c.secondary_swell_height, c.secondary_swell_direction, c.secondary_swell_period,
     c.wind_wave_height, c.wind_wave_direction, c.wind_wave_period,
     c.wind_speed, c.wind_direction, c.wind_gust,
-    c.tide_height, c.tide_slope, c.tide_state
+    c.tide_height, c.tide_slope, c.tide_state,
+    (SELECT COUNT(*) FROM video_playback_events playback
+      WHERE playback.video_id = v.id
+        AND playback.started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 days')) AS playback_count_90d
   FROM videos v
   LEFT JOIN spots s ON s.id = v.spot_id
   JOIN users u ON u.id = v.user_id
   LEFT JOIN condition_snapshots c ON c.id = v.condition_snapshot_id`;
 
-function serializeObservation(row: ObservationRow, ownerView = false): ObservationResponse {
+function serializeObservation(
+  row: ObservationRow,
+  ownerView = false,
+  historicalForecasts: ForecastResponse[] = [],
+): ObservationResponse {
   const hasPublicThumbnail = row.status === "ready"
     && row.metadata_status === "complete"
     && row.public_at !== null
@@ -236,6 +494,7 @@ function serializeObservation(row: ObservationRow, ownerView = false): Observati
     delistedAt: ownerView ? row.delisted_at : null,
     isFavorite: ownerView ? Boolean(row.is_favorite) : false,
     showUploader: ownerView ? Boolean(row.show_uploader) : undefined,
+    playbackCount90d: ownerView ? Number(row.playback_count_90d ?? 0) : undefined,
     video: {
       provider: row.video_provider,
       thumbnailUrl: hasPublicThumbnail
@@ -270,6 +529,7 @@ function serializeObservation(row: ObservationRow, ownerView = false): Observati
       tideSlope: row.tide_slope,
       tideState: toTideState(row.tide_state),
     },
+    historicalForecasts: ownerView ? historicalForecasts : undefined,
   };
 }
 
@@ -336,6 +596,51 @@ async function findOwnedObservation(env: AppEnv, videoId: string, userId: string
     .first<ObservationRow>();
 }
 
+async function findOwnedHistoricalForecasts(
+  env: AppEnv,
+  userId: string,
+  videoId?: string,
+): Promise<HistoricalForecastRow[]> {
+  const videoFilter = videoId ? "AND v.id = ?" : "";
+  const statement = env.DB.prepare(
+    `WITH candidate_videos AS (
+       SELECT v.id, v.spot_id, v.captured_at
+       FROM videos v
+       WHERE v.user_id = ? AND v.spot_id IS NOT NULL AND v.captured_at IS NOT NULL
+         ${videoFilter}
+       ORDER BY COALESCE(v.captured_at, v.created_at) DESC LIMIT 50
+     ), ranked_history AS (
+       SELECT fs.*, candidate_videos.id AS historical_video_id,
+         ROW_NUMBER() OVER (
+           PARTITION BY candidate_videos.id, fs.provider, fs.model
+           ORDER BY fs.issued_at DESC,
+             ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)),
+             fs.id
+         ) AS historical_rank
+       FROM candidate_videos
+       JOIN forecast_snapshots fs ON fs.spot_id = candidate_videos.spot_id
+       WHERE fs.issued_at <= candidate_videos.captured_at
+         AND ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)) <= 14400
+     )
+     SELECT * FROM ranked_history WHERE historical_rank = 1
+     ORDER BY historical_video_id, provider, model`,
+  );
+  const result = videoId
+    ? await statement.bind(userId, videoId).all<HistoricalForecastRow>()
+    : await statement.bind(userId).all<HistoricalForecastRow>();
+  return result.results;
+}
+
+function historicalForecastMap(rows: HistoricalForecastRow[]): Map<string, ForecastResponse[]> {
+  const byVideo = new Map<string, ForecastResponse[]>();
+  for (const row of rows) {
+    const current = byVideo.get(row.historical_video_id) ?? [];
+    current.push(serializeForecast(row));
+    byVideo.set(row.historical_video_id, current);
+  }
+  return byVideo;
+}
+
 async function findActiveSpot(env: AppEnv, spotId: string | null | undefined) {
   if (!spotId) return null;
   return env.DB.prepare(
@@ -366,11 +671,20 @@ interface ProblemReportRow {
 
 async function findPublicVideo(env: AppEnv, videoId: string): Promise<PublicVideoRow | null> {
   return env.DB.prepare(
-    `SELECT id, provider_video_id, video_provider FROM videos
+    `SELECT id, user_id, provider_video_id, video_provider FROM videos
      WHERE id = ? AND metadata_status = 'complete' AND status = 'ready'
        AND public_at IS NOT NULL AND terms_version IS NOT NULL
        AND moderation_status = 'visible'`,
   ).bind(videoId).first<PublicVideoRow>();
+}
+
+async function findPublicObservation(env: AppEnv, videoId: string): Promise<ObservationRow | null> {
+  return env.DB.prepare(
+    `${observationSelect}
+     WHERE v.id = ? AND v.metadata_status = 'complete' AND v.status = 'ready'
+       AND v.public_at IS NOT NULL AND v.terms_version IS NOT NULL
+       AND v.moderation_status = 'visible'`,
+  ).bind(videoId).first<ObservationRow>();
 }
 
 async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
@@ -425,7 +739,20 @@ export const api = new Hono<{ Bindings: AppEnv; Variables: Variables }>()
   .basePath("/api/v1");
 
 api.get("/health", (context) => context.json({ ok: true }));
-api.get("/auth/line", (context) => beginLineLogin(context.env));
+api.get("/auth/line", async (context) => {
+  if (isLineAuthConfigured(context.env)) {
+    const limited = await enforceAnonymousWriteRateLimit(
+      context.req.raw,
+      context.env,
+      "line-login",
+      "目前暫時無法開始登入",
+    );
+    if (limited) return limited;
+  }
+  return beginLineLogin(context.env, {
+    disableAutoLogin: context.req.query("manual") === "1",
+  });
+});
 api.get("/auth/line/callback", (context) => finishLineLogin(context.req.raw, context.env));
 api.post("/auth/logout", (context) => logout(context.req.raw, context.env));
 
@@ -433,7 +760,8 @@ api.get("/spots", async (context) => {
   await ensureDevelopmentDatabase(context.env);
   const result = await context.env.DB.prepare(
     `SELECT id, slug, name_en, name_zh, region, latitude, longitude
-     FROM spots WHERE active = 1 ORDER BY name_en`,
+     FROM spots WHERE active = 1
+     ORDER BY CASE WHEN slug = 'wushi-harbor-north' THEN 0 ELSE 1 END, name_en`,
   ).all<SpotRow>();
   return context.json({
     spots: result.results.map((spot) => ({
@@ -450,18 +778,14 @@ api.get("/spots", async (context) => {
 });
 
 api.post("/problem-reports", zValidator("json", problemReportSchema), async (context) => {
-  await ensureDevelopmentDatabase(context.env);
-  const clientKey = await anonymousClientKey(context.req.raw, context.env);
-  if (!clientKey) {
-    console.error("Problem-report rate-limit client key is unavailable");
-    return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法送出問題回報", 503);
-  }
-  const limited = await enforceRateLimit(
+  const limited = await enforceAnonymousWriteRateLimit(
+    context.req.raw,
     context.env,
-    context.env.PROBLEM_REPORT_RATE_LIMITER,
-    clientKey,
+    "problem-report",
+    "目前暫時無法送出問題回報",
   );
   if (limited) return limited;
+  await ensureDevelopmentDatabase(context.env);
 
   const input = context.req.valid("json");
   const reportId = crypto.randomUUID();
@@ -473,6 +797,13 @@ api.post("/problem-reports", zValidator("json", problemReportSchema), async (con
 });
 
 api.post("/videos/:id/reports", zValidator("json", reportVideoSchema), async (context) => {
+  const limited = await enforceAnonymousWriteRateLimit(
+    context.req.raw,
+    context.env,
+    "video-report",
+    "目前暫時無法檢舉影片",
+  );
+  if (limited) return limited;
   await ensureDevelopmentDatabase(context.env);
   const video = await context.env.DB.prepare(
     `SELECT id FROM videos
@@ -489,6 +820,17 @@ api.post("/videos/:id/reports", zValidator("json", reportVideoSchema), async (co
      VALUES (?, ?, ?, 'open', ?)`,
   ).bind(reportId, video.id, input.reason, new Date().toISOString()).run();
   return context.json({ reportId, status: "open" }, 201);
+});
+
+api.get("/public-videos/:id", async (context) => {
+  await ensureDevelopmentDatabase(context.env);
+  const observation = await findPublicObservation(context.env, context.req.param("id"));
+  if (!observation) {
+    return context.json({ error: "VIDEO_NOT_FOUND", message: "這段公開實拍不存在或目前無法瀏覽" }, 404);
+  }
+  return context.json({ observation: serializeObservation(observation) }, 200, {
+    "cache-control": "public, max-age=60",
+  });
 });
 
 api.get("/videos/:id/thumbnail", async (context) => {
@@ -522,6 +864,68 @@ api.get("/videos/:id/thumbnail", async (context) => {
   }
 });
 
+api.post("/shared-videos/:id/playback", zValidator("json", sharedPlaybackSchema), async (context) => {
+  await ensureDevelopmentDatabase(context.env);
+  if (!shareLinkSecret(context.env)) {
+    console.error("Share-link encryption secret is unavailable");
+    return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
+  }
+
+  const videoId = context.req.param("id");
+  const payload = await verifySharedPlaybackToken(
+    context.env,
+    context.req.valid("json").shareToken,
+    videoId,
+  );
+  if (!payload) {
+    return context.json({ error: "SHARE_LINK_EXPIRED", message: "這個分享連結已過期，請分享者重新產生" }, 410);
+  }
+
+  const video = await findPublicVideo(context.env, videoId);
+  if (!video) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到公開影片" }, 404);
+
+  const authenticated = await getAuthenticatedUser(context.req.raw, context.env);
+  const clientKey = authenticated?.user.id ?? await anonymousClientKey(context.req.raw, context.env);
+  if (!clientKey) {
+    console.error("Shared playback rate-limit client key is unavailable");
+    return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
+  }
+  const limited = await enforceRateLimit(context.env, context.env.PLAYBACK_RATE_LIMITER, clientKey);
+  if (limited) return limited;
+
+  if (!authenticated) {
+    const reserved = await reserveAnonymousSharePlayback(
+      context.env,
+      payload.exporterUserId,
+      payload.budgetPeriod,
+    );
+    if (!reserved) {
+      return context.json({
+        error: "SHARE_PLAYBACK_BUDGET_EXHAUSTED",
+        message: "分享者本月的匿名播放額度已用完；登入後可繼續播放",
+      }, 429, { "cache-control": "no-store" });
+    }
+  }
+
+  try {
+    const provider = createVideoProvider(context.env);
+    if (provider.provider !== video.video_provider) {
+      return context.json({ error: "VIDEO_PROVIDER_MISMATCH", message: "影片播放暫時無法使用" }, 503);
+    }
+    const playback = await provider.createPlayback(video.provider_video_id);
+    const trackingToken = await createPlaybackTrackingToken(context.env, video.id);
+    if (!trackingToken) {
+      console.error("Playback tracking token secret is unavailable");
+      return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
+    }
+    const response: PlaybackResponse = { ...playback, trackingToken };
+    return context.json(response, 200, { "cache-control": "no-store" });
+  } catch (error) {
+    console.warn("Shared video playback creation failed", video.id, error);
+    return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
+  }
+});
+
 api.post("/videos/:id/playback", async (context) => {
   await ensureDevelopmentDatabase(context.env);
   const video = await findPublicVideo(context.env, context.req.param("id"));
@@ -540,12 +944,42 @@ api.post("/videos/:id/playback", async (context) => {
     if (provider.provider !== video.video_provider) {
       return context.json({ error: "VIDEO_PROVIDER_MISMATCH", message: "影片播放暫時無法使用" }, 503);
     }
-    const playback: PlaybackResponse = await provider.createPlayback(video.provider_video_id);
-    return context.json(playback, 200, { "cache-control": "no-store" });
+    const playback = await provider.createPlayback(video.provider_video_id);
+    const trackingToken = await createPlaybackTrackingToken(context.env, video.id);
+    if (!trackingToken) {
+      console.error("Playback tracking token secret is unavailable");
+      return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
+    }
+    const response: PlaybackResponse = { ...playback, trackingToken };
+    return context.json(response, 200, { "cache-control": "no-store" });
   } catch (error) {
     console.warn("Public video playback creation failed", video.id, error);
     return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
   }
+});
+
+api.post("/videos/:id/playback-start", zValidator("json", playbackStartSchema), async (context) => {
+  await ensureDevelopmentDatabase(context.env);
+  const videoId = context.req.param("id");
+  const video = await findPublicVideo(context.env, videoId);
+  if (!video) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到公開影片" }, 404);
+
+  const payload = await verifyPlaybackTrackingToken(
+    context.env,
+    context.req.valid("json").trackingToken,
+    videoId,
+  );
+  if (!payload) {
+    return context.json({ error: "INVALID_PLAYBACK_EVENT", message: "播放事件已失效" }, 400);
+  }
+
+  const authenticated = await getAuthenticatedUser(context.req.raw, context.env);
+  if (authenticated?.user.id === video.user_id) return new Response(null, { status: 204 });
+
+  await context.env.DB.prepare(
+    `INSERT OR IGNORE INTO video_playback_events (id, video_id, started_at) VALUES (?, ?, ?)`,
+  ).bind(payload.eventId, video.id, new Date().toISOString()).run();
+  return new Response(null, { status: 204 });
 });
 
 api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
@@ -556,7 +990,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   try {
     assertWithinForecastWindow(input.targetTime);
   } catch {
-    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇現在至未來 72 小時內的時間" }, 422);
+    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起六天內的 05:00–19:00 整點，且不可早於現在" }, 422);
   }
   const now = new Date().toISOString();
 
@@ -691,15 +1125,51 @@ api.patch("/me", zValidator("json", updateMeSchema), async (context) => {
   return context.json({ id: user.id, displayId: input.displayId, showIdentityDefault: input.showIdentityDefault });
 });
 
+api.post("/videos/:id/share-link", async (context) => {
+  const user = context.get("user");
+  const video = await findPublicVideo(context.env, context.req.param("id"));
+  if (!video) {
+    return context.json({ error: "VIDEO_NOT_SHAREABLE", message: "這段影片目前不能分享" }, 404);
+  }
+
+  const shared = await createSharedPlaybackToken(context.env, video.id, user.id);
+  if (!shared) {
+    console.error("Share-link encryption secret is unavailable");
+    return context.json({ error: "SHARE_LINK_UNAVAILABLE", message: "分享連結暫時無法建立" }, 503);
+  }
+  const remainingAnonymousPlays = await ensureShareBudget(
+    context.env,
+    user.id,
+    shared.payload.budgetPeriod,
+  );
+  const response: VideoShareLinkResponse = {
+    path: `/v/${encodeURIComponent(video.id)}?share=${encodeURIComponent(shared.token)}`,
+    expiresAt: new Date(shared.payload.expiresAt * 1000).toISOString(),
+    anonymousPlayLimit: SHARE_MONTHLY_ANONYMOUS_PLAY_LIMIT,
+    remainingAnonymousPlays,
+  };
+  return context.json(response, 201, { "cache-control": "no-store" });
+});
+
 api.get("/videos", async (context) => {
   const user = context.get("user");
   await cleanupOwnerExpiredVideos(context.env, user.id);
   await reconcileOwnerProcessingVideos(context.env, user.id);
-  const result = await context.env.DB.prepare(
-    `${observationSelect} WHERE v.user_id = ?
-     ORDER BY COALESCE(v.captured_at, v.created_at) DESC LIMIT 50`,
-  ).bind(user.id).all<ObservationRow>();
-  return context.json({ observations: result.results.map((row) => serializeObservation(row, true)) });
+  const [result, historicalRows] = await Promise.all([
+    context.env.DB.prepare(
+      `${observationSelect} WHERE v.user_id = ?
+       ORDER BY COALESCE(v.captured_at, v.created_at) DESC LIMIT 50`,
+    ).bind(user.id).all<ObservationRow>(),
+    findOwnedHistoricalForecasts(context.env, user.id),
+  ]);
+  const forecastsByVideo = historicalForecastMap(historicalRows);
+  return context.json({
+    observations: result.results.map((row) => serializeObservation(
+      row,
+      true,
+      forecastsByVideo.get(row.id) ?? [],
+    )),
+  });
 });
 
 api.post("/videos/:id/download", async (context) => {
@@ -739,13 +1209,13 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
   const capturedAt = input.capturedAt ?? null;
   if (capturedAt) assertWithinUploadWindow(capturedAt);
   const spot = await findActiveSpot(context.env, input.spotId);
-  if (input.spotId && !spot) return context.json({ error: "SPOT_NOT_FOUND", message: "找不到浪點" }, 404);
+  if (!spot) return context.json({ error: "SPOT_NOT_FOUND", message: "找不到浪點" }, 404);
 
   const limited = await enforceRateLimit(context.env, context.env.UPLOAD_RATE_LIMITER, user.id);
   if (limited) return limited;
 
   const provider = createVideoProvider(context.env);
-  const ticket = await provider.createDirectUpload({ internalUserId: user.id, maxDurationSeconds: 60 });
+  const ticket = await provider.createDirectUpload({ internalUserId: user.id, maxDurationSeconds: MAX_VIDEO_DURATION_SECONDS });
   const id = crypto.randomUUID();
   const now = new Date();
   const complete = Boolean(spot && capturedAt);
@@ -760,7 +1230,7 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
   ).bind(
     id,
     user.id,
-    spot?.id ?? null,
+    spot.id,
     ticket.provider,
     ticket.providerVideoId,
     capturedAt,
@@ -775,7 +1245,12 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
     now.toISOString(),
     now.toISOString(),
   ).run();
-  return context.json({ videoId: id, ...ticket, metadataStatus: complete ? "complete" : "pending", limits: { maxBytes: MAX_UPLOAD_BYTES, maxDurationSeconds: 60 } }, 201);
+  return context.json({
+    videoId: id,
+    ...ticket,
+    metadataStatus: complete ? "complete" : "pending",
+    limits: { maxBytes: MAX_UPLOAD_BYTES, maxDurationSeconds: MAX_VIDEO_DURATION_SECONDS },
+  }, 201);
 });
 
 api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async (context) => {
@@ -810,7 +1285,7 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
   const status = await provider.getStatus(input.providerVideoId);
   const resolved = resolveVideoStatus(provider.provider, status, video.duration_seconds);
   if (resolved.invalidDuration || resolved.durationSeconds == null) {
-    return context.json({ error: "INVALID_DURATION", message: "影片長度必須為 5–60 秒" }, 422);
+    return context.json({ error: "INVALID_DURATION", message: "影片長度必須為 10–60 秒" }, 422);
   }
 
   let conditionSnapshotId: string | null = null;
@@ -835,15 +1310,25 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
      condition_snapshot_id = COALESCE(?, condition_snapshot_id), public_at = ?, updated_at = ?
      WHERE id = ? AND user_id = ?`,
   ).bind(resolved.state, resolved.durationSeconds, now, conditionSnapshotId, publicAt, now, video.id, user.id).run();
-  const observation = await findOwnedObservation(context.env, video.id, user.id);
-  return context.json({ observation: observation ? serializeObservation(observation, true) : null, conditionsAttached: Boolean(conditionSnapshotId) });
+  const [observation, historicalRows] = await Promise.all([
+    findOwnedObservation(context.env, video.id, user.id),
+    findOwnedHistoricalForecasts(context.env, user.id, video.id),
+  ]);
+  return context.json({
+    observation: observation ? serializeObservation(observation, true, historicalRows.map(serializeForecast)) : null,
+    conditionsAttached: Boolean(conditionSnapshotId),
+  });
 });
 
 api.get("/videos/:id", async (context) => {
   const user = context.get("user");
-  const observation = await findOwnedObservation(context.env, context.req.param("id"), user.id);
+  const videoId = context.req.param("id");
+  const [observation, historicalRows] = await Promise.all([
+    findOwnedObservation(context.env, videoId, user.id),
+    findOwnedHistoricalForecasts(context.env, user.id, videoId),
+  ]);
   if (!observation) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到影片" }, 404);
-  return context.json({ observation: serializeObservation(observation, true) });
+  return context.json({ observation: serializeObservation(observation, true, historicalRows.map(serializeForecast)) });
 });
 
 api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) => {
@@ -883,10 +1368,9 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
 
   const capturedAt = input.capturedAt === undefined ? current.captured_at : input.capturedAt;
   if (capturedAt) assertWithinUploadWindow(capturedAt, new Date(current.created_at));
-  const requestedSpotId = input.spotId === undefined ? current.spot_id : input.spotId;
-  const spot = await findActiveSpot(context.env, requestedSpotId);
-  if (requestedSpotId && !spot) return context.json({ error: "SPOT_NOT_FOUND", message: "找不到浪點" }, 404);
-  const complete = Boolean(spot && capturedAt);
+  const spot = await findActiveSpot(context.env, current.spot_id);
+  if (!spot) return context.json({ error: "SPOT_NOT_FOUND", message: "這支影片沒有有效浪點，無法補資料" }, 409);
+  const complete = Boolean(capturedAt);
   const publicAt = complete
     && current.status === "ready"
     && current.terms_version
@@ -898,7 +1382,7 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
      uploader_note = ?, fun_reaction = ?, metadata_status = ?, metadata_expires_at = ?, public_at = ?, updated_at = ?
      WHERE id = ? AND user_id = ? AND metadata_status = ? AND updated_at = ?`,
   ).bind(
-    spot?.id ?? null,
+    spot.id,
     capturedAt,
     input.showUploader === undefined ? current.show_uploader : input.showUploader ? 1 : 0,
     input.isFavorite === undefined ? current.is_favorite : input.isFavorite ? 1 : 0,
@@ -929,8 +1413,13 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
         .run();
     }
   }
-  const observation = await findOwnedObservation(context.env, current.id, user.id);
-  return context.json({ observation: observation ? serializeObservation(observation, true) : null });
+  const [observation, historicalRows] = await Promise.all([
+    findOwnedObservation(context.env, current.id, user.id),
+    findOwnedHistoricalForecasts(context.env, user.id, current.id),
+  ]);
+  return context.json({
+    observation: observation ? serializeObservation(observation, true, historicalRows.map(serializeForecast)) : null,
+  });
 });
 
 api.get("/admin/reports", async (context) => {
@@ -1027,8 +1516,30 @@ api.post("/admin/problem-reports/:id/resolve", async (context) => {
 });
 
 api.onError((error, context) => {
-  console.error(error);
   const message = error instanceof Error ? error.message : "系統暫時無法處理請求";
-  const status = message.includes("168 小時") ? 422 : 500;
-  return context.json({ error: "REQUEST_FAILED", message }, status);
+  if (message.includes("168 小時")) {
+    return context.json({ error: "REQUEST_FAILED", message }, 422);
+  }
+
+  const requestId = crypto.randomUUID();
+  const logMessage = message
+    .replace(/(bearer\s+)[^\s]+/giu, "$1[REDACTED]")
+    .replace(/([?&](?:code|key|secret|sig|signature|token)=)[^&\s]+/giu, "$1[REDACTED]")
+    .slice(0, 1_000);
+  console.error("Unhandled API error", {
+    requestId,
+    method: context.req.method,
+    path: context.req.path,
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    errorMessage: logMessage,
+  });
+  return context.json(
+    {
+      error: "REQUEST_FAILED",
+      message: `系統暫時無法處理請求，請稍後再試（錯誤編號：${requestId}）`,
+      requestId,
+    },
+    500,
+    { "x-request-id": requestId },
+  );
 });

@@ -1,7 +1,73 @@
 export const PRODUCT_TIME_ZONE = "Asia/Taipei";
 export const UPLOAD_WINDOW_HOURS = 7 * 24;
-export const FORECAST_LOOKAHEAD_HOURS = 72;
-export const FORECAST_PAST_TOLERANCE_MINUTES = 5;
+export const FORECAST_DAY_OFFSET_MAX = 6;
+export const FORECAST_HOUR_MIN = 5;
+export const FORECAST_HOUR_MAX = 19;
+
+interface TaipeiDateTimeParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+const taipeiDateTimeFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: PRODUCT_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function taipeiParts(date: Date): TaipeiDateTimeParts | null {
+  if (!Number.isFinite(date.getTime())) return null;
+  const values = Object.fromEntries(
+    taipeiDateTimeFormatter.formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  const { year, month, day, hour, minute, second } = values;
+  return [year, month, day, hour, minute, second].every(Number.isFinite)
+    ? { year, month, day, hour, minute, second }
+    : null;
+}
+
+function calendarDayNumber(parts: Pick<TaipeiDateTimeParts, "year" | "month" | "day">): number {
+  return Date.UTC(parts.year, parts.month - 1, parts.day) / 86_400_000;
+}
+
+export function taipeiForecastTarget(
+  dayOffset: number,
+  hour: number,
+  now = new Date(),
+): Date {
+  const current = taipeiParts(now);
+  if (!current
+    || !Number.isInteger(dayOffset)
+    || dayOffset < 0
+    || dayOffset > FORECAST_DAY_OFFSET_MAX
+    || !Number.isInteger(hour)
+    || hour < FORECAST_HOUR_MIN
+    || hour > FORECAST_HOUR_MAX) {
+    return new Date(Number.NaN);
+  }
+  // Taiwan has used UTC+08:00 without daylight-saving changes since 1979. The
+  // explicit offset converts the selected Asia/Taipei calendar fields to UTC.
+  return new Date(Date.UTC(current.year, current.month - 1, current.day + dayOffset, hour - 8));
+}
+
+export function firstSelectableForecastHour(dayOffset: number, now = new Date()): number | null {
+  for (let hour = FORECAST_HOUR_MIN; hour <= FORECAST_HOUR_MAX; hour += 1) {
+    const target = taipeiForecastTarget(dayOffset, hour, now);
+    if (Number.isFinite(target.getTime()) && target.getTime() >= now.getTime()) return hour;
+  }
+  return null;
+}
 
 export function isWithinUploadWindow(
   capturedAt: string | Date,
@@ -25,19 +91,23 @@ export function assertWithinUploadWindow(capturedAt: string, now = new Date()): 
 export function isWithinForecastWindow(
   targetTime: string | Date,
   now = new Date(),
-  lookaheadHours = FORECAST_LOOKAHEAD_HOURS,
 ): boolean {
   const target = targetTime instanceof Date ? targetTime : new Date(targetTime);
-  if (Number.isNaN(target.getTime()) || !Number.isFinite(lookaheadHours) || lookaheadHours < 0) {
-    return false;
-  }
-  const offsetMs = target.getTime() - now.getTime();
-  return offsetMs >= -FORECAST_PAST_TOLERANCE_MINUTES * 60_000
-    && offsetMs <= lookaheadHours * 60 * 60_000;
+  const targetParts = taipeiParts(target);
+  const nowParts = taipeiParts(now);
+  if (!targetParts || !nowParts || target.getUTCMilliseconds() !== 0) return false;
+  const dayOffset = calendarDayNumber(targetParts) - calendarDayNumber(nowParts);
+  return target.getTime() >= now.getTime()
+    && dayOffset >= 0
+    && dayOffset <= FORECAST_DAY_OFFSET_MAX
+    && targetParts.hour >= FORECAST_HOUR_MIN
+    && targetParts.hour <= FORECAST_HOUR_MAX
+    && targetParts.minute === 0
+    && targetParts.second === 0;
 }
 
 export function assertWithinForecastWindow(targetTime: string, now = new Date()): void {
   if (!isWithinForecastWindow(targetTime, now)) {
-    throw new Error("查詢時間必須是現在至未來 72 小時內");
+    throw new Error("查詢時間必須是台北時間今天起六天內的 05:00–19:00 整點，且不可早於現在");
   }
 }

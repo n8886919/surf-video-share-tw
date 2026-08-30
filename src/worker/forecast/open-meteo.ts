@@ -5,7 +5,7 @@ import type { ForecastSnapshotInput, ForecastSpot } from "./types";
 const OPEN_METEO_MARINE_URL = "https://marine-api.open-meteo.com/v1/marine";
 const OPEN_METEO_MODEL = "ecmwf_wam";
 const OPEN_METEO_PROVIDER = "open-meteo";
-const FORECAST_HOURS = 78;
+const FORECAST_HOURS = 168;
 
 const hourlyVariables = [
   "wave_height",

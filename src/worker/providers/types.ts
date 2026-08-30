@@ -13,8 +13,14 @@ export interface VideoStatus {
 }
 
 export type PlaybackTicket =
-  | { type: "iframe"; iframeUrl: string; expiresAt: string }
-  | { type: "mock"; iframeUrl: null; expiresAt: null };
+  | {
+      type: "iframe";
+      iframeUrl: string;
+      expiresAt: string;
+      width: number | null;
+      height: number | null;
+    }
+  | { type: "mock"; iframeUrl: null; expiresAt: null; width: null; height: null };
 
 export type DownloadTicket =
   | {

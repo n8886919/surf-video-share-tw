@@ -114,6 +114,7 @@ describe("Cloudflare Stream playback", () => {
         {
           readyToStream: true,
           preview: "https://customer-example.cloudflarestream.com/provider_video/watch",
+          input: { width: 1080, height: 1920 },
         },
       ))
       .mockResolvedValueOnce(streamToken("signed-playback-token"));
@@ -127,6 +128,8 @@ describe("Cloudflare Stream playback", () => {
       type: "iframe",
       iframeUrl: "https://customer-example.cloudflarestream.com/signed-playback-token/iframe",
       expiresAt: "2026-08-28T10:15:00.000Z",
+      width: 1080,
+      height: 1920,
     });
     expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)).toEqual({
       exp: 1787912100,

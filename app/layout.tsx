@@ -3,6 +3,7 @@ import "./globals.css";
 import { PROJECT_PURPOSE } from "../packages/domain/src/project-purpose";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://surf-video-share-tw.nolanasd123.workers.dev"),
   title: "彼日浪影",
   description: PROJECT_PURPOSE,
   openGraph: {

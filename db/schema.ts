@@ -187,6 +187,37 @@ export const videos = sqliteTable(
   ],
 );
 
+export const videoPlaybackEvents = sqliteTable(
+  "video_playback_events",
+  {
+    id: text("id").primaryKey(),
+    videoId: text("video_id").notNull().references(() => videos.id, { onDelete: "cascade" }),
+    startedAt: text("started_at").notNull(),
+  },
+  (table) => [
+    index("video_playback_events_video_started_idx").on(table.videoId, table.startedAt),
+    index("video_playback_events_started_at_idx").on(table.startedAt),
+  ],
+);
+
+export const sharePlaybackBudgets = sqliteTable(
+  "share_playback_budgets",
+  {
+    id: text("id").primaryKey(),
+    exporterUserId: text("exporter_user_id").notNull().references(() => users.id),
+    period: text("period").notNull(),
+    used: integer("used").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("share_playback_budgets_exporter_period_idx").on(
+      table.exporterUserId,
+      table.period,
+    ),
+  ],
+);
+
 export const videoReports = sqliteTable(
   "video_reports",
   {

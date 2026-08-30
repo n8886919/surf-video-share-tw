@@ -47,8 +47,21 @@ describe("LINE Login", () => {
     expect(location.searchParams.get("nonce")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(location.searchParams.get("code_challenge_method")).toBe("S256");
     expect(location.searchParams.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(location.searchParams.has("disable_auto_login")).toBe(false);
     expect(writes).toHaveLength(2);
     expect(writes[1]?.sql).toContain("INSERT INTO oauth_attempts");
+  });
+
+  it("can disable auto login for an iPhone-safe retry", async () => {
+    const statement = { bind: () => statement, run: async () => ({ success: true }) };
+    const db = { prepare: () => statement } as unknown as D1Database;
+
+    const response = await beginLineLogin(configuredEnv(db), { disableAutoLogin: true });
+    const location = new URL(response.headers.get("location")!);
+
+    expect(location.searchParams.get("disable_auto_login")).toBe("true");
+    expect(location.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(location.searchParams.get("code_challenge_method")).toBe("S256");
   });
 
   it("fails closed before redirecting when secrets are missing", async () => {

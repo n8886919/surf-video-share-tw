@@ -21,7 +21,7 @@ export interface AppEnv {
   UPLOAD_RATE_LIMITER?: RateLimit;
   PLAYBACK_RATE_LIMITER?: RateLimit;
   DOWNLOAD_RATE_LIMITER?: RateLimit;
-  PROBLEM_REPORT_RATE_LIMITER?: RateLimit;
+  PUBLIC_WRITE_RATE_LIMITER?: RateLimit;
   LINE_CHANNEL_ID?: string;
   LINE_CHANNEL_SECRET?: string;
   LINE_CALLBACK_URL?: string;
@@ -187,6 +187,23 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS videos_metadata_expires_at_idx ON videos (metadata_expires_at)`,
   `CREATE INDEX IF NOT EXISTS videos_public_lookup_idx ON videos (moderation_status, public_at, spot_id, captured_at)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS videos_provider_video_idx ON videos (video_provider, provider_video_id)`,
+  `CREATE TABLE IF NOT EXISTS video_playback_events (
+    id TEXT PRIMARY KEY NOT NULL,
+    video_id TEXT NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS video_playback_events_video_started_idx ON video_playback_events (video_id, started_at)`,
+  `CREATE INDEX IF NOT EXISTS video_playback_events_started_at_idx ON video_playback_events (started_at)`,
+  `CREATE TABLE IF NOT EXISTS share_playback_budgets (
+    id TEXT PRIMARY KEY NOT NULL,
+    exporter_user_id TEXT NOT NULL REFERENCES users(id),
+    period TEXT NOT NULL,
+    used INTEGER DEFAULT 0 NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS share_playback_budgets_exporter_period_idx
+    ON share_playback_budgets (exporter_user_id, period)`,
   `CREATE TABLE IF NOT EXISTS video_reports (
     id TEXT PRIMARY KEY NOT NULL,
     video_id TEXT NOT NULL REFERENCES videos(id),

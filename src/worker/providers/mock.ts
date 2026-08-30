@@ -34,7 +34,7 @@ export class MockVideoProvider implements VideoProvider {
   }
 
   async createPlayback(): Promise<PlaybackTicket> {
-    return { type: "mock", iframeUrl: null, expiresAt: null };
+    return { type: "mock", iframeUrl: null, expiresAt: null, width: null, height: null };
   }
 
   async prepareDownload(): Promise<DownloadTicket> {

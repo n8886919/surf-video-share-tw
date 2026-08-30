@@ -9,7 +9,14 @@ const projectRoot = resolve(scriptDirectory, "..");
 const wranglerConfigPath = resolve(projectRoot, "wrangler.jsonc");
 const deployTokenPath = resolve(projectRoot, ".env.cloudflare-deploy");
 const wranglerEntryPath = resolve(projectRoot, "node_modules", "wrangler", "bin", "wrangler.js");
-const vinextEntryPath = resolve(projectRoot, "node_modules", "vinext", "dist", "cli.js");
+const vinextCloudflareEntryPath = resolve(
+  projectRoot,
+  "node_modules",
+  "@vinext",
+  "cloudflare",
+  "dist",
+  "cli.js",
+);
 
 export const REQUIRED_OBSERVABILITY = Object.freeze({
   enabled: true,
@@ -175,7 +182,7 @@ export async function main() {
       token,
     );
     process.stdout.write("Publishing the reviewed Worker build...\n");
-    runNodeCli(vinextEntryPath, ["deploy"], token);
+    runNodeCli(vinextCloudflareEntryPath, ["deploy"], token);
   }
   process.stdout.write("Restoring and verifying query-string redaction...\n");
   await enforceProductionRedaction({

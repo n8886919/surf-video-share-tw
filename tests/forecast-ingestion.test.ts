@@ -9,7 +9,7 @@ import {
   parseCwaWaveArchive,
   type CwaTideEvent,
 } from "../src/worker/forecast/cwa";
-import { parseOpenMeteoEcmwfWam } from "../src/worker/forecast/open-meteo";
+import { fetchOpenMeteoEcmwfWam, parseOpenMeteoEcmwfWam } from "../src/worker/forecast/open-meteo";
 import { runForecastIngestion } from "../src/worker/forecast/ingest";
 import { insertForecastSnapshots } from "../src/worker/forecast/store";
 import type { AppEnv } from "../src/worker/db";
@@ -263,6 +263,25 @@ describe("scheduled forecast normalization", () => {
       expect.objectContaining({ provider: "open-meteo/ecmwf_wam", status: "complete", inserted: 3 }),
       expect.objectContaining({ provider: "cwa/F-A0020-001+F-A0021-001", status: "skipped" }),
     ]);
+  });
+
+  it("requests seven calendar days of hourly ECMWF WAM coverage", async () => {
+    const requestedUrls: URL[] = [];
+    await fetchOpenMeteoEcmwfWam(
+      spot,
+      "2026-08-25T02:20:00.000Z",
+      (async (input: URL | RequestInfo) => {
+        requestedUrls.push(new URL(input instanceof Request ? input.url : String(input)));
+        return new Response(JSON.stringify(openMeteoFixture), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch,
+    );
+    const requestedUrl = requestedUrls[0];
+    if (!requestedUrl) throw new Error("Open-Meteo request was not made");
+    expect(requestedUrl.searchParams.get("forecast_hours")).toBe("168");
+    expect(requestedUrl.searchParams.get("models")).toBe("ecmwf_wam");
   });
 
   it("skips CWA when its key exists but query-string redaction is not verified", async () => {
