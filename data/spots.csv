@@ -6,7 +6,7 @@ jinshan,Jinshan,,North,,,,,false
 green-bay,Green Bay,,North,,,,,false
 wanli,Wanli,,North,,,,,false
 fulong,Fulong,,North,,,,,false
-daxi,Daxi,,Northeast,,,,,false
+daxi,Daxi,蜜月灣,Northeast,24.9333608,121.885568,User-supplied coordinates,User supplied in product request on 2026-08-30,true
 gengfang,Gengfang,,Northeast,,,,,false
 double-lions,Double Lions,雙獅,Northeast,24.8887597,121.8495724,https://maps.app.goo.gl/CJTEVfSH7yFGnHKPA,User-supplied Google Maps place marker,true
 waiao,Wai'ao,,Northeast,,,,,false
@@ -15,7 +15,7 @@ wushi-harbor-south,Wushi Harbor (South),,Northeast,,,,,false
 chou-shui,Chou Shui,,Northeast,,,,,false
 zhuan,Zhu'an,,Northeast,,,,,false
 qing-shui,Qing Shui,,Northeast,,,,,false
-suao-wuwei-harbor,Su'ao - Wuwei Harbor,,Northeast,,,,,false
+suao-wuwei-harbor,Su'ao - Wuwei Harbor,無尾,Northeast,24.6114709,121.867805,User-supplied coordinates,User supplied in product request on 2026-08-30,true
 environmental-park,Environmental Park,,East,,,,,false
 hualien-beibin,Hualien Beibin,,East,,,,,false
 double-bridge,Double Bridge,,East,,,,,false
@@ -25,16 +25,16 @@ baxian-dong,Baxian Dong,,East,,,,,false
 yiwan,Yiwan,,East,,,,,false
 chenggong,Chenggong,,East,,,,,false
 duli,Duli,,East,,,,,false
-donghe,Donghe,,East,,,,,false
-jinzun,Jinzun,,East,,,,,false
+donghe,Donghe,北東河,East,22.976243201721132,121.31300650318626,User-supplied coordinates,User supplied in product request on 2026-08-30,true
+jinzun,Jinzun,金樽,East,22.9558919,121.2942829,User-supplied coordinates,User supplied in product request on 2026-08-30,true
 dulan,Dulan,,East,,,,,false
 taitung,Taitung,,East,,,,,false
 jiupeng,Jiupeng,,South,,,,,false
 jialeshui,Jialeshui,,South,,,,,false
-nanwan,Nanwan,,South,,,,,false
+nanwan,Nanwan,南灣,South,21.95878467673781,120.76046672044414,User-supplied coordinates,User supplied in product request on 2026-08-30,true
 sheliao,Sheliao,,South,,,,,false
 qijin,Qijin,,West,,,,,false
-yuguangdao,Yuguangdao,,West,,,,,false
+yuguangdao,Yuguangdao,漁光島,West,22.980289143624113,120.15516081806676,User-supplied coordinates,User supplied in product request on 2026-08-30,true
 sicao-bridge,Sicao Bridge,,West,,,,,false
 shanshui,Shanshui,,West,,,,,false
 songbai-harbor,Songbai Harbor,,West,,,,,false

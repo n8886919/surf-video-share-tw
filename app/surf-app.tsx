@@ -21,6 +21,7 @@ import {
   FORECAST_DAY_OFFSET_MAX,
   FORECAST_HOUR_MAX,
   FORECAST_HOUR_MIN,
+  isWithinUploadWindow,
   taipeiForecastTarget,
 } from "../packages/domain/src/time-policy";
 import { PROJECT_POSITION, PROJECT_PURPOSE, PROJECT_VERSION } from "../packages/domain/src/project-purpose";
@@ -37,11 +38,6 @@ import {
 
 type View = "find" | "upload" | "mine";
 
-const PLACEHOLDER_SPOTS = Array.from({ length: 6 }, (_, index) => ({
-  id: `test-spot-${index + 1}`,
-  name: `測試 ${index + 1}`,
-  selectable: false,
-}));
 const SPOT_ORDER_STORAGE_KEY = "surf-video-share:find-spot-order:v1";
 
 interface Me {
@@ -353,12 +349,8 @@ function ObservationCard({ observation, ownerActions }: {
   async function completePendingMetadata() {
     const parsed = new Date(capturedAt);
     const now = new Date();
-    if (!Number.isFinite(parsed.getTime()) || parsed.getTime() > now.getTime()) {
-      setError("拍攝時間不可晚於現在");
-      return;
-    }
-    if (parsed.getTime() < now.getTime() - 7 * 86_400_000) {
-      setError("拍攝時間必須在 168 小時內");
+    if (!isWithinUploadWindow(parsed, now)) {
+      setError("拍攝時間不可晚於現在、必須在 168 小時內，且台北時間須介於 05:00–17:59");
       return;
     }
     await patch({ capturedAt: parsed.toISOString() });
@@ -820,10 +812,10 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
   selectedSpotId: string;
   onSelect: (spotId: string) => void;
 }) {
-  const choices = useMemo(() => [
-    ...spots.map((spot) => ({ id: spot.id, name: spot.name, selectable: true })),
-    ...PLACEHOLDER_SPOTS,
-  ], [spots]);
+  const choices = useMemo(
+    () => spots.map((spot) => ({ id: spot.id, name: spot.name, selectable: true })),
+    [spots],
+  );
   const defaultIds = useMemo(() => choices.map((choice) => choice.id), [choices]);
   const [order, setOrder] = useState<string[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -1147,8 +1139,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
     if (capturedAt) {
       const parsed = new Date(capturedAt);
       const now = new Date();
-      if (!Number.isFinite(parsed.getTime()) || parsed.getTime() > now.getTime()) return setError("拍攝時間不可晚於現在");
-      if (parsed.getTime() < now.getTime() - 7 * 86_400_000) return setError("拍攝時間必須在 168 小時內");
+      if (!isWithinUploadWindow(parsed, now)) return setError("拍攝時間不可晚於現在、必須在 168 小時內，且台北時間須介於 05:00–17:59");
     }
     setError(null); setProgress("建立上傳連結…");
     try {
@@ -1171,7 +1162,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
     } catch (caught) { setError(caught instanceof Error ? caught.message : "上傳失敗"); setProgress(null); }
   }
 
-  return <div className="screen upload-screen"><div className="page-title"><h1>上傳</h1><p>10–60 秒，最多 200 MB</p></div>
+  return <div className="screen upload-screen"><div className="page-title"><h1>上傳</h1><p>10–60 秒，最多 200 MB；拍攝時間 05:00–17:59</p></div>
     <form onSubmit={submit} className="upload-form">
       <div className="upload-source-picker" role="group" aria-label="影片來源">
         <label><input type="file" accept="video/*" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="upload"/><strong>選擇影片</strong></label>

@@ -61,15 +61,18 @@ function signedHeaders(method: string, pathname: string, body: string, timestamp
 class FakeD1 {
   readonly ids = new Set<string>();
   writes = 0;
+  lastValues: unknown[] | null = null;
+
+  constructor(private readonly spot = {
+    id: "spot_wushi-harbor-north",
+    slug: "wushi-harbor-north",
+    latitude: 24.8731036,
+    longitude: 121.8411446,
+  }) {}
 
   prepare(sql: string) {
     const all = async () => ({
-      results: [{
-        id: "spot_wushi-harbor-north",
-        slug: "wushi-harbor-north",
-        latitude: 24.8731036,
-        longitude: 121.8411446,
-      }],
+      results: [this.spot],
     });
     return {
       all,
@@ -79,6 +82,7 @@ class FakeD1 {
 
   async batch(statements: Array<{ values: unknown[] }>) {
     return statements.map((statement) => {
+      this.lastValues = statement.values;
       const id = String(statement.values[0]);
       const changes = this.ids.has(id) ? 0 : 1;
       this.ids.add(id);
@@ -140,6 +144,22 @@ describe("internal forecast ingestion API", () => {
       snapshots: [{ ...validSnapshot(), issuedAt: "2026-08-30T06:25:15.000Z" }],
     }, env());
     expect(response.status).toBe(200);
+  });
+
+  it("drops the fixed O00400 tide outside the two verified launch spots", async () => {
+    const db = new FakeD1({
+      id: "spot_jinzun",
+      slug: "jinzun",
+      latitude: 22.9558919,
+      longitude: 121.2942829,
+    });
+    const response = await post({
+      version: 1,
+      snapshots: [{ ...validSnapshot(), spotId: "spot_jinzun" }],
+    }, env(db));
+    expect(response.status).toBe(200);
+    expect(db.lastValues?.slice(22, 25)).toEqual([null, null, null]);
+    expect(JSON.parse(String(db.lastValues?.[30]))).toMatchObject({ tide: null });
   });
 
   it.each([

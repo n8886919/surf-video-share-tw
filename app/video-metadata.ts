@@ -1,3 +1,5 @@
+import { isWithinUploadWindow } from "../packages/domain/src/time-policy";
+
 const QUICKTIME_EPOCH_OFFSET_SECONDS = 2_082_844_800;
 const MAX_TOP_LEVEL_ATOMS = 128;
 export const MAX_VIDEO_METADATA_ATOM_BYTES = 4 * 1024 * 1024;
@@ -237,9 +239,7 @@ export async function inspectQuickTimeMetadata(file: Blob): Promise<ParsedVideoM
 }
 
 function withinUploadWindow(date: Date | null, now: Date, windowHours: number): date is Date {
-  if (!date || Number.isNaN(date.getTime())) return false;
-  const age = now.getTime() - date.getTime();
-  return age >= 0 && age <= windowHours * 60 * 60_000;
+  return Boolean(date && isWithinUploadWindow(date, now, windowHours));
 }
 
 export function selectCaptureTimeHint(
@@ -296,7 +296,7 @@ export function resolveUploadPrefill(
   const suggestedSpotId = suggestSpotFromLocation(spots, metadata.location);
   return {
     capturedAt: timeHint?.date ?? null,
-    captureTimeLabel: timeHint?.label || "未找到 168 小時內的可信時間，請手動填寫或稍後補齊",
+    captureTimeLabel: timeHint?.label || "未找到 168 小時內且為台北時間 05:00–17:59 的可信時間，請手動填寫或稍後補齊",
     spotId: suggestedSpotId || currentSpotId,
     spotLabel: suggestedSpotId
       ? "依影片內嵌位置建議浪點，請確認；位置本身不會送出或保存"

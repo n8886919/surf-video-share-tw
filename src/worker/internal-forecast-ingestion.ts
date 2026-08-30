@@ -13,6 +13,10 @@ const MAX_BODY_BYTES = 128 * 1024;
 const MAX_CWA_PUBLICATION_LAG_MS = 12 * 60 * 60_000;
 const CWA_PROVIDER = "cwa";
 const CWA_MODEL = "cwa-wave-f-a0020-001";
+const CWA_VERIFIED_TIDE_SPOT_IDS = new Set([
+  "spot_wushi-harbor-north",
+  "spot_double-lions",
+]);
 
 const signatureHeaders = {
   version: "x-forecast-ingestion-version",
@@ -183,6 +187,7 @@ async function normalizedSnapshot(
   const issuedAt = new Date(snapshot.issuedAt).toISOString();
   const modelRunAt = new Date(snapshot.modelRunAt).toISOString();
   const validAt = new Date(snapshot.validAt).toISOString();
+  const retainVerifiedTide = CWA_VERIFIED_TIDE_SPOT_IDS.has(snapshot.spotId);
   return {
     id: await stableForecastId([CWA_PROVIDER, CWA_MODEL, snapshot.spotId, issuedAt, validAt]),
     spotId: snapshot.spotId,
@@ -206,9 +211,9 @@ async function normalizedSnapshot(
     windWaveHeight: null,
     windWaveDirection: null,
     windWavePeriod: null,
-    tideHeight: snapshot.tideHeight,
-    tideSlope: snapshot.tideSlope,
-    tideState: snapshot.tideState,
+    tideHeight: retainVerifiedTide ? snapshot.tideHeight : null,
+    tideSlope: retainVerifiedTide ? snapshot.tideSlope : null,
+    tideState: retainVerifiedTide ? snapshot.tideState : null,
     windSpeed: null,
     windDirection: null,
     windGust: null,
@@ -216,7 +221,7 @@ async function normalizedSnapshot(
     schemaVersion: 1,
     rawPayload: JSON.stringify({
       wave: snapshot.provenance.wave,
-      tide: snapshot.provenance.tide ? {
+      tide: retainVerifiedTide && snapshot.provenance.tide ? {
         ...snapshot.provenance.tide,
         sourceRetrievedAt: receivedAt,
       } : null,

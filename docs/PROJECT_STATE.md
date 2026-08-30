@@ -1,8 +1,13 @@
 # Project state
 
-Updated: 2026-08-30. Product `0.8` is the fully implemented local release candidate; production still serves pushed product `0.7` commit `c31becb` at 100% as Cloudflare version `afa28bf8-c148-4a2f-94ef-73593e7a9c76`. Home Assistant App `0.1.2` remains deployed. The approved next step is the complete release gate, then one `main` push through the configured guarded Workers Builds deployment.
+Updated: 2026-08-30. Product `0.9` is the fully verified local release candidate; production currently serves product `0.8` commit `40f261f` at 100% as Cloudflare version `7bd2eb04-ad04-4a81-bb50-48c42e5f9fc8`. Home Assistant App `0.1.2` remains deployed. The owner requested and authorized the eight-spot/time-window release and production deployment.
 
 ## Completed checkpoint
+
+- Product `0.9` replaces the six disabled `測試 1`–`測試 6` buttons with active 無尾、蜜月灣、金樽、北東河、漁光島、南灣 entries while retaining 烏石港 and 雙獅. The owner-supplied coordinates are preserved verbatim in the canonical CSV and idempotent migration `0009`; local migration/read-back returned exactly eight active spots.
+- Find targets are now whole hours from 05:00 through 17:00 in `Asia/Taipei`. Upload and later metadata completion preserve actual minutes/seconds but accept only capture hours 05–17, in addition to the existing future/168-hour checks. Browser metadata hints outside 05:00–17:59 are ignored, while both front end and server enforce the final value.
+- CWA wave ingestion remains enabled for every active coordinate. Because fixed tide location `O00400` was verified only for 烏石港 and 雙獅, the Worker discards its tide metrics/provenance for the six additions rather than applying unverified northeast tide data across Taiwan; ECMWF ingestion remains per active spot.
+- Version `0.9.0` passed lint, typecheck, 151 tests across 29 files, production build, two rendered-site checks, migration generation with no missing schema change, local `0009` application, and exact eight-row coordinate read-back.
 
 - Product `0.8` fixes long-press reorder oscillation. A dragged spot can move only one adjacent position after the pointer crosses that neighbor's static layout midpoint plus 8 px in the current direction; a 90 ms lock prevents immediate reswaps, and the held wrapper is excluded from FLIP transforms while the other buttons retain the 180 ms movement animation.
 - Upload now offers side-by-side `選擇影片` and `拍攝影片` controls. The camera control prefers `capture="environment"` and falls back to a normal picker where unsupported; both feed the existing browser duration/size check, server-owned validation, and direct Stream upload path. The complete public notice remains unchanged, while its circular `?` has become an accessible inline `更多`／`收合` control directly after the copy.
@@ -93,11 +98,11 @@ Updated: 2026-08-30. Product `0.8` is the fully implemented local release candid
 
 | Check | Result | Last run |
 |---|---|---|
-| `pnpm verify` | pass; typecheck, 148 tests across 29 files, and production build including dynamic `/v/:videoId` | 2026-08-30 |
-| `pnpm test` | pass, 148 tests across 29 files, including dual-source plus ECMWF-only API modes, bounded video metadata/upload prefill, stable spot reordering, CWA ingestion, sharing, playback, lifecycle, and deployment safeguards | 2026-08-30 |
+| `pnpm verify` | pass; typecheck, 151 tests across 29 files, and production build including dynamic `/v/:videoId` for product `0.9` | 2026-08-30 |
+| `pnpm test` | pass, 151 tests across 29 files, including eight-spot seeding, 05:00–17:00 query/upload boundaries, unverified-tide stripping, dual-source plus ECMWF-only modes, metadata prefill, reordering, sharing, playback, lifecycle, and deployment safeguards | 2026-08-30 |
 | `pnpm lint` | pass with zero warnings and zero errors | 2026-08-30 |
 | `pnpm build` | pass; `/`, `/admin`, and dynamic `/v/:videoId` emitted | 2026-08-30 |
-| rendered-site test | pass, 2 tests; product `0.8`, stable midpoint reorder assets, gallery/camera controls, metadata source/privacy labels, inline rights help, five-day matching, account/share behavior, and no Stream URL leakage are present | 2026-08-30 |
+| rendered-site test | pass, 2 tests; product `0.9`, no test-spot assets, 05:00–17:59 upload copy, stable midpoint reorder assets, gallery/camera controls, metadata source/privacy labels, five-day matching, account/share behavior, and no Stream URL leakage are present | 2026-08-30 |
 | bounded video metadata/upload prefill | pass, 8 tests; QuickTime offset time, container/lastModified priority, tail-moov bounded reads, malformed/oversized/stripped fallback, GPS ambiguity thresholds, and no raw location in resolved prefill | 2026-08-30 |
 | `pnpm deploy:dry-run` | pass through `vinext-cloudflare`; configuration recognized and command confirmed no build or deployment | 2026-08-30 |
 | `pnpm audit --audit-level low` | pass; no known vulnerabilities | 2026-08-30 |
@@ -109,6 +114,9 @@ Updated: 2026-08-30. Product `0.8` is the fully implemented local release candid
 | CWA Worker-secret retirement | pass; `CWA_API_KEY` absent, ingestion secret present, guard false, redaction enabled, no pending migrations, Cron unchanged, and final production smoke passed | 2026-08-30 |
 | product `0.7` five-day/spot-interaction deploy | pass; exact pushed commit `c31becb` deployed through guarded OAuth from fresh worktree `surf-video-deploy-20260830-3` as version `afa28bf8-c148-4a2f-94ef-73593e7a9c76` at 100%, with no migration, redaction enabled, and Cron unchanged | 2026-08-30 |
 | product `0.7` production smoke | pass; health/home/assets, two spots, both ranking modes, public metadata/thumbnail/playback, invalid-share and LINE boundaries passed; D1 remained 50 CWA plus 3,960 ECMWF rows with zero writes | 2026-08-30 |
+| product `0.8` interaction/upload deploy | pass; exact pushed commit `40f261f` completed repository `verify` and guarded Workers Builds checks, publishing Cloudflare version `7bd2eb04-ad04-4a81-bb50-48c42e5f9fc8` at 100% traffic with no migration and query-string redaction enabled | 2026-08-30 |
+| product `0.8` production smoke | pass; health/home/assets, stable midpoint/hysteresis spot reordering, gallery/camera entry, bounded QuickTime metadata handling, inline rights help, two active spots, dual-source and ECMWF-only matching, public metadata/thumbnail/protected playback, invalid-share and LINE boundaries passed | 2026-08-30 |
+| product `0.8` production forecast audit | pass; read-only D1 aggregate found 50 CWA and 3,960 independent ECMWF rows across two spots, with `rows_written=0` and no production video mutation | 2026-08-30 |
 | product `0.6` composite release deploy | pass; guarded OAuth version `aca9ce05-eff0-4d2f-89ce-4b424614d2d4` at 100%, no pending migration, redaction enabled, Cron unchanged, and exact commit `cab68aa` pushed to `main` | 2026-08-30 |
 | product `0.6` production smoke | pass; home/health/spots/matches/LINE boundary/public metadata/thumbnail/protected playback returned expected statuses, composite API exposed both target sources with zero honest legacy-video matches, and deployed UI assets contain the new controls/overlays | 2026-08-30 |
 | `pnpm db:generate` / local migration | pass; 11-table schema has no ungenerated change and local D1 has no pending migration | 2026-08-30 |
@@ -143,7 +151,7 @@ Updated: 2026-08-30. Product `0.8` is the fully implemented local release candid
 ## Production status
 
 - The owner explicitly authorized this internal-test release and its migrations. Future deployments, secret changes, and production deletion still require explicit authorization.
-- The current internal-test release is product version `0.7`, commit `c31becb`, and Cloudflare version `afa28bf8-c148-4a2f-94ef-73593e7a9c76` at 100% traffic. It includes guarded Home Assistant CWA ingestion, strict dual-source matching for offsets 0–2, explicit ECMWF-only matching for offsets 3–4, the share/public-player batch, and the normal six-hour ECMWF/cleanup Cron.
+- The current internal-test release is product version `0.8`, commit `40f261f`, and Cloudflare version `7bd2eb04-ad04-4a81-bb50-48c42e5f9fc8` at 100% traffic. It includes stable hysteresis-based spot reordering, gallery/camera upload entry, bounded client-side QuickTime capture hints that never send raw location, inline rights help, guarded Home Assistant CWA ingestion, strict dual-source matching for offsets 0–2, explicit ECMWF-only matching for offsets 3–4, and the normal six-hour ECMWF/cleanup Cron.
 - Real production LINE redirect/callback and the signed-in UI succeeded with the owner. The resulting internal user ID matches `ADMIN_USER_ID`; `/api/v1/me` exposes no raw LINE subject.
 - The earlier iPhone failure/manual-retry fix remains included in the current release, and the previously rejected second LINE account has completed real iPhone login after channel publication.
 - Live iPhone diagnosis on LINE 26.12.1 / iOS 18.7 showed the LINE in-app browser reaching `/api/v1/auth/line` and receiving `302`, but no callback ever reached the Worker and no new session was created. The owner reports LINE's generic execution error in-app and `400 Bad Request` in Safari. A separate no-account probe confirmed LINE accepts the deployed normal and manual authorization URLs, redirecting them to its `/login` and `/noauto-login` flows respectively. The owner confirmed the iPhone uses a different LINE account from the account that previously completed production login, making `Developing`-channel account eligibility the leading cause; the new account must be invited as a channel Tester and linked to the accepting Business ID, or the channel must later be deliberately published.
@@ -167,11 +175,11 @@ Updated: 2026-08-30. Product `0.8` is the fully implemented local release candid
 
 ## Completed UX batches
 
-The compact find/comparison/upload batches, revised `我的` layout, private playback feedback, 24-hour share/quota flow, adaptive player, dependency/security batch, inline person-rights guidance, simplified public-name controls, desktop navigation/owner-card polish, Home Assistant ingestion, and product `0.7` five-day matching plus reorderable spot strip are deployed and publicly smoked. Per owner direction, iPhone/Android physical-device acceptance remains skipped.
+The compact find/comparison/upload batches, revised `我的` layout, private playback feedback, 24-hour share/quota flow, adaptive player, dependency/security batch, inline person-rights guidance, simplified public-name controls, desktop navigation/owner-card polish, Home Assistant ingestion, and product `0.8` stable reorder plus metadata-assisted gallery/camera upload are deployed and publicly smoked. Per owner direction, iPhone/Android physical-device acceptance remains skipped until the owner returns.
 
 ## Owner actions remaining
 
-- After product `0.8` deploys, accept the spot strip on desktop and one touch browser: verify mouse/trackpad and finger scrolling, 450 ms enlargement, one-step stable reordering without oscillation, edge auto-scroll, movement animation, persisted order, and no text selection/copy callout.
+- Accept the deployed product `0.8` spot strip on desktop and one touch browser: verify mouse/trackpad and finger scrolling, 450 ms enlargement, one-step stable reordering without oscillation, edge auto-scroll, movement animation, persisted order, and no text selection/copy callout.
 - Exercise `選擇影片` and `拍攝影片` with an original iPhone MOV, Android MP4, LINE-saved/edited copy, timezone-ambiguous file, and metadata-stripped file. Confirm every suggested time/spot remains editable, the source label is honest, unsupported capture falls back to a picker, and the 10–60 second/200 MB rules remain enforced.
 - After an approved deployment, accept the 24-hour recipient page, anonymous-versus-authenticated quota behavior, portrait/landscape player sizing, and Web Share/clipboard flow on both target phones. Record the exact browser/WebView if behavior differs.
 - Keep the CWA authorization key in the password manager and HA App only; keep the ingestion secret in HA App and Cloudflare only. No Workers Paid upgrade is required for the deployed adapter.
@@ -183,4 +191,4 @@ The compact find/comparison/upload batches, revised `我的` layout, private pla
 
 ## Next task
 
-Objective: after the pushed product `0.8` is automatically deployed, perform the production preflight and non-mutating smoke, then manually accept the two interaction surfaces when the owner returns: stable spot reordering across desktop/touch and gallery/camera metadata hints across original iPhone MOV, Android MP4, LINE-saved, edited, timezone-ambiguous, and stripped files. Record browser/WebView-specific fallback behavior without weakening server validation or sending raw metadata.
+Objective: commit and push the verified product `0.9` release to `main`, allow the configured guarded Workers Builds flow to apply migration `0009`, then run production preflight and non-mutating smoke for eight spots, 05:00–17:00 matching, and upload rejection outside 05:00–17:59.

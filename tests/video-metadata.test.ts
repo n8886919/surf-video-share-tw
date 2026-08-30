@@ -129,6 +129,15 @@ describe("bounded client video metadata", () => {
     expect(parseQuickTimeMetadata(atom("moov"))).toMatchObject({ recordedAt: null, location: null });
   });
 
+  it("rejects capture-time hints outside 05:00–17:59 in Taipei", () => {
+    const now = new Date("2026-08-30T12:00:00.000Z");
+    expect(selectCaptureTimeHint(
+      { recordedAt: new Date("2026-08-30T10:00:00.000Z"), containerCreatedAt: null },
+      0,
+      now,
+    )).toBeNull();
+  });
+
   it("suggests only a close, precise, and unambiguous active spot", () => {
     const spots = [
       { id: "double-lions", latitude: 24.8887597, longitude: 121.8495724 },

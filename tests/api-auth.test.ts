@@ -64,7 +64,8 @@ describe("API authorization boundary", () => {
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ spots: [{ name: "烏石港" }, { name: "雙獅" }] });
-    expect(spotsSql).toContain("CASE WHEN slug = 'wushi-harbor-north' THEN 0 ELSE 1 END");
+    expect(spotsSql).toContain("CASE slug");
+    expect(spotsSql).toContain("WHEN 'nanwan' THEN 7");
   });
 
   it("rejects public match targets outside the Taipei day/hour selection policy", async () => {

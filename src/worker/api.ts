@@ -776,7 +776,16 @@ api.get("/spots", async (context) => {
   const result = await context.env.DB.prepare(
     `SELECT id, slug, name_en, name_zh, region, latitude, longitude
      FROM spots WHERE active = 1
-     ORDER BY CASE WHEN slug = 'wushi-harbor-north' THEN 0 ELSE 1 END, name_en`,
+     ORDER BY CASE slug
+       WHEN 'wushi-harbor-north' THEN 0
+       WHEN 'double-lions' THEN 1
+       WHEN 'suao-wuwei-harbor' THEN 2
+       WHEN 'daxi' THEN 3
+       WHEN 'jinzun' THEN 4
+       WHEN 'donghe' THEN 5
+       WHEN 'yuguangdao' THEN 6
+       WHEN 'nanwan' THEN 7
+       ELSE 8 END, name_en`,
   ).all<SpotRow>();
   return context.json({
     spots: result.results.map((spot) => ({
@@ -1005,7 +1014,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   try {
     assertWithinForecastWindow(input.targetTime);
   } catch {
-    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起五天內的 05:00–19:00 整點，且不可早於現在" }, 422);
+    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起五天內的 05:00–17:00 整點，且不可早於現在" }, 422);
   }
   const now = new Date().toISOString();
 

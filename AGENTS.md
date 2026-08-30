@@ -12,7 +12,7 @@ The non-negotiable philosophy is in `docs/PROJECT_PRINCIPLES.md`. The canonical 
 - Uploads are 10–60 seconds, at most 200 MB, and captured no more than 168 hours ago. Future capture times are invalid.
 - LINE Login is the production identity. Never expose raw LINE subjects.
 - Complete videos are public. Uploader identity is optional and uses only `display_id`; incomplete uploads are private and expire after seven days.
-- Initial spots are 烏石港 and 雙獅 only.
+- Active MVP spots are 烏石港、雙獅、無尾、蜜月灣、金樽、北東河、漁光島、南灣 only.
 - Users enter only spot and capture time; condition numbers always come from providers.
 - No points, ads, product payments, subscriptions, arbitrary backfill, or public comment threads. Donations belong only in About/Support and never interrupt core flows.
 - An uploader may add one optional 100-character public supplement and optionally mark whether they had fun that day. Neither affects matching; never add more subjective fields or comment threads.

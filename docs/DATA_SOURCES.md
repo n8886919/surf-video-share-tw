@@ -2,12 +2,12 @@
 
 Last checked: 2026-08-30. Provider/model values remain independent; do not average them.
 
-Historical matching uses the newest forecast run issued by capture time whose valid time is near the capture. Current public queries use the newest run issued by query time whose valid time is near the selected `Asia/Taipei` day-offset 0–4, 05:00–19:00 whole-hour target. Lead time is preserved for provenance but is not a similarity requirement. At offsets 0–2 CWA and ECMWF remain separate feature rows and separate distance calculations, and only their normalized source scores are combined at equal weight after both pass coverage. Offsets 3–4 use the independent ECMWF score only. Reanalysis, hindcast, buoy, satellite, and other post-event observations may be stored only as separately labelled data; they never replace or overwrite the historical forecast used for matching.
+Historical matching uses the newest forecast run issued by capture time whose valid time is near the capture. Current public queries use the newest run issued by query time whose valid time is near the selected `Asia/Taipei` day-offset 0–4, 05:00–17:00 whole-hour target. Lead time is preserved for provenance but is not a similarity requirement. At offsets 0–2 CWA and ECMWF remain separate feature rows and separate distance calculations, and only their normalized source scores are combined at equal weight after both pass coverage. Offsets 3–4 use the independent ECMWF score only. Reanalysis, hindcast, buoy, satellite, and other post-event observations may be stored only as separately labelled data; they never replace or overwrite the historical forecast used for matching.
 
 | Purpose | Preferred source | Current decision |
 |---|---|---|
 | Taiwan wave forecast | CWA F-A0020-001 | Preserve each run at three-hourly 0–72 h leads; total wave height/direction/period |
-| Tide forecast | CWA F-A0021-001 | `O00400`, `AboveLocalMSL` cm converted to m; half-cosine height/slope/state interpolation between adjacent extrema |
+| Tide forecast | CWA F-A0021-001 | `O00400`, `AboveLocalMSL` cm converted to m; half-cosine height/slope/state interpolation retained only for 烏石港／雙獅; null for added spots pending verified official locations |
 | Wave model comparison | ECMWF WAM through Open-Meteo Marine | 168 hourly forecast hours per run as separate feature rows; explicit WAM test returned total wave fields but null components |
 | Optional component comparison | Open-Meteo best-match Marine | Separate model/source only; never silently merge with WAM |
 | Wind | Open-Meteo Weather or verified CWA dataset | Wind speed/direction/gust, separate provenance |
@@ -32,3 +32,11 @@ Launch coordinates and provenance:
 
 - 烏石港: `24.8731036, 121.8411446`, user-supplied Google Maps point.
 - 雙獅: `24.8887597, 121.8495724`, user-supplied Google Maps place marker.
+- 無尾: `24.6114709, 121.867805`, user-supplied coordinates.
+- 蜜月灣: `24.9333608, 121.885568`, user-supplied coordinates.
+- 金樽: `22.9558919, 121.2942829`, user-supplied coordinates.
+- 北東河: `22.976243201721132, 121.31300650318626`, user-supplied coordinates.
+- 漁光島: `22.980289143624113, 120.15516081806676`, user-supplied coordinates.
+- 南灣: `21.95878467673781, 120.76046672044414`, user-supplied coordinates.
+
+Only the names and coordinates supplied by the owner are authoritative for the six additions. Existing checklist slugs/English labels are internal identifiers, not newly verified translations or external descriptions.
