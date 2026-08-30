@@ -146,7 +146,7 @@ describe("internal forecast ingestion API", () => {
     expect(response.status).toBe(200);
   });
 
-  it("drops the fixed O00400 tide outside the two verified launch spots", async () => {
+  it("keeps legacy v1 behavior by dropping fixed O00400 tide outside the two launch spots", async () => {
     const db = new FakeD1({
       id: "spot_jinzun",
       slug: "jinzun",
@@ -160,6 +160,43 @@ describe("internal forecast ingestion API", () => {
     expect(response.status).toBe(200);
     expect(db.lastValues?.slice(22, 25)).toEqual([null, null, null]);
     expect(JSON.parse(String(db.lastValues?.[30]))).toMatchObject({ tide: null });
+  });
+
+  it.each([
+    ["spot_wushi-harbor-north", "O00400"],
+    ["spot_double-lions", "O00400"],
+    ["spot_suao-wuwei-harbor", "10002030"],
+    ["spot_daxi", "O01200"],
+    ["spot_jinzun", "O01300"],
+    ["spot_donghe", "O01300"],
+    ["spot_yuguangdao", "B02400"],
+    ["spot_nanwan", "O00700"],
+  ])("retains v2 tide provenance for %s at %s", async (spotId, locationId) => {
+    const db = new FakeD1({ id: spotId, slug: spotId.slice(5), latitude: 24, longitude: 121 });
+    const snapshot = validSnapshot();
+    snapshot.spotId = spotId;
+    snapshot.provenance.tide.locationId = locationId;
+    const response = await post({ version: 2, snapshots: [snapshot] }, env(db));
+    expect(response.status).toBe(200);
+    expect(db.lastValues?.slice(22, 25)).toEqual([0.2, -0.31, "falling"]);
+    expect(JSON.parse(String(db.lastValues?.[30]))).toMatchObject({
+      tide: { dataset: "F-A0021-001", locationId },
+    });
+  });
+
+  it("rejects a v2 tide location that is not allowlisted for the submitted spot", async () => {
+    const db = new FakeD1({
+      id: "spot_jinzun",
+      slug: "jinzun",
+      latitude: 22.9558919,
+      longitude: 121.2942829,
+    });
+    const response = await post({
+      version: 2,
+      snapshots: [{ ...validSnapshot(), spotId: "spot_jinzun" }],
+    }, env(db));
+    expect(response.status).toBe(422);
+    expect(db.writes).toBe(0);
   });
 
   it.each([

@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import {
-  cwaForecastIngestionBatchSchema,
-  type CwaForecastIngestionSnapshot,
+  acceptedCwaForecastIngestionBatchSchema,
+  CWA_TIDE_LOCATION_BY_SPOT_ID,
+  type AcceptedCwaForecastIngestionSnapshot,
 } from "../../packages/api-contract/src";
 import type { AppEnv } from "./db";
 import { insertForecastSnapshots, stableForecastId } from "./forecast/store";
@@ -13,10 +14,7 @@ const MAX_BODY_BYTES = 128 * 1024;
 const MAX_CWA_PUBLICATION_LAG_MS = 12 * 60 * 60_000;
 const CWA_PROVIDER = "cwa";
 const CWA_MODEL = "cwa-wave-f-a0020-001";
-const CWA_VERIFIED_TIDE_SPOT_IDS = new Set([
-  "spot_wushi-harbor-north",
-  "spot_double-lions",
-]);
+const LEGACY_CWA_TIDE_SPOT_IDS = new Set(["spot_wushi-harbor-north", "spot_double-lions"]);
 
 const signatureHeaders = {
   version: "x-forecast-ingestion-version",
@@ -167,7 +165,7 @@ function isAuthFailure(
   return "error" in result;
 }
 
-function hasValidTimeRelationship(snapshot: CwaForecastIngestionSnapshot): boolean {
+function hasValidTimeRelationship(snapshot: AcceptedCwaForecastIngestionSnapshot): boolean {
   const issued = new Date(snapshot.issuedAt).getTime();
   const modelRun = new Date(snapshot.modelRunAt).getTime();
   const valid = new Date(snapshot.validAt).getTime();
@@ -180,14 +178,33 @@ function hasValidTimeRelationship(snapshot: CwaForecastIngestionSnapshot): boole
       || [snapshot.tideHeight, snapshot.tideSlope, snapshot.tideState].every((value) => value === null));
 }
 
+function hasValidTideMapping(
+  snapshot: AcceptedCwaForecastIngestionSnapshot,
+  contractVersion: 1 | 2,
+): boolean {
+  if (snapshot.provenance.tide === null || contractVersion === 1) return true;
+  const expected = CWA_TIDE_LOCATION_BY_SPOT_ID[
+    snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID
+  ];
+  return expected !== undefined && snapshot.provenance.tide.locationId === expected;
+}
+
 async function normalizedSnapshot(
-  snapshot: CwaForecastIngestionSnapshot,
+  snapshot: AcceptedCwaForecastIngestionSnapshot,
+  contractVersion: 1 | 2,
   receivedAt: string,
 ): Promise<ForecastSnapshotInput> {
   const issuedAt = new Date(snapshot.issuedAt).toISOString();
   const modelRunAt = new Date(snapshot.modelRunAt).toISOString();
   const validAt = new Date(snapshot.validAt).toISOString();
-  const retainVerifiedTide = CWA_VERIFIED_TIDE_SPOT_IDS.has(snapshot.spotId);
+  const expectedTideLocation = CWA_TIDE_LOCATION_BY_SPOT_ID[
+    snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID
+  ];
+  const retainVerifiedTide = snapshot.provenance.tide !== null && (
+    contractVersion === 1
+      ? LEGACY_CWA_TIDE_SPOT_IDS.has(snapshot.spotId)
+      : snapshot.provenance.tide.locationId === expectedTideLocation
+  );
   return {
     id: await stableForecastId([CWA_PROVIDER, CWA_MODEL, snapshot.spotId, issuedAt, validAt]),
     spotId: snapshot.spotId,
@@ -255,8 +272,10 @@ internalForecastIngestionApi.post("/cwa", async (context) => {
   } catch {
     return context.json({ error: "INVALID_INGESTION_BODY" }, 400);
   }
-  const parsed = cwaForecastIngestionBatchSchema.safeParse(payload);
-  if (!parsed.success || !parsed.data.snapshots.every(hasValidTimeRelationship)) {
+  const parsed = acceptedCwaForecastIngestionBatchSchema.safeParse(payload);
+  if (!parsed.success || !parsed.data.snapshots.every((snapshot) =>
+    hasValidTimeRelationship(snapshot) && hasValidTideMapping(snapshot, parsed.data.version)
+  )) {
     return context.json({ error: "INVALID_INGESTION_BODY" }, 422);
   }
 
@@ -274,7 +293,7 @@ internalForecastIngestionApi.post("/cwa", async (context) => {
 
   const receivedAt = new Date().toISOString();
   const snapshots = await Promise.all(parsed.data.snapshots.map((snapshot) =>
-    normalizedSnapshot(snapshot, receivedAt)
+    normalizedSnapshot(snapshot, parsed.data.version, receivedAt)
   ));
   const result = await insertForecastSnapshots(context.env.DB, snapshots);
   return context.json(result);

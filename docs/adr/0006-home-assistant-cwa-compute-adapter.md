@@ -44,16 +44,20 @@ fetch and add more supply-chain failure modes than this small fixed contract
 removes. Unpinned Git dependencies and a third checked-in schema artifact are
 therefore rejected for this release.
 
-The minimal deviation is version-locked as `cwa-forecast-ingestion-v1`. Worker
-`0.3.0` and App `0.1.1` are the first compatible pair. Both repositories
-generate JSON Schema from their live Zod batch validator and assert the same
-SHA-256 fingerprint,
-`6316768333f715908074526c113f5ddf01a508d55dae93eb01032867575fac30`.
-Separate parity assertions cover the three-hour lead rule and required wave
-metric refinement because those Zod refinements are not represented by the
-generated JSON Schema. A release must run both suites and compare the named
-contract version and fingerprint. Any wire-field or bound change requires a
-coordinated versioned contract change; one repository must never drift alone.
+The first contract was version-locked as `cwa-forecast-ingestion-v1`. The
+multi-location tide release advances new batches to
+`cwa-forecast-ingestion-v2` while the Worker temporarily accepts persisted v1
+batches for a safe Worker-first rollout. Both repositories generate JSON
+Schema from their live v2 Zod batch validator and assert the same SHA-256
+fingerprint, plus a separate canonical SHA-256 fingerprint for the complete
+spot-to-LocationId mapping. Separate parity assertions cover the three-hour
+lead rule and required wave metric refinement because those Zod refinements
+are not represented by the generated JSON Schema. The Worker additionally
+enforces the mapping at its trust boundary; an App-supplied but wrong approved
+LocationId is rejected. A release must run both suites and compare the named
+contract version and both fingerprints. Any wire-field, bound, or mapping
+change requires a coordinated versioned contract change; one repository must
+never drift alone.
 
 ## Consequences
 

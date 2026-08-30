@@ -59,6 +59,16 @@ export const MATCH_WEIGHTS = {
   tideSlope: { weight: 0.35, scale: 1 },
 } as const;
 
+const SWELL_COMPONENT_KEYS = ["swellHeight", "swellPeriod", "swellDirection"] as const;
+type SwellComponentKey = typeof SWELL_COMPONENT_KEYS[number];
+type SwellLabel = "primary" | "secondary";
+
+interface WeightedSwellComponent {
+  label: SwellLabel;
+  share: number;
+  values: Record<SwellComponentKey, number | null>;
+}
+
 export const MIN_MATCH_COVERAGE = 0.5;
 
 export function combineRequiredSourceScores(
@@ -96,6 +106,134 @@ export function circularDirectionDistance(a: number, b: number): number {
   return Math.min(raw, 360 - raw);
 }
 
+export function normalizedCircularDirectionDifference(a: number, b: number): number {
+  return (1 - Math.cos(circularDirectionDistance(a, b) * Math.PI / 180)) / 2;
+}
+
+function normalizedFeatureDifference(
+  a: number,
+  b: number,
+  config: { scale: number; circular?: true },
+): number {
+  return config.circular
+    ? normalizedCircularDirectionDifference(a, b)
+    : Math.min(Math.abs(a - b) / config.scale, 1);
+}
+
+function swellComponents(conditions: MarineConditions): WeightedSwellComponent[] {
+  const components = [
+    {
+      label: "primary" as const,
+      values: {
+        swellHeight: conditions.swellHeight,
+        swellPeriod: conditions.swellPeriod,
+        swellDirection: conditions.swellDirection,
+      },
+    },
+    {
+      label: "secondary" as const,
+      values: {
+        swellHeight: conditions.secondarySwellHeight,
+        swellPeriod: conditions.secondarySwellPeriod,
+        swellDirection: conditions.secondarySwellDirection,
+      },
+    },
+  ].filter((component) => Object.values(component.values).some(isFiniteNumber));
+  const strengths = components.map((component) => {
+    const height = component.values.swellHeight;
+    return isFiniteNumber(height) && height > 0 ? height ** 2 : 0;
+  });
+  const totalStrength = strengths.reduce((sum, strength) => sum + strength, 0);
+  return components.map((component, index) => ({
+    ...component,
+    share: totalStrength > 0 ? (strengths[index] ?? 0) / totalStrength : 1 / components.length,
+  }));
+}
+
+interface SwellComparison {
+  availableWeight: number;
+  matchedWeight: number;
+  distanceWeight: number;
+  components: MatchComponent[];
+}
+
+function bestSwellComparison(
+  target: MarineConditions,
+  candidate: MarineConditions,
+): SwellComparison {
+  const targets = swellComponents(target);
+  const candidates = swellComponents(candidate);
+  const availableWeight = targets.reduce((sum, component) => sum + component.share
+    * SWELL_COMPONENT_KEYS.reduce((fieldSum, key) => fieldSum
+      + (isFiniteNumber(component.values[key]) ? MATCH_WEIGHTS[key].weight : 0), 0), 0);
+  if (!targets.length || !candidates.length) {
+    return { availableWeight, matchedWeight: 0, distanceWeight: 0, components: [] };
+  }
+
+  const evaluations: Array<SwellComparison & { assignmentPenalty: number }> = [];
+  const evaluate = (assignment: Array<number | null>) => {
+    const components: MatchComponent[] = [];
+    let assignmentPenalty = 0;
+    for (let index = 0; index < targets.length; index += 1) {
+      const targetComponent = targets[index]!;
+      const candidateIndex = assignment[index];
+      const candidateComponent = candidateIndex === null || candidateIndex === undefined
+        ? null
+        : candidates[candidateIndex]!;
+      for (const key of SWELL_COMPONENT_KEYS) {
+        const targetValue = targetComponent.values[key];
+        if (!isFiniteNumber(targetValue)) continue;
+        const weight = MATCH_WEIGHTS[key].weight * targetComponent.share;
+        const candidateValue = candidateComponent?.values[key];
+        if (!isFiniteNumber(candidateValue)) {
+          assignmentPenalty += weight;
+          continue;
+        }
+        const difference = normalizedFeatureDifference(targetValue, candidateValue, MATCH_WEIGHTS[key]);
+        assignmentPenalty += difference * weight;
+        components.push({
+          key: targetComponent.label === "primary"
+            ? key
+            : `secondarySwell${key.slice("swell".length)}`,
+          normalizedDifference: difference,
+          weight,
+        });
+      }
+    }
+    evaluations.push({
+      availableWeight,
+      matchedWeight: components.reduce((sum, item) => sum + item.weight, 0),
+      distanceWeight: components.reduce(
+        (sum, item) => sum + item.normalizedDifference * item.weight,
+        0,
+      ),
+      components,
+      assignmentPenalty,
+    });
+  };
+  const visit = (targetIndex: number, used: Set<number>, assignment: Array<number | null>) => {
+    if (targetIndex === targets.length) {
+      evaluate(assignment);
+      return;
+    }
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      if (used.has(candidateIndex)) continue;
+      used.add(candidateIndex);
+      assignment.push(candidateIndex);
+      visit(targetIndex + 1, used, assignment);
+      assignment.pop();
+      used.delete(candidateIndex);
+    }
+    assignment.push(null);
+    visit(targetIndex + 1, used, assignment);
+    assignment.pop();
+  };
+  visit(0, new Set(), []);
+  const best = evaluations.sort((a, b) => a.assignmentPenalty - b.assignmentPenalty
+    || b.matchedWeight - a.matchedWeight)[0];
+  return best ?? { availableWeight, matchedWeight: 0, distanceWeight: 0, components: [] };
+}
+
 export function selectLatestAvailableForecast<T>(
   candidates: AvailableForecastCandidate<T>[],
   targetTime: string | Date,
@@ -126,36 +264,41 @@ export function rankSimilarConditions(
   target: MarineConditions,
   candidates: HistoricalCondition[],
 ): RankedMatch[] {
-  const availableWeight = Object.entries(MATCH_WEIGHTS).reduce((sum, [key, config]) => {
+  const staticAvailableWeight = Object.entries(MATCH_WEIGHTS).reduce((sum, [key, config]) => {
+    if ((SWELL_COMPONENT_KEYS as readonly string[]).includes(key)) return sum;
     const field = key as keyof typeof MATCH_WEIGHTS;
     return isFiniteNumber(target[field]) ? sum + config.weight : sum;
   }, 0);
+  const targetSwell = bestSwellComparison(target, target);
+  const availableWeight = staticAvailableWeight + targetSwell.availableWeight;
 
   return candidates
     .map((candidate) => {
       const components: MatchComponent[] = [];
+      let staticMatchedWeight = 0;
+      let staticDistanceWeight = 0;
       for (const [key, config] of Object.entries(MATCH_WEIGHTS)) {
+        if ((SWELL_COMPONENT_KEYS as readonly string[]).includes(key)) continue;
         const field = key as keyof typeof MATCH_WEIGHTS;
         const targetValue = target[field];
         const candidateValue = candidate.conditions[field];
         if (!isFiniteNumber(targetValue) || !isFiniteNumber(candidateValue)) continue;
-        const difference = "circular" in config
-          ? circularDirectionDistance(targetValue, candidateValue)
-          : Math.abs(targetValue - candidateValue);
+        const difference = normalizedFeatureDifference(targetValue, candidateValue, config);
         components.push({
           key,
-          normalizedDifference: Math.min(difference / config.scale, 1),
+          normalizedDifference: difference,
           weight: config.weight,
         });
+        staticMatchedWeight += config.weight;
+        staticDistanceWeight += difference * config.weight;
       }
-      const matchedWeight = components.reduce((sum, item) => sum + item.weight, 0);
+      const swell = bestSwellComparison(target, candidate.conditions);
+      components.push(...swell.components);
+      const matchedWeight = staticMatchedWeight + swell.matchedWeight;
       const coverage = availableWeight === 0 ? 0 : matchedWeight / availableWeight;
       const distance = matchedWeight === 0
         ? 1
-        : components.reduce(
-            (sum, item) => sum + item.normalizedDifference * item.weight,
-            0,
-          ) / matchedWeight;
+        : (staticDistanceWeight + swell.distanceWeight) / matchedWeight;
       return {
         ...candidate,
         score: Number((1 - distance).toFixed(6)),

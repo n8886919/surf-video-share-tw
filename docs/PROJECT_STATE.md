@@ -1,8 +1,12 @@
 # Project state
 
-Updated: 2026-08-30. Product `0.9` commit `4e0613c` is deployed at 100% as Cloudflare version `ead1bcab-f6a1-4276-8e49-08af66ab3302`. The 05:00–19:00 time policy, migration `0010`, and operations monitoring are live; production readiness, the new time boundaries, and owner-confirmed LINE delivery passed, and Home Assistant App `0.1.2` remains deployed.
+Updated: 2026-08-31. Product `0.10` and Home Assistant App `0.2.0` are locally verified and ready for the owner-authorized Worker-first rollout. Production still serves product `0.9` commit `4e0613c` as Cloudflare version `ead1bcab-f6a1-4276-8e49-08af66ab3302`, and the installed Home Assistant App remains `0.1.2` until its device update.
 
 ## Completed checkpoint
+
+- Product `0.10` keeps matching deterministic and label-free while treating primary and secondary swell as an unordered pair. Their existing fixed swell feature budget is split by target height squared, labels may swap without penalty, and every circular direction now uses cosine distance so 10°, 90°, and 180° differences are distinctly nonlinear. Missing values remain unknown, provider rows remain independent, and views/reactions/uploader supplement still do not affect ranking.
+- CWA ingestion contract `cwa-forecast-ingestion-v2` adds a fingerprinted server-owned tide allowlist for every active spot: `O00400` 烏石港／雙獅, `10002030` 無尾, `O01200` 蜜月灣, `O01300` 金樽／北東河, `B02400` 漁光島, and `O00700` 南灣. The Worker rejects mismatched v2 spot/location provenance before D1 while temporarily accepting persisted v1 batches with their former two-spot tide behavior for safe Worker-first rollout.
+- Home Assistant App `0.2.0` requests the six approved F-A0021-001 locations once with the CWA key in the Authorization header, interpolates each spot's reviewed location independently, sends contract v2, and can retry persisted v1 batches. The main repository passed lint, typecheck, 172 tests across 31 files, production build, two rendered-site checks, schema generation with no migration, deploy dry-run, and diff check. The App passed typecheck, 23 tests across eight files, build, audit with zero known vulnerabilities, and synchronized `linux/arm64` CI metadata.
 
 - The owner corrected both allowed daylight windows to 05:00–19:00. Production public search now accepts inclusive whole-hour targets from 05:00 through 19:00, while upload and later metadata completion preserve actual minutes/seconds and accept Taipei capture hours 05–19 (through 19:59:59). The browser slider, metadata hints, shared server validation, API/client errors, rendered upload copy, principles, product, architecture, source, API, and operations documentation are synchronized.
 - The 05:00–19:00 correction passed the focused 28-test policy/metadata/matching set, full typecheck plus 160 tests across 31 files, lint, production build, two rendered-site tests, deploy dry-run, and diff check. It required no schema migration and did not change providers or matching behavior. Owner-authorized commit `4e0613c` deployed as Cloudflare version `ead1bcab-f6a1-4276-8e49-08af66ab3302` at 100%; production smoke accepted 19:00, rejected 20:00 with `422`, found the 05:00–19:59 upload copy in the deployed asset, and returned healthy readiness.
@@ -109,6 +113,10 @@ Updated: 2026-08-30. Product `0.9` commit `4e0613c` is deployed at 100% as Cloud
 
 | Check | Result | Last run |
 |---|---|---|
+| product `0.10` full local gate | pass; lint, typecheck, 172 tests across 31 files, production build, two rendered-site tests, no schema migration, deploy dry-run, and diff check | 2026-08-31 |
+| matching v2 focused coverage | pass; unordered swell-label swap, squared-height budget split, nonlinear 10°/90°/180° circular distances, fixed total budget, missing coverage, and provider composition | 2026-08-31 |
+| CWA ingestion v2 focused coverage | pass; all eight exact spot/location pairs retained, wrong mapping rejected before writes, structural and mapping fingerprints pinned, and persisted v1 accepted | 2026-08-31 |
+| HA App `0.2.0` verification | pass; typecheck, 23 tests across eight files, build, zero known vulnerabilities, six-location request/auth header, eight-spot mapping, v1 retry, v2 submission, and `linux/arm64` CI metadata synchronized | 2026-08-31 |
 | `pnpm verify` | pass; typecheck, 160 tests across 31 files, and production build including dynamic `/v/:videoId`; 05:00–19:00 boundaries plus operations threshold/silence/privacy/readiness checks included | 2026-08-30 |
 | `pnpm test` | pass, 160 tests across 31 files, including LINE delivery shape/link formatting, GitHub-history parsing, three-errors-in-five-minutes threshold, silent empty/normal AI windows, production readiness, and all prior product/deployment safeguards | 2026-08-30 |
 | `pnpm lint` | pass with zero warnings and zero errors | 2026-08-30 |
@@ -167,6 +175,7 @@ Updated: 2026-08-30. Product `0.9` commit `4e0613c` is deployed at 100% as Cloud
 ## Production status
 
 - The owner explicitly authorized this internal-test release and its migrations. Future deployments, secret changes, and production deletion still require explicit authorization.
+- Product `0.10` and App `0.2.0` are verified but not yet recorded as live. Rollout order is Worker first, then publish/update the App; v1 compatibility prevents the installed `0.1.2` App from being interrupted between those steps.
 - The current internal-test release is product version `0.9`, commit `4e0613c`, and Cloudflare version `ead1bcab-f6a1-4276-8e49-08af66ab3302` at 100% traffic. It exposes eight exact owner-approved spots, permits search whole hours 05:00–19:00 and upload capture times 05:00–19:59 in `Asia/Taipei`, retains the existing matching/recommendation/sharing/identity behavior, and includes the deployed operations tables, readiness boundary, Workers AI hourly analysis, LINE alerts, and independent GitHub uptime workflow.
 - Real production LINE redirect/callback and the signed-in UI succeeded with the owner. The resulting internal user ID matches `ADMIN_USER_ID`; `/api/v1/me` exposes no raw LINE subject.
 - The earlier iPhone failure/manual-retry fix remains included in the current release, and the previously rejected second LINE account has completed real iPhone login after channel publication.
@@ -195,6 +204,7 @@ The compact find/comparison/upload batches, revised `我的` layout, private pla
 
 ## Owner actions remaining
 
+- After App `0.2.0` is published, refresh the Home Assistant App store on the Pi, update `Surf Video Share CWA Ingestor`, and restart it. Confirm the startup log reports `0.2.0`; no option or secret value should need to change.
 - Accept the deployed product `0.8` spot strip on desktop and one touch browser: verify mouse/trackpad and finger scrolling, 450 ms enlargement, one-step stable reordering without oscillation, edge auto-scroll, movement animation, persisted order, and no text selection/copy callout.
 - Exercise `選擇影片` and `拍攝影片` with an original iPhone MOV, Android MP4, LINE-saved/edited copy, timezone-ambiguous file, and metadata-stripped file. Confirm every suggested time/spot remains editable, the source label is honest, unsupported capture falls back to a picker, and the 10–60 second/200 MB rules remain enforced.
 - After an approved deployment, accept the 24-hour recipient page, anonymous-versus-authenticated quota behavior, portrait/landscape player sizing, and Web Share/clipboard flow on both target phones. Record the exact browser/WebView if behavior differs.
@@ -207,4 +217,4 @@ The compact find/comparison/upload batches, revised `我的` layout, private pla
 
 ## Next task
 
-Objective: observe the first real GitHub five-minute scheduled uptime run and the first production `5 * * * *` hourly operations-analysis run, confirming healthy/normal operation remains silent and recording only read-only evidence without fabricating an outage or sending another test notification.
+Objective: commit and deploy product `0.10` to the Worker first, publish Home Assistant App `0.2.0` second, run production smoke and read-only preflight checks, then record the exact live versions and the remaining Pi update action.

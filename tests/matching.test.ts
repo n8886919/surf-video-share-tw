@@ -4,6 +4,7 @@ import {
   circularDirectionDistance,
   combineRequiredSourceScores,
   MATCH_WEIGHTS,
+  normalizedCircularDirectionDifference,
   rankSimilarConditions,
   selectLatestAvailableForecast,
 } from "../packages/domain/src/matching";
@@ -72,6 +73,61 @@ describe("condition matching", () => {
   it("uses circular direction distance", () => {
     expect(circularDirectionDistance(359, 1)).toBe(2);
     expect(circularDirectionDistance(0, 180)).toBe(180);
+    expect(normalizedCircularDirectionDifference(0, 10)).toBeCloseTo(0.007596, 6);
+    expect(normalizedCircularDirectionDifference(0, 90)).toBeCloseTo(0.5, 6);
+    expect(normalizedCircularDirectionDifference(0, 180)).toBe(1);
+  });
+
+  it("matches primary and secondary swell as an unordered pair", () => {
+    const target = {
+      ...conditionsWithOnly(["swellHeight", "swellPeriod", "swellDirection"]),
+      swellHeight: 1.2,
+      swellPeriod: 11,
+      swellDirection: 40,
+      secondarySwellHeight: 0.8,
+      secondarySwellPeriod: 8,
+      secondarySwellDirection: 120,
+    };
+    const swapped = {
+      ...target,
+      swellHeight: 0.8,
+      swellPeriod: 8,
+      swellDirection: 120,
+      secondarySwellHeight: 1.2,
+      secondarySwellPeriod: 11,
+      secondarySwellDirection: 40,
+    };
+    expect(rankSimilarConditions(target, [{ id: "swapped", conditions: swapped }])[0]).toMatchObject({
+      score: 1,
+      availableWeight: 3.45,
+      matchedWeight: 3.45,
+      coverage: 1,
+    });
+  });
+
+  it("weights direction differences by squared swell height without growing the swell budget", () => {
+    const target = {
+      ...conditionsWithOnly(["swellHeight", "swellPeriod", "swellDirection"]),
+      swellHeight: 1.5,
+      swellPeriod: 10,
+      swellDirection: 0,
+      secondarySwellHeight: 0.5,
+      secondarySwellPeriod: 10,
+      secondarySwellDirection: 90,
+    };
+    const strongMismatch = { ...target, swellDirection: 90 };
+    const weakMismatch = { ...target, secondarySwellDirection: 180 };
+    const ranked = rankSimilarConditions(target, [
+      { id: "strong", conditions: strongMismatch },
+      { id: "weak", conditions: weakMismatch },
+    ]);
+    expect(ranked.map((match) => match.id)).toEqual(["weak", "strong"]);
+    expect(ranked[0]!.availableWeight).toBeCloseTo(3.45, 6);
+    expect(ranked[1]!.availableWeight).toBeCloseTo(3.45, 6);
+    expect(ranked[0]!.components.find((component) => component.key === "secondarySwellDirection")?.weight)
+      .toBeCloseTo(0.12, 6);
+    expect(ranked[1]!.components.find((component) => component.key === "swellDirection")?.weight)
+      .toBeCloseTo(1.08, 6);
   });
 
   it("scores identical conditions as one", () => {

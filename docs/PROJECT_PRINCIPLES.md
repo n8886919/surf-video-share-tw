@@ -32,6 +32,9 @@ This document records the product philosophy that must survive handoffs. `docs/P
 
 ## Forecast and matching integrity
 
+- Matching 維持無標籤、可解釋的同浪點距離排序，不使用觀看數、主觀反應或黑盒模型調權。主／次湧浪是可能交換標籤的無順序浪系；共享固定湧浪權重並依目標浪高平方分配。方向是圓形資料，使用非線性 cosine distance，而不是把角度當一般直線數值。
+- 潮汐只接受逐浪點驗證的 CWA F-A0021-001 LocationId 與 `AboveLocalMSL` provenance。缺值保持 `null`，不能套用其他海岸的地點、把未知當零，或用後來取得的潮汐預報回填舊影片。
+
 - 歷史匹配必須使用當時已發布、使用者實際有機會看到的預報快照。保存來源、模型、run、`issued_at`、`valid_at`、`lead_hours` 與網格。
 - 使用者只選浪點、`Asia/Taipei` 日曆日偏移 0–4 與當日 05:00–19:00 的整點，不可選分鐘或已經過去的時間。影片實際拍攝時間可保留分鐘與秒，但台北時間的小時必須介於 05–19。系統使用查詢當下最新可得、有效時間接近目標的預報；歷史影片則使用拍攝當時最新可得、有效時間接近拍攝時間的預報。`lead_hours` 仍保存供追溯，但不要求與目前查詢相同。不能改用拍攝後發布的 run 或浪發生後吸收新觀測重建的 reanalysis／hindcast。
 - 事後分析、浮標或其他觀測可作為獨立資料，用來描述或評估實況；必須明確標型別，不能覆寫預報快照或混成同一特徵。
