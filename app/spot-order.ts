@@ -19,3 +19,27 @@ export function moveSpotId(order: readonly string[], draggedId: string, targetId
   next.splice(to, 0, draggedId);
   return next;
 }
+
+export interface SpotOrderPosition {
+  id: string;
+  centerX: number;
+}
+
+export function spotReorderTarget(
+  order: readonly string[],
+  draggedId: string,
+  pointerX: number,
+  direction: -1 | 0 | 1,
+  positions: readonly SpotOrderPosition[],
+  hysteresis = 8,
+): string | null {
+  const draggedIndex = order.indexOf(draggedId);
+  if (draggedIndex < 0 || direction === 0 || !Number.isFinite(pointerX)) return null;
+  const neighborId = order[draggedIndex + direction];
+  if (!neighborId) return null;
+  const neighbor = positions.find((position) => position.id === neighborId);
+  if (!neighbor || !Number.isFinite(neighbor.centerX)) return null;
+  if (direction > 0 && pointerX >= neighbor.centerX + hysteresis) return neighborId;
+  if (direction < 0 && pointerX <= neighbor.centerX - hysteresis) return neighborId;
+  return null;
+}

@@ -29,7 +29,11 @@ import {
   PUBLIC_MEDIA_THIRD_PARTY_RIGHTS_NOTICE,
 } from "../packages/domain/src/public-terms";
 import { loadStreamPlayerSdk, type StreamPlayer } from "./stream-player";
-import { mergeSpotOrder, moveSpotId } from "./spot-order";
+import { mergeSpotOrder, moveSpotId, spotReorderTarget } from "./spot-order";
+import {
+  inspectQuickTimeMetadata,
+  resolveUploadPrefill,
+} from "./video-metadata";
 
 type View = "find" | "upload" | "mine";
 
@@ -56,6 +60,8 @@ interface Spot {
   nameEn: string;
   nameZh: string | null;
   region: string;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 interface UploadTicket {
@@ -114,10 +120,11 @@ function formatDirection(value: number | null): string {
   return value == null ? "—" : `${Math.round(value)}°`;
 }
 
-function Icon({ name }: { name: "search" | "upload" | "user" | "heart" | "wave" | "help" | "more" | "share" | "download" }) {
+function Icon({ name }: { name: "search" | "upload" | "camera" | "user" | "heart" | "wave" | "help" | "more" | "share" | "download" }) {
   const paths = {
     search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></>,
     upload: <><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M5 14v5h14v-5"/></>,
+    camera: <><path d="M4 8.5h3l1.4-2h7.2l1.4 2h3v10H4z"/><circle cx="12" cy="13.5" r="3.2"/></>,
     user: <><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.6-4 3-6 7-6s6.4 2 7 6"/></>,
     heart: <path d="M20.8 8.4c0 5-8.8 10.2-8.8 10.2S3.2 13.4 3.2 8.4C3.2 5.8 5 4 7.4 4c1.9 0 3.3 1 4.6 2.6C13.3 5 14.7 4 16.6 4c2.4 0 4.2 1.8 4.2 4.4Z"/>,
     wave: <><path d="M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/><path d="M5 10c2.2-4.8 7.3-6.2 11-3.2 1.7 1.4 2.2 3.2 2 5.2"/></>,
@@ -827,6 +834,9 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
     startX: number;
     startY: number;
     startScrollLeft: number;
+    lastPointerX: number;
+    direction: -1 | 0 | 1;
+    swapLockedUntil: number;
     active: boolean;
     scrolling: boolean;
   } | null>(null);
@@ -872,7 +882,7 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     for (const shell of strip.querySelectorAll<HTMLElement>("[data-spot-order-id]")) {
       const before = previous.get(shell.dataset.spotOrderId || "");
-      if (!before) continue;
+      if (!before || shell.dataset.spotOrderId === draggingId) continue;
       const after = shell.getBoundingClientRect();
       const deltaX = before.left - after.left;
       if (!reduceMotion && Math.abs(deltaX) > 1) {
@@ -883,7 +893,7 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
       }
     }
     previous.clear();
-  }, [order]);
+  }, [draggingId, order]);
 
   function clearTimer() {
     if (pressTimer.current != null) window.clearTimeout(pressTimer.current);
@@ -899,6 +909,9 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
       startX: event.clientX,
       startY: event.clientY,
       startScrollLeft: stripRef.current?.scrollLeft ?? 0,
+      lastPointerX: event.clientX,
+      direction: 0,
+      swapLockedUntil: 0,
       active: false,
       scrolling: false,
     };
@@ -944,18 +957,34 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
       return;
     }
     event.preventDefault();
+    const pointerMotionX = event.clientX - current.lastPointerX;
+    if (Math.abs(pointerMotionX) >= 1) {
+      current.direction = pointerMotionX > 0 ? 1 : -1;
+      current.lastPointerX = event.clientX;
+    }
     const strip = stripRef.current;
     if (strip) {
       const bounds = strip.getBoundingClientRect();
       if (event.clientX < bounds.left + 36) strip.scrollLeft -= 12;
       else if (event.clientX > bounds.right - 36) strip.scrollLeft += 12;
     }
-    const target = document.elementFromPoint(event.clientX, event.clientY)
-      ?.closest<HTMLElement>("[data-spot-order-id]")
-      ?.dataset.spotOrderId;
+    if (!strip || event.timeStamp < current.swapLockedUntil) return;
+    const stripBounds = strip.getBoundingClientRect();
+    const positions = [...strip.querySelectorAll<HTMLElement>("[data-spot-order-id]")].map((shell) => ({
+      id: shell.dataset.spotOrderId || "",
+      centerX: stripBounds.left + shell.offsetLeft - strip.scrollLeft + shell.offsetWidth / 2,
+    }));
+    const target = spotReorderTarget(
+      positions.map((position) => position.id),
+      current.id,
+      event.clientX,
+      current.direction,
+      positions,
+    );
     if (target && target !== current.id) {
       capturePositions();
-      setOrder((existing) => moveSpotId(existing, current.id, target));
+      current.swapLockedUntil = event.timeStamp + 90;
+      setOrder((existing) => moveSpotId(mergeSpotOrder(defaultIds, existing), current.id, target));
     }
   }
 
@@ -1064,6 +1093,8 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   const initialSpot = typeof window !== "undefined" ? localStorage.getItem("lastSpotId") || "" : "";
   const [spotId, setSpotId] = useState(initialSpot || spots[0]?.id || "");
   const [capturedAt, setCapturedAt] = useState("");
+  const [captureTimeHint, setCaptureTimeHint] = useState("選擇影片後會顯示時間提示來源，送出前請確認");
+  const [spotHint, setSpotHint] = useState(initialSpot ? "上次使用的浪點，請確認" : "預設浪點，請確認");
   const [file, setFile] = useState<File | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [showUploader, setShowUploader] = useState(false);
@@ -1074,20 +1105,39 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   async function inspectVideo(selected: File) {
     if (selected.size > MAX_UPLOAD_BYTES) throw new Error("影片不可超過 200 MB");
     if (!selected.type.startsWith("video/")) throw new Error("請選擇影片檔案");
-    const hinted = new Date(selected.lastModified);
-    if (!Number.isNaN(hinted.getTime()) && hinted <= new Date() && hinted >= new Date(Date.now() - 7 * 86_400_000)) setCapturedAt(toLocalDateTime(hinted));
+    setError(null);
+    setFile(null);
+    setDuration(null);
+    const metadataPromise = inspectQuickTimeMetadata(selected).catch(() => ({
+      recordedAt: null,
+      containerCreatedAt: null,
+      location: null,
+      bytesRead: 0,
+    }));
     const url = URL.createObjectURL(selected);
     try {
-      const seconds = await new Promise<number>((resolve, reject) => {
+      const durationPromise = new Promise<number>((resolve, reject) => {
         const video = document.createElement("video");
         video.preload = "metadata";
         video.onloadedmetadata = () => resolve(video.duration);
         video.onerror = () => reject(new Error("無法讀取影片長度"));
         video.src = url;
       });
+      const [seconds, metadata] = await Promise.all([durationPromise, metadataPromise]);
       if (!Number.isFinite(seconds) || seconds < MIN_VIDEO_DURATION_SECONDS || seconds > MAX_VIDEO_DURATION_SECONDS) throw new Error("影片長度必須為 10–60 秒");
-      setFile(selected); setDuration(seconds);
+      const prefill = resolveUploadPrefill(metadata, selected.lastModified, spotId, spots);
+      setCapturedAt(prefill.capturedAt ? toLocalDateTime(prefill.capturedAt) : "");
+      setCaptureTimeHint(prefill.captureTimeLabel);
+      setSpotId(prefill.spotId);
+      setSpotHint(prefill.spotLabel);
+      setFile(selected);
+      setDuration(seconds);
     } finally { URL.revokeObjectURL(url); }
+  }
+
+  function chooseVideo(selected: File | undefined) {
+    if (!selected) return;
+    void inspectVideo(selected).catch((caught) => setError(caught instanceof Error ? caught.message : "無法讀取影片"));
   }
 
   async function submit(event: React.FormEvent) {
@@ -1123,23 +1173,28 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
 
   return <div className="screen upload-screen"><div className="page-title"><h1>上傳</h1><p>10–60 秒，最多 200 MB</p></div>
     <form onSubmit={submit} className="upload-form">
-      <label className={`file-picker ${file ? "has-file" : ""}`}><input type="file" accept="video/*" onChange={(event) => { const selected = event.target.files?.[0]; if (selected) void inspectVideo(selected).catch((caught) => setError(caught instanceof Error ? caught.message : "無法讀取影片")); }}/><span className="file-icon"><Icon name="upload"/></span><strong>{file?.name || "選擇影片"}</strong><small>{file && duration ? `${duration.toFixed(1)} 秒 · ${(file.size / 1_000_000).toFixed(1)} MB` : "會優先讀取檔案時間"}</small></label>
-      <div className="two-fields"><label><span>浪點</span><select required value={spotId} onChange={(event) => setSpotId(event.target.value)}>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select></label><label><span>拍攝時間</span><input type="datetime-local" min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} value={capturedAt} onChange={(event) => setCapturedAt(event.target.value)}/></label></div>
+      <div className="upload-source-picker" role="group" aria-label="影片來源">
+        <label><input type="file" accept="video/*" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="upload"/><strong>選擇影片</strong></label>
+        <label><input type="file" accept="video/*" capture="environment" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="camera"/><strong>拍攝影片</strong></label>
+      </div>
+      {file && duration != null
+        ? <div className="selected-video-summary"><strong>{file.name}</strong><small>{duration.toFixed(1)} 秒 · {(file.size / 1_000_000).toFixed(1)} MB</small></div>
+        : <p className="upload-source-help">支援相簿與裝置相機；不支援直接拍攝時會退回一般影片選擇器。</p>}
+      <div className="two-fields"><label><span>浪點</span><select required value={spotId} onChange={(event) => { setSpotId(event.target.value); setSpotHint("已手動選擇；上傳後不可變更"); }}>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select><small className="field-hint">{spotHint}</small></label><label><span>拍攝時間</span><input type="datetime-local" min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} value={capturedAt} onChange={(event) => { setCapturedAt(event.target.value); setCaptureTimeHint("已手動調整，送出前請確認"); }}/><small className="field-hint">{captureTimeHint}</small></label></div>
       <p className="pending-help">浪點上傳後不可補選或變更；拍攝時間可在 7 天內補齊，補齊前影片不公開。</p>
       <label className="switch-row"><span><strong>顯示公開名稱</strong><small>{me.displayId || "先到「我的」確認公開名稱"}</small></span><input type="checkbox" disabled={!me.displayId} checked={showUploader} onChange={(event) => setShowUploader(event.target.checked)}/></label>
       <div className="public-notice">
         <div className="public-notice-heading">
           <strong>公開提醒</strong>
-          <button
-            className="rights-help-button"
+        </div>
+        <p>{PUBLIC_MEDIA_NOTICE}{" "}<button
+            className="rights-help-inline"
             type="button"
             aria-label="查看人物入鏡與權利說明"
             aria-expanded={rightsHelpOpen}
             aria-controls="upload-people-rights-help"
             onClick={() => setRightsHelpOpen((open) => !open)}
-          >?</button>
-        </div>
-        <p>{PUBLIC_MEDIA_NOTICE}</p>
+          >{rightsHelpOpen ? "收合" : "更多"}</button></p>
         {rightsHelpOpen && <section className="rights-help-panel" id="upload-people-rights-help" aria-labelledby="upload-people-rights-title">
           <h2 id="upload-people-rights-title">人物入鏡怎麼判斷？</h2>
           <ul>
