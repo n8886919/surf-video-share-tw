@@ -4,7 +4,8 @@ Base path: `/api/v1`.
 
 | Access | Method | Path | Purpose |
 |---|---|---|---|
-| Public | GET | `/health` | Readiness smoke check |
+| Public | GET | `/health` | Shallow process liveness check |
+| Public | GET | `/readiness` | D1 and required operations-binding readiness check |
 | Public | GET | `/spots` | Active launch spots, with 烏石港 first |
 | Public | GET | `/matches?spotId=&targetTime=` | Public forecast context and same-spot videos |
 | Public | GET | `/public-videos/:id` | Return one currently public video for its stable first-party page |
@@ -63,3 +64,5 @@ The LINE callback keeps existing users eligible but does not create user 101. Wh
 LINE Login attempts remain protected by one-time server-stored `state`, OpenID Connect `nonce`, and PKCE. If LINE auto login returns an expired/mismatched attempt or the token exchange fails, the browser now lands on a visible retry screen. Its retry starts a fresh protected attempt through `/auth/line?manual=1`, which sends LINE's documented `disable_auto_login=true` parameter instead of repeating a failing iPhone auto-login loop.
 
 Every Worker response includes `Referrer-Policy: strict-origin` and `X-Content-Type-Options: nosniff`. Expected validation/domain failures retain their explicit status and safe message. An unexpected exception returns `500 REQUEST_FAILED` with a generic message, generated `requestId`, and matching `X-Request-ID`; the original exception is available only through the structured server log correlated by that ID, not in the client response.
+
+`GET /readiness` returns only `ok` and `checkedAt`, is always `no-store`, and never names a missing secret or dependency. It checks D1 connectivity; in production it also requires the Workers AI binding, both operations-only LINE Messaging API values, core LINE Login/Stream/forecast-ingestion configuration, the administrator ID, and all four rate-limit bindings. It does not make live cost-bearing calls to those dependencies. The external monitor uses this endpoint in addition to `/health`, the exact eight-spot response, and the rendered home page. Recommendation accuracy is intentionally outside the uptime check.

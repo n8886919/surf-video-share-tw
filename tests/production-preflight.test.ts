@@ -53,6 +53,7 @@ describe("production preflight output", () => {
       vars: { APP_ENV: "production" },
       d1_databases: [{ binding: "DB", database_id: "private-id" }],
       ratelimits: [{ name: "UPLOAD_RATE_LIMITER", namespace_id: "private-namespace" }],
-    })).toEqual(["APP_ENV", "DB", "UPLOAD_RATE_LIMITER"]);
+      ai: { binding: "AI" },
+    })).toEqual(["AI", "APP_ENV", "DB", "UPLOAD_RATE_LIMITER"]);
   });
 });

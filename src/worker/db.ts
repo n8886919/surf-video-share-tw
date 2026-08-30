@@ -29,6 +29,11 @@ export interface AppEnv {
   ADMIN_USER_ID?: string;
   CWA_QUERY_STRING_REDACTION_VERIFIED?: string;
   FORECAST_INGESTION_SECRET?: string;
+  AI?: {
+    run(model: string, inputs: Record<string, unknown>): Promise<unknown>;
+  };
+  LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;
+  OPS_LINE_USER_ID?: string;
 }
 
 export interface UserRow {
@@ -225,6 +230,51 @@ const schemaStatements = [
     resolved_by_user_id TEXT REFERENCES users(id)
   )`,
   `CREATE INDEX IF NOT EXISTS problem_reports_status_created_at_idx ON problem_reports (status, created_at)`,
+  `CREATE TABLE IF NOT EXISTS ops_events (
+    id TEXT PRIMARY KEY NOT NULL,
+    event_code TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    source TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    request_id TEXT,
+    route TEXT,
+    error_name TEXT,
+    summary TEXT,
+    occurred_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS ops_events_occurred_at_idx ON ops_events (occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS ops_events_severity_occurred_at_idx ON ops_events (severity, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS ops_events_fingerprint_occurred_at_idx ON ops_events (fingerprint, occurred_at)`,
+  `CREATE TABLE IF NOT EXISTS ops_incidents (
+    fingerprint TEXT PRIMARY KEY NOT NULL,
+    status TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    occurrences INTEGER DEFAULT 1 NOT NULL,
+    notified_at TEXT,
+    recovered_at TEXT,
+    recovery_notified_at TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS ops_analysis_runs (
+    id TEXT PRIMARY KEY NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    status TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    event_count INTEGER NOT NULL,
+    summary_zh TEXT NOT NULL,
+    patterns_json TEXT NOT NULL,
+    recommended_checks_json TEXT NOT NULL,
+    notified_at TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS ops_analysis_runs_window_idx
+    ON ops_analysis_runs (window_start, window_end)`,
+  `CREATE INDEX IF NOT EXISTS ops_analysis_runs_created_at_idx ON ops_analysis_runs (created_at)`,
 ] as const;
 
 function parseSeedCsv(): Array<{

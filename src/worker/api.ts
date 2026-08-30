@@ -49,6 +49,7 @@ import {
 import { cleanupExpiredPendingVideos } from "./video-lifecycle";
 import { resolveVideoStatus } from "./video-status";
 import { internalForecastIngestionApi } from "./internal-forecast-ingestion";
+import { checkOpsReadiness, recordOpsEvent } from "./ops-observability";
 
 type Variables = { user: UserRow; authMode: "development" | "line" };
 
@@ -78,6 +79,40 @@ function rateLimitResponse(error: "RATE_LIMITED" | "RATE_LIMIT_UNAVAILABLE", mes
   });
 }
 
+async function recordHandledProviderFailure(
+  env: AppEnv,
+  code: string,
+  fingerprint: string,
+  route: string,
+  error: unknown,
+): Promise<void> {
+  await recordOpsEvent(env, {
+    code,
+    severity: "error",
+    source: "provider",
+    fingerprint,
+    route,
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    summary: error instanceof Error ? error.message : undefined,
+  });
+}
+
+async function recordMissingRuntimeConfiguration(
+  env: AppEnv,
+  code: string,
+  fingerprint: string,
+  route: string,
+): Promise<void> {
+  await recordOpsEvent(env, {
+    code,
+    severity: "critical",
+    source: "system",
+    fingerprint,
+    route,
+    forceIncident: true,
+  });
+}
+
 async function enforceRateLimit(
   env: AppEnv,
   limiter: RateLimit | undefined,
@@ -86,6 +121,14 @@ async function enforceRateLimit(
   if (!limiter) {
     if (env.APP_ENV === "development") return null;
     console.error("Required rate-limit binding is missing");
+    await recordOpsEvent(env, {
+      code: "config.rate_limit_binding_missing",
+      severity: "critical",
+      source: "system",
+      fingerprint: "config.rate-limit-binding",
+      summary: "Required rate-limit binding is missing",
+      forceIncident: true,
+    });
     return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
   }
   try {
@@ -95,6 +138,15 @@ async function enforceRateLimit(
       : rateLimitResponse("RATE_LIMITED", "操作太頻繁，請稍後再試", 429);
   } catch (error) {
     console.error("Rate-limit check failed", error);
+    await recordOpsEvent(env, {
+      code: "dependency.rate_limit_check_failed",
+      severity: "critical",
+      source: "system",
+      fingerprint: "dependency.rate-limit",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      summary: error instanceof Error ? error.message : undefined,
+      forceIncident: true,
+    });
     return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
   }
 }
@@ -125,6 +177,14 @@ async function enforceAnonymousWriteRateLimit(
   const clientKey = await anonymousClientKey(request, env);
   if (!clientKey) {
     console.error("Anonymous public-write rate-limit client key is unavailable", { scope });
+    await recordOpsEvent(env, {
+      code: "config.anonymous_rate_limit_identity_unavailable",
+      severity: "critical",
+      source: "system",
+      fingerprint: `config.anonymous-rate-limit-identity:${scope}`,
+      summary: `Anonymous public-write rate-limit client key is unavailable for ${scope}`,
+      forceIncident: true,
+    });
     return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", unavailableMessage, 503);
   }
   return enforceRateLimit(env, env.PUBLIC_WRITE_RATE_LIMITER, `${scope}:${clientKey}`);
@@ -754,6 +814,15 @@ export const api = new Hono<{ Bindings: AppEnv; Variables: Variables }>()
 api.route("/internal/forecast-ingestion", internalForecastIngestionApi);
 
 api.get("/health", (context) => context.json({ ok: true }));
+api.get("/readiness", async (context) => {
+  const checkedAt = new Date().toISOString();
+  const ok = await checkOpsReadiness(context.env);
+  return context.json(
+    { ok, checkedAt },
+    ok ? 200 : 503,
+    { "cache-control": "no-store" },
+  );
+});
 api.get("/auth/line", async (context) => {
   if (isLineAuthConfigured(context.env)) {
     const limited = await enforceAnonymousWriteRateLimit(
@@ -884,6 +953,13 @@ api.get("/videos/:id/thumbnail", async (context) => {
     });
   } catch (error) {
     console.warn("Public video thumbnail lookup failed", video.id, error);
+    await recordHandledProviderFailure(
+      context.env,
+      "provider.thumbnail_lookup_failed",
+      "provider.thumbnail",
+      "/videos/:id/thumbnail",
+      error,
+    );
     return context.json({ error: "THUMBNAIL_UNAVAILABLE", message: "影片縮圖暫時無法使用" }, 503);
   }
 });
@@ -892,6 +968,12 @@ api.post("/shared-videos/:id/playback", zValidator("json", sharedPlaybackSchema)
   await ensureDevelopmentDatabase(context.env);
   if (!shareLinkSecret(context.env)) {
     console.error("Share-link encryption secret is unavailable");
+    await recordMissingRuntimeConfiguration(
+      context.env,
+      "config.share_link_secret_missing",
+      "config.share-link-secret",
+      "/shared-videos/:id/playback",
+    );
     return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
   }
 
@@ -912,6 +994,12 @@ api.post("/shared-videos/:id/playback", zValidator("json", sharedPlaybackSchema)
   const clientKey = authenticated?.user.id ?? await anonymousClientKey(context.req.raw, context.env);
   if (!clientKey) {
     console.error("Shared playback rate-limit client key is unavailable");
+    await recordMissingRuntimeConfiguration(
+      context.env,
+      "config.shared_playback_identity_unavailable",
+      "config.shared-playback-identity",
+      "/shared-videos/:id/playback",
+    );
     return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
   }
   const limited = await enforceRateLimit(context.env, context.env.PLAYBACK_RATE_LIMITER, clientKey);
@@ -940,12 +1028,25 @@ api.post("/shared-videos/:id/playback", zValidator("json", sharedPlaybackSchema)
     const trackingToken = await createPlaybackTrackingToken(context.env, video.id);
     if (!trackingToken) {
       console.error("Playback tracking token secret is unavailable");
+      await recordMissingRuntimeConfiguration(
+        context.env,
+        "config.playback_tracking_secret_missing",
+        "config.playback-tracking-secret",
+        "/shared-videos/:id/playback",
+      );
       return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
     }
     const response: PlaybackResponse = { ...playback, trackingToken };
     return context.json(response, 200, { "cache-control": "no-store" });
   } catch (error) {
     console.warn("Shared video playback creation failed", video.id, error);
+    await recordHandledProviderFailure(
+      context.env,
+      "provider.shared_playback_creation_failed",
+      "provider.playback",
+      "/shared-videos/:id/playback",
+      error,
+    );
     return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
   }
 });
@@ -958,6 +1059,12 @@ api.post("/videos/:id/playback", async (context) => {
   const clientKey = await anonymousClientKey(context.req.raw, context.env);
   if (!clientKey) {
     console.error("Playback rate-limit client key is unavailable");
+    await recordMissingRuntimeConfiguration(
+      context.env,
+      "config.playback_identity_unavailable",
+      "config.playback-identity",
+      "/videos/:id/playback",
+    );
     return rateLimitResponse("RATE_LIMIT_UNAVAILABLE", "目前暫時無法處理這個請求", 503);
   }
   const limited = await enforceRateLimit(context.env, context.env.PLAYBACK_RATE_LIMITER, clientKey);
@@ -972,12 +1079,25 @@ api.post("/videos/:id/playback", async (context) => {
     const trackingToken = await createPlaybackTrackingToken(context.env, video.id);
     if (!trackingToken) {
       console.error("Playback tracking token secret is unavailable");
+      await recordMissingRuntimeConfiguration(
+        context.env,
+        "config.playback_tracking_secret_missing",
+        "config.playback-tracking-secret",
+        "/videos/:id/playback",
+      );
       return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
     }
     const response: PlaybackResponse = { ...playback, trackingToken };
     return context.json(response, 200, { "cache-control": "no-store" });
   } catch (error) {
     console.warn("Public video playback creation failed", video.id, error);
+    await recordHandledProviderFailure(
+      context.env,
+      "provider.playback_creation_failed",
+      "provider.playback",
+      "/videos/:id/playback",
+      error,
+    );
     return context.json({ error: "PLAYBACK_UNAVAILABLE", message: "影片播放暫時無法使用" }, 503);
   }
 });
@@ -1197,6 +1317,12 @@ api.post("/videos/:id/share-link", async (context) => {
   const shared = await createSharedPlaybackToken(context.env, video.id, user.id);
   if (!shared) {
     console.error("Share-link encryption secret is unavailable");
+    await recordMissingRuntimeConfiguration(
+      context.env,
+      "config.share_link_secret_missing",
+      "config.share-link-secret",
+      "/videos/:id/share-link",
+    );
     return context.json({ error: "SHARE_LINK_UNAVAILABLE", message: "分享連結暫時無法建立" }, 503);
   }
   const remainingAnonymousPlays = await ensureShareBudget(
@@ -1261,6 +1387,13 @@ api.post("/videos/:id/download", async (context) => {
     });
   } catch (error) {
     console.warn("Owner video download preparation failed", video.id, error);
+    await recordHandledProviderFailure(
+      context.env,
+      "provider.download_preparation_failed",
+      "provider.download",
+      "/videos/:id/download",
+      error,
+    );
     return context.json({ error: "DOWNLOAD_UNAVAILABLE", message: "影片下載目前無法使用" }, 503);
   }
 });
@@ -1577,7 +1710,7 @@ api.post("/admin/problem-reports/:id/resolve", async (context) => {
   return context.json({ reportId: context.req.param("id"), status: "resolved", resolvedAt: now });
 });
 
-api.onError((error, context) => {
+api.onError(async (error, context) => {
   const message = error instanceof Error ? error.message : "系統暫時無法處理請求";
   if (message.includes("168 小時")) {
     return context.json({ error: "REQUEST_FAILED", message }, 422);
@@ -1594,6 +1727,16 @@ api.onError((error, context) => {
     path: context.req.path,
     errorName: error instanceof Error ? error.name : "UnknownError",
     errorMessage: logMessage,
+  });
+  await recordOpsEvent(context.env, {
+    code: "api.unhandled_error",
+    severity: "error",
+    source: "api",
+    fingerprint: `api.unhandled:${context.req.routePath || "unknown-route"}`,
+    requestId,
+    route: context.req.routePath || "unknown-route",
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    summary: logMessage,
   });
   return context.json(
     {

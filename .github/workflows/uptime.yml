@@ -1,0 +1,147 @@
+name: Production uptime
+
+on:
+  schedule:
+    - cron: "2-59/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_line:
+        description: Send a LINE test notification even when checks pass
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: External production checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      BASE_URL: https://surf-video-share-tw.nolanasd123.workers.dev
+    steps:
+      - name: Check public service
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          run_checks() {
+            local health readiness spots homepage
+            health="$(curl --fail --silent --show-error --max-time 20 "${BASE_URL}/api/v1/health")" || return 1
+            jq -e '.ok == true' <<<"${health}" >/dev/null || return 1
+
+            readiness="$(curl --fail --silent --show-error --max-time 20 "${BASE_URL}/api/v1/readiness")" || return 1
+            jq -e '.ok == true and (.checkedAt | type == "string")' <<<"${readiness}" >/dev/null || return 1
+
+            spots="$(curl --fail --silent --show-error --max-time 20 "${BASE_URL}/api/v1/spots")" || return 1
+            jq -e '.spots | map(.slug) == [
+              "wushi-harbor-north",
+              "double-lions",
+              "suao-wuwei-harbor",
+              "daxi",
+              "jinzun",
+              "donghe",
+              "yuguangdao",
+              "nanwan"
+            ]' <<<"${spots}" >/dev/null || return 1
+
+            homepage="$(curl --fail --silent --show-error --max-time 20 "${BASE_URL}/")" || return 1
+            grep -Fq "彼日浪影" <<<"${homepage}" || return 1
+          }
+
+          for attempt in 1 2; do
+            if run_checks; then
+              echo "All external checks passed."
+              exit 0
+            fi
+            if [[ "${attempt}" == "1" ]]; then
+              echo "External check failed once; retrying in 10 seconds."
+              sleep 10
+            fi
+          done
+
+          echo "External production checks failed after two attempts."
+          exit 1
+
+  notify:
+    name: LINE transition notification
+    if: always()
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      CURRENT_CHECK: ${{ needs.check.result }}
+      GH_TOKEN: ${{ github.token }}
+      LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN }}
+      OPS_LINE_USER_ID: ${{ secrets.OPS_LINE_USER_ID }}
+      REPOSITORY: ${{ github.repository }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_NUMBER: ${{ github.run_number }}
+      SERVER_URL: ${{ github.server_url }}
+      TEST_LINE: ${{ inputs.test_line || 'false' }}
+    steps:
+      - name: Notify only on failure transitions or recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          previous_check="unknown"
+          runs_json="$(curl --fail --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/uptime.yml/runs?event=schedule&status=completed&per_page=1")" || true
+          previous_run_id="$(jq -r '.workflow_runs[0].id // empty' <<<"${runs_json:-{}}")"
+          if [[ -n "${previous_run_id}" ]]; then
+            jobs_json="$(curl --fail --silent --show-error --max-time 20 \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPOSITORY}/actions/runs/${previous_run_id}/jobs?per_page=100")" || true
+            previous_check="$(jq -r '[.jobs[]? | select(.name == "External production checks")][0].conclusion // "unknown"' <<<"${jobs_json:-{}}")"
+          fi
+
+          message=""
+          if [[ "${TEST_LINE}" == "true" ]]; then
+            message=$'🧪 彼日浪影 LINE 監控測試\nGitHub Actions 已成功連接 LINE Messaging API。'
+          elif [[ "${CURRENT_CHECK}" != "success" ]]; then
+            if [[ "${previous_check}" == "success" || "${previous_check}" == "unknown" ]]; then
+              message=$'🚨 彼日浪影外部監控失敗\n健康、就緒、八個浪點或首頁檢查未通過。'
+            elif (( RUN_NUMBER % 6 == 0 )); then
+              message=$'⚠️ 彼日浪影外部監控仍失敗\n故障持續中；這是約 30 分鐘一次的提醒。'
+            fi
+          elif [[ "${previous_check}" != "success" && "${previous_check}" != "unknown" ]]; then
+            message=$'✅ 彼日浪影外部監控恢復\n健康、就緒、八個浪點與首頁檢查均已通過。'
+          fi
+
+          if [[ -z "${message}" ]]; then
+            echo "No state transition; LINE remains silent."
+            exit 0
+          fi
+
+          if [[ -z "${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}" || -z "${OPS_LINE_USER_ID}" ]]; then
+            echo "LINE notification secrets are not configured."
+            exit 1
+          fi
+
+          run_url="${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}"
+          payload="$(jq -cn --arg to "${OPS_LINE_USER_ID}" --arg text "${message}\n${run_url}" \
+            '{to: $to, messages: [{type: "text", text: $text}]}')"
+          status="$(curl --silent --show-error --max-time 20 \
+            --output /tmp/line-response.json --write-out '%{http_code}' \
+            -X POST https://api.line.me/v2/bot/message/push \
+            -H "Authorization: Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json; charset=UTF-8" \
+            --data "${payload}")"
+          if [[ ! "${status}" =~ ^2 ]]; then
+            echo "LINE Messaging API rejected the uptime notification with HTTP ${status}."
+            exit 1
+          fi
+          echo "LINE transition notification sent."

@@ -12,6 +12,8 @@ erDiagram
   VIDEOS ||--o{ VIDEO_REPORTS : receives
   USERS o|--o{ VIDEO_REPORTS : resolves
   USERS o|--o{ PROBLEM_REPORTS : resolves
+  OPS_EVENTS ||--o{ OPS_INCIDENTS : groups_by_fingerprint
+  OPS_EVENTS ||--o{ OPS_ANALYSIS_RUNS : summarized_by_window
 ```
 
 `users.line_display_name` is the latest LINE-provided display name and remains a private suggestion. It is distinct from the user-confirmed public name in `users.display_id`; public queries never select the LINE subject or LINE display-name suggestion.
@@ -29,5 +31,7 @@ New uploads require `videos.spot_id`; the column remains nullable only for legac
 `condition_snapshots` describes capture-time context when a provider is available. Missing context is valid and never blocks a completed video.
 
 `forecast_snapshots` stores immutable provider/model/run/valid/lead/grid rows. Total wave, primary/secondary swell, wind wave, tide, wind, and gust fields are nullable because a provider may omit components. A unique source key prevents duplicate ingestion while never averaging models.
+
+`ops_events` stores only curated operational event codes, severity, source, bounded route/error metadata, optional request ID, a sanitized summary, and timestamps. It never stores request bodies, cookies, authorization headers, provider credentials, raw client addresses, LINE subjects, or raw Cloudflare log payloads. `ops_incidents` deduplicates actionable fingerprints and records notification/recovery lifecycle. `ops_analysis_runs` stores one bounded structured result per hourly UTC window. Event retention is seven days and analysis retention is thirty days; raw Workers Logs remain the evidence source rather than being copied into D1.
 
 All instants are UTC ISO strings. Product validation compares exact elapsed time; display uses `Asia/Taipei`.

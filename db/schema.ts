@@ -250,3 +250,60 @@ export const problemReports = sqliteTable(
     index("problem_reports_status_created_at_idx").on(table.status, table.createdAt),
   ],
 );
+
+export const opsEvents = sqliteTable(
+  "ops_events",
+  {
+    id: text("id").primaryKey(),
+    eventCode: text("event_code").notNull(),
+    severity: text("severity").notNull(),
+    source: text("source").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    requestId: text("request_id"),
+    route: text("route"),
+    errorName: text("error_name"),
+    summary: text("summary"),
+    occurredAt: text("occurred_at").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("ops_events_occurred_at_idx").on(table.occurredAt),
+    index("ops_events_severity_occurred_at_idx").on(table.severity, table.occurredAt),
+    index("ops_events_fingerprint_occurred_at_idx").on(table.fingerprint, table.occurredAt),
+  ],
+);
+
+export const opsIncidents = sqliteTable("ops_incidents", {
+  fingerprint: text("fingerprint").primaryKey(),
+  status: text("status").notNull(),
+  severity: text("severity").notNull(),
+  title: text("title").notNull(),
+  firstSeenAt: text("first_seen_at").notNull(),
+  lastSeenAt: text("last_seen_at").notNull(),
+  occurrences: integer("occurrences").notNull().default(1),
+  notifiedAt: text("notified_at"),
+  recoveredAt: text("recovered_at"),
+  recoveryNotifiedAt: text("recovery_notified_at"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const opsAnalysisRuns = sqliteTable(
+  "ops_analysis_runs",
+  {
+    id: text("id").primaryKey(),
+    windowStart: text("window_start").notNull(),
+    windowEnd: text("window_end").notNull(),
+    status: text("status").notNull(),
+    severity: text("severity").notNull(),
+    eventCount: integer("event_count").notNull(),
+    summaryZh: text("summary_zh").notNull(),
+    patternsJson: text("patterns_json").notNull(),
+    recommendedChecksJson: text("recommended_checks_json").notNull(),
+    notifiedAt: text("notified_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("ops_analysis_runs_window_idx").on(table.windowStart, table.windowEnd),
+    index("ops_analysis_runs_created_at_idx").on(table.createdAt),
+  ],
+);

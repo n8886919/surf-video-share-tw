@@ -94,7 +94,9 @@ describe("problem reports", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(prepare).not.toHaveBeenCalled();
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(String(prepare.mock.calls[0]?.[0])).toContain("INSERT INTO ops_events");
+    expect(prepare.mock.calls.some(([sql]) => String(sql).includes("problem_reports"))).toBe(false);
     expect(limit).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });

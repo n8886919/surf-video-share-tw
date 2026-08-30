@@ -55,6 +55,7 @@ export function desiredBindingNames(config) {
     ...Object.keys(config.vars ?? {}),
     ...(config.d1_databases ?? []).map((binding) => binding.binding),
     ...(config.ratelimits ?? []).map((binding) => binding.name),
+    config.ai?.binding,
   ].filter((name) => typeof name === "string").sort();
 }
 
@@ -135,6 +136,8 @@ export async function main() {
     "SESSION_SECRET",
     "CLOUDFLARE_STREAM_API_TOKEN",
     "FORECAST_INGESTION_SECRET",
+    "LINE_MESSAGING_CHANNEL_ACCESS_TOKEN",
+    "OPS_LINE_USER_ID",
   ];
   const deployedBindingNames = [...new Set(versions.flatMap((version) =>
     version.bindings.map((binding) => binding.name)

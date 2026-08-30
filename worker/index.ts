@@ -7,6 +7,10 @@ import { runScheduledForecastIngestion } from "../src/worker/forecast/ingest";
 import { runScheduledExpiredVideoCleanup } from "../src/worker/video-lifecycle";
 import { runScheduledPlaybackEventCleanup } from "../src/worker/playback-analytics";
 import { withSecurityHeaders } from "../src/worker/security-headers";
+import { recordOpsEvent, runHourlyOpsAnalysis } from "../src/worker/ops-observability";
+
+const OPS_ANALYSIS_CRON = "5 * * * *";
+const MAINTENANCE_CRON = "20 */6 * * *";
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -43,12 +47,68 @@ const worker = {
   },
   async scheduled(controller: ScheduledController, env: AppEnv): Promise<void> {
     const scheduledAt = new Date(controller.scheduledTime);
-    const results = await Promise.allSettled([
-      runScheduledForecastIngestion(env, scheduledAt),
-      runScheduledExpiredVideoCleanup(env, scheduledAt),
-      runScheduledPlaybackEventCleanup(env, scheduledAt),
-    ]);
-    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (controller.cron === OPS_ANALYSIS_CRON) {
+      try {
+        await runHourlyOpsAnalysis(env, scheduledAt);
+      } catch (error) {
+        await recordOpsEvent(env, {
+          code: "scheduled.ops_analysis_failed",
+          severity: "critical",
+          source: "scheduled",
+          fingerprint: "scheduled.ops-analysis",
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          summary: error instanceof Error ? error.message : undefined,
+          forceIncident: true,
+        }, { now: scheduledAt });
+        throw error;
+      }
+      return;
+    }
+
+    if (controller.cron !== MAINTENANCE_CRON) {
+      await recordOpsEvent(env, {
+        code: "scheduled.unknown_cron",
+        severity: "warning",
+        source: "scheduled",
+        fingerprint: "scheduled.unknown-cron",
+        summary: `Unknown cron expression: ${controller.cron}`,
+      }, { now: scheduledAt });
+      return;
+    }
+
+    const tasks = [
+      {
+        code: "scheduled.forecast_ingestion_failed",
+        fingerprint: "scheduled.forecast-ingestion",
+        promise: runScheduledForecastIngestion(env, scheduledAt),
+      },
+      {
+        code: "scheduled.expired_video_cleanup_failed",
+        fingerprint: "scheduled.expired-video-cleanup",
+        promise: runScheduledExpiredVideoCleanup(env, scheduledAt),
+      },
+      {
+        code: "scheduled.playback_cleanup_failed",
+        fingerprint: "scheduled.playback-cleanup",
+        promise: runScheduledPlaybackEventCleanup(env, scheduledAt),
+      },
+    ] as const;
+    const results = await Promise.allSettled(tasks.map((task) => task.promise));
+    const failures: unknown[] = [];
+    for (const [index, result] of results.entries()) {
+      if (result.status !== "rejected") continue;
+      failures.push(result.reason);
+      const task = tasks[index];
+      await recordOpsEvent(env, {
+        code: task.code,
+        severity: "critical",
+        source: "scheduled",
+        fingerprint: task.fingerprint,
+        errorName: result.reason instanceof Error ? result.reason.name : "UnknownError",
+        summary: result.reason instanceof Error ? result.reason.message : undefined,
+        forceIncident: true,
+      }, { now: scheduledAt });
+    }
     if (failures.length) {
       throw new AggregateError(failures, "One or more scheduled tasks failed");
     }
