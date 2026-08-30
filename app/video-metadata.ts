@@ -296,7 +296,7 @@ export function resolveUploadPrefill(
   const suggestedSpotId = suggestSpotFromLocation(spots, metadata.location);
   return {
     capturedAt: timeHint?.date ?? null,
-    captureTimeLabel: timeHint?.label || "未找到 168 小時內且為台北時間 05:00–17:59 的可信時間，請手動填寫或稍後補齊",
+    captureTimeLabel: timeHint?.label || "未找到 168 小時內且為台北時間 05:00–19:59 的可信時間，請手動填寫或稍後補齊",
     spotId: suggestedSpotId || currentSpotId,
     spotLabel: suggestedSpotId
       ? "依影片內嵌位置建議浪點，請確認；位置本身不會送出或保存"

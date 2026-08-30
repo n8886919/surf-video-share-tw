@@ -1134,7 +1134,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   try {
     assertWithinForecastWindow(input.targetTime);
   } catch {
-    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起五天內的 05:00–17:00 整點，且不可早於現在" }, 422);
+    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起五天內的 05:00–19:00 整點，且不可早於現在" }, 422);
   }
   const now = new Date().toISOString();
 

@@ -3,7 +3,7 @@ export const UPLOAD_WINDOW_HOURS = 7 * 24;
 export const COMPOSITE_FORECAST_DAY_OFFSET_MAX = 2;
 export const FORECAST_DAY_OFFSET_MAX = 4;
 export const FORECAST_HOUR_MIN = 5;
-export const FORECAST_HOUR_MAX = 17;
+export const FORECAST_HOUR_MAX = 19;
 
 interface TaipeiDateTimeParts {
   year: number;
@@ -89,7 +89,7 @@ export function isWithinUploadWindow(
 
 export function assertWithinUploadWindow(capturedAt: string, now = new Date()): void {
   if (!isWithinUploadWindow(capturedAt, now)) {
-    throw new Error("影片拍攝時間不可晚於現在、必須在 168 小時內，且台北時間須介於 05:00–17:59");
+    throw new Error("影片拍攝時間不可晚於現在、必須在 168 小時內，且台北時間須介於 05:00–19:59");
   }
 }
 
@@ -123,6 +123,6 @@ export function taipeiForecastDayOffset(
 
 export function assertWithinForecastWindow(targetTime: string, now = new Date()): void {
   if (!isWithinForecastWindow(targetTime, now)) {
-    throw new Error("查詢時間必須是台北時間今天起五天內的 05:00–17:00 整點，且不可早於現在");
+    throw new Error("查詢時間必須是台北時間今天起五天內的 05:00–19:00 整點，且不可早於現在");
   }
 }

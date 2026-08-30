@@ -4,6 +4,9 @@ Updated: 2026-08-30. Product `0.9` commit `228b6de` is deployed at 100% as Cloud
 
 ## Completed checkpoint
 
+- The owner corrected both allowed daylight windows to 05:00–19:00. Locally, public search now accepts inclusive whole-hour targets from 05:00 through 19:00, while upload and later metadata completion preserve actual minutes/seconds and accept Taipei capture hours 05–19 (through 19:59:59). The browser slider, metadata hints, shared server validation, API/client errors, rendered upload copy, principles, product, architecture, source, API, and operations documentation are synchronized.
+- The 05:00–19:00 correction passed the focused 28-test policy/metadata/matching set, full typecheck plus 160 tests across 31 files, lint, production build, two rendered-site tests, deploy dry-run, and diff check. It requires no schema migration and does not change providers or matching behavior. It is not deployed; production remains on the earlier 05:00–17:00/17:59 window until separately authorized.
+
 - Operations monitoring is deployed. Curated credential-free events, deduplicated incidents, seven-day event retention, thirty-day analysis retention, the minimal `GET /api/v1/readiness` boundary, and migration `0010` are live. Critical scheduled/configuration/dependency failures alert immediately; ordinary same-fingerprint errors require three occurrences within five minutes.
 - Cloudflare now has a separate `5 * * * *` operations-analysis path using the `AI` binding and JSON-mode `@cf/meta/llama-3.1-8b-instruct-fast`. Empty hours and validated `normal` results remain silent; `watch`/`urgent` advisories use a dedicated LINE Messaging API channel and never control product data or authorization.
 - `.github/workflows/uptime.yml` independently checks the exact production health/readiness/eight spots/home page twice about every five minutes. It calls LINE directly on failure transition, about every thirty minutes during a sustained outage, and on recovery; steady health is silent. Manual `test_line` provides a non-outage notification test after repository secrets are configured.
@@ -106,11 +109,12 @@ Updated: 2026-08-30. Product `0.9` commit `228b6de` is deployed at 100% as Cloud
 
 | Check | Result | Last run |
 |---|---|---|
-| `pnpm verify` | pass; typecheck, 158 tests across 30 files, and production build including dynamic `/v/:videoId`; operations threshold/silence/privacy/readiness checks included | 2026-08-30 |
+| `pnpm verify` | pass; typecheck, 160 tests across 31 files, and production build including dynamic `/v/:videoId`; 05:00–19:00 boundaries plus operations threshold/silence/privacy/readiness checks included | 2026-08-30 |
 | `pnpm test` | pass, 160 tests across 31 files, including LINE delivery shape/link formatting, GitHub-history parsing, three-errors-in-five-minutes threshold, silent empty/normal AI windows, production readiness, and all prior product/deployment safeguards | 2026-08-30 |
 | `pnpm lint` | pass with zero warnings and zero errors | 2026-08-30 |
 | `pnpm build` | pass; `/`, `/admin`, and dynamic `/v/:videoId` emitted | 2026-08-30 |
-| rendered-site test | pass, 2 tests; product `0.9`, no test-spot assets, 05:00–17:59 upload copy, stable midpoint reorder assets, gallery/camera controls, metadata source/privacy labels, five-day matching, account/share behavior, and no Stream URL leakage are present | 2026-08-30 |
+| rendered-site test | pass, 2 tests; product `0.9`, no test-spot assets, 05:00–19:59 upload copy, stable midpoint reorder assets, gallery/camera controls, metadata source/privacy labels, five-day matching, account/share behavior, and no Stream URL leakage are present | 2026-08-30 |
+| 05:00–19:00 time-policy correction | local pass; focused 28 tests accept search 19:00/upload 19:59:59 and reject 20:00, with full verify/lint/rendered-site/deploy-dry-run also green; no migration | 2026-08-30 |
 | bounded video metadata/upload prefill | pass, 8 tests; QuickTime offset time, container/lastModified priority, tail-moov bounded reads, malformed/oversized/stripped fallback, GPS ambiguity thresholds, and no raw location in resolved prefill | 2026-08-30 |
 | `pnpm deploy:dry-run` | pass through `vinext-cloudflare`; configuration recognized and command confirmed no build or deployment | 2026-08-30 |
 | `pnpm audit --audit-level low` | pass; no known vulnerabilities | 2026-08-30 |
@@ -203,4 +207,4 @@ The compact find/comparison/upload batches, revised `我的` layout, private pla
 
 ## Next task
 
-Objective: observe the first real GitHub `schedule` run and the first production `5 * * * *` operations-analysis run, confirm healthy/empty state remains silent and `ops_analysis_runs` records the bounded result, then design the failure/recovery acceptance against isolated staging rather than fabricating a production outage.
+Objective: after separate owner approval, push and deploy the reviewed 05:00–19:00 time-policy correction, then smoke search 19:00 accepted/20:00 rejected, confirm the rendered upload copy says 05:00–19:59, and rerun readiness without changing recommendation behavior.

@@ -88,7 +88,7 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /第 4–5 天：ECMWF-only/);
   assert.doesNotMatch(clientBundle, /test-spot-/);
   assert.doesNotMatch(clientBundle, /測試 [1-6]/);
-  assert.match(clientBundle, /拍攝時間 05:00–17:59/);
+  assert.match(clientBundle, /拍攝時間 05:00–19:59/);
   assert.match(clientBundle, /左右拖曳可滑動，長按按鈕可拖曳排序/);
   assert.match(clientBundle, /setPointerCapture/);
   assert.match(clientBundle, /scrollLeft/);
