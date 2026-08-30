@@ -10,4 +10,10 @@ describe("production uptime workflow", () => {
     expect(workflow).not.toContain('${runs_json:-{}}');
     expect(workflow).not.toContain('${jobs_json:-{}}');
   });
+
+  it("puts the Actions run URL on a real new line in the LINE message", () => {
+    expect(workflow).toContain('--arg text "${message}" --arg run_url "${run_url}"');
+    expect(workflow).toContain('text: ($text + "\\n" + $run_url)');
+    expect(workflow).not.toContain('${message}\\n${run_url}');
+  });
 });

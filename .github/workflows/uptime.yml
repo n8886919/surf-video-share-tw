@@ -133,8 +133,8 @@ jobs:
           fi
 
           run_url="${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}"
-          payload="$(jq -cn --arg to "${OPS_LINE_USER_ID}" --arg text "${message}\n${run_url}" \
-            '{to: $to, messages: [{type: "text", text: $text}]}')"
+          payload="$(jq -cn --arg to "${OPS_LINE_USER_ID}" --arg text "${message}" --arg run_url "${run_url}" \
+            '{to: $to, messages: [{type: "text", text: ($text + "\n" + $run_url)}]}')"
           status="$(curl --silent --show-error --max-time 20 \
             --output /tmp/line-response.json --write-out '%{http_code}' \
             -X POST https://api.line.me/v2/bot/message/push \
