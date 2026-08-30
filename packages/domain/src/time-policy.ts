@@ -1,6 +1,6 @@
 export const PRODUCT_TIME_ZONE = "Asia/Taipei";
 export const UPLOAD_WINDOW_HOURS = 7 * 24;
-export const FORECAST_DAY_OFFSET_MAX = 6;
+export const FORECAST_DAY_OFFSET_MAX = 2;
 export const FORECAST_HOUR_MIN = 5;
 export const FORECAST_HOUR_MAX = 19;
 
@@ -108,6 +108,6 @@ export function isWithinForecastWindow(
 
 export function assertWithinForecastWindow(targetTime: string, now = new Date()): void {
   if (!isWithinForecastWindow(targetTime, now)) {
-    throw new Error("查詢時間必須是台北時間今天起六天內的 05:00–19:00 整點，且不可早於現在");
+    throw new Error("查詢時間必須是台北時間今天起三天內的 05:00–19:00 整點，且不可早於現在");
   }
 }

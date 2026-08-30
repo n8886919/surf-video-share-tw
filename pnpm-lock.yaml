@@ -17,9 +17,6 @@ importers:
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@cloudflare/workers-types@5.20260826.1)
-      fflate:
-        specifier: 0.7.5
-        version: 0.7.5
       hono:
         specifier: ^4.9.6
         version: 4.13.3

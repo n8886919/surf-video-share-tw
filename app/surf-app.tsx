@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type {
+  CombinedMatchResponse as CombinedMatch,
   ForecastResponse as Forecast,
-  MatchGroupResponse as MatchGroup,
   ObservationResponse as Observation,
   PlaybackResponse,
   PublicMatchesResponse,
@@ -28,8 +28,16 @@ import {
   PUBLIC_MEDIA_THIRD_PARTY_RIGHTS_NOTICE,
 } from "../packages/domain/src/public-terms";
 import { loadStreamPlayerSdk, type StreamPlayer } from "./stream-player";
+import { mergeSpotOrder, moveSpotId } from "./spot-order";
 
 type View = "find" | "upload" | "mine";
+
+const PLACEHOLDER_SPOTS = Array.from({ length: 6 }, (_, index) => ({
+  id: `test-spot-${index + 1}`,
+  name: `測試 ${index + 1}`,
+  selectable: false,
+}));
+const SPOT_ORDER_STORAGE_KEY = "surf-video-share:find-spot-order:v1";
 
 interface Me {
   id: string;
@@ -97,6 +105,7 @@ function formatTime(iso: string | null): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
   }).format(new Date(iso));
 }
 
@@ -104,7 +113,7 @@ function formatDirection(value: number | null): string {
   return value == null ? "—" : `${Math.round(value)}°`;
 }
 
-function Icon({ name }: { name: "search" | "upload" | "user" | "heart" | "wave" | "help" | "more" }) {
+function Icon({ name }: { name: "search" | "upload" | "user" | "heart" | "wave" | "help" | "more" | "share" | "download" }) {
   const paths = {
     search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></>,
     upload: <><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M5 14v5h14v-5"/></>,
@@ -113,6 +122,8 @@ function Icon({ name }: { name: "search" | "upload" | "user" | "heart" | "wave" 
     wave: <><path d="M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/><path d="M5 10c2.2-4.8 7.3-6.2 11-3.2 1.7 1.4 2.2 3.2 2 5.2"/></>,
     help: <><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 0 1 4.6.9c0 1.7-2.4 2-2.4 3.7"/><path d="M12 17.2h.01"/></>,
     more: <><path d="M5 12h.01"/><path d="M12 12h.01"/><path d="M19 12h.01"/></>,
+    share: <><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/></>,
+    download: <><path d="M12 4v11m0 0-4-4m4 4 4-4"/><path d="M5 19h14"/></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" className="icon">{paths[name]}</svg>;
 }
@@ -210,8 +221,14 @@ function ProjectHelp({ onClose }: { onClose: () => void }) {
   </div>;
 }
 
-function Topbar() {
-  const [helpOpen, setHelpOpen] = useState(false);
+function Topbar({ initialHelpOpen = false }: { initialHelpOpen?: boolean }) {
+  const [helpOpen, setHelpOpen] = useState(initialHelpOpen);
+  useEffect(() => {
+    if (!initialHelpOpen) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("help");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [initialHelpOpen]);
   return <><header className="topbar"><Brand/><button className="help-button" type="button" aria-label="操作與專案說明" onClick={() => setHelpOpen(true)}><Icon name="help"/></button></header>{helpOpen && <ProjectHelp onClose={() => setHelpOpen(false)}/>}</>;
 }
 
@@ -398,12 +415,12 @@ function ObservationCard({ observation, ownerActions }: {
         <div className="owner-card-shade"/>
         <div className="owner-card-meta"><strong>{observation.spot?.name || "待補浪點"}</strong><span>{formatTime(observation.capturedAt)}</span></div>
         {ownerStatus && <span className="owner-card-status">{ownerStatus}</span>}
+        <span className="owner-playback-badge">近 90 天播放 · {observation.playbackCount90d ?? 0} 次</span>
         <button className="owner-details-button" type="button" aria-label={detailsOpen ? "收起更多資訊" : "更多資訊"} aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Icon name="more"/></button>
         <button className={`owner-favorite-button ${observation.isFavorite ? "selected" : ""}`} type="button" aria-label={observation.isFavorite ? "取消收藏" : "收藏"} onClick={() => void patch({ isFavorite: !observation.isFavorite })}><Icon name="heart"/></button>
         {canShareOwnerVideo && <button className="owner-play-button" type="button" aria-label="播放影片" onClick={() => setOwnerPlaybackOpen(true)}><span aria-hidden="true">▶</span></button>}
       </div>
       {detailsOpen && <div className="owner-card-details">
-        <p className="owner-playback-count"><span>近 90 天播放</span><strong>{observation.playbackCount90d ?? 0} 次</strong><small>不含你登入時的播放；同一人重複播放會重複計算。</small></p>
         {pending && <div className="metadata-editor">
           <strong>補拍攝時間</strong>
           {observation.spot ? <><small>浪點：{observation.spot.name}（上傳後不可補選或變更）</small><input type="datetime-local" value={capturedAt} min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} onChange={(event) => setCapturedAt(event.target.value)} /><button className="small-primary" type="button" disabled={!capturedAt} onClick={() => void completePendingMetadata()}>完成補資料</button></> : <small>這支既有影片沒有浪點，無法再補資料；到期後會自動刪除。</small>}
@@ -413,13 +430,15 @@ function ObservationCard({ observation, ownerActions }: {
           <div className="fun-field"><span>那天玩得如何？（公開、選填）</span><div><button type="button" className={observation.funReaction === "fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "fun" ? null : "fun" })}>👍 開心</button><button type="button" className={observation.funReaction === "not_fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "not_fun" ? null : "not_fun" })}>👎 不開心</button></div></div>
           <label className="note-field"><span>上傳者補充（公開、CC0、選填，最多 100 字）</span><input value={note} maxLength={100} placeholder="那天想補充什麼？" onChange={(event) => setNote(event.target.value)} onBlur={() => { if (note !== (observation.uploaderNote || "")) void patch({ uploaderNote: note.trim() || null }); }}/></label>
         </div>
-        <section className="owner-forecast-section"><h4>拍攝當時預報</h4><HistoricalForecastTable forecasts={observation.historicalForecasts ?? []}/><small>每個來源獨立顯示，不與其他模型平均。</small></section>
+        <section className="owner-forecast-section"><h4>當時預報</h4><HistoricalForecastTable forecasts={observation.historicalForecasts ?? []}/></section>
         {canShareOwnerVideo && <div className="owner-share-panel">
-          <button className="share-video-button" type="button" onClick={() => void sharePublicLink()}>分享連結</button>
-          {downloadStatus === "idle" && <button className="share-video-button secondary" type="button" onClick={() => void prepareDownload()}>準備下載 MP4</button>}
-          {downloadStatus === "preparing" && <button className="share-video-button secondary" type="button" disabled>準備 MP4{downloadProgress == null ? "…" : `… ${downloadProgress}%`}</button>}
+          <div className="owner-share-actions">
+            <button className="owner-action-icon" type="button" aria-label="分享連結" title="分享連結" onClick={() => void sharePublicLink()}><Icon name="share"/></button>
+            {downloadStatus === "idle" && <button className="owner-action-icon secondary" type="button" aria-label="準備下載 MP4" title="準備下載 MP4" onClick={() => void prepareDownload()}><Icon name="download"/></button>}
+            {downloadStatus === "preparing" && <button className="owner-action-icon secondary preparing" type="button" aria-label={downloadProgress == null ? "正在準備 MP4" : `正在準備 MP4，${downloadProgress}%`} title="正在準備 MP4" disabled><Icon name="download"/></button>}
+            {downloadStatus === "ready" && downloadUrl && <a className="owner-action-icon secondary" href={downloadUrl} download="surf-video.mp4" aria-label="下載 MP4（非原始檔）" title="下載 MP4（非原始檔）"><Icon name="download"/></a>}
+          </div>
           {shareNotice && <p aria-live="polite">{shareNotice}</p>}
-          {downloadStatus === "ready" && downloadUrl && <a className="download-video-link" href={downloadUrl} download="surf-video.mp4">下載 MP4（非原始檔）</a>}
           <small>連結固定 24 小時有效；透過分享連結的匿名播放會扣你的每月分享額度，登入者不計。下載的是 Stream 轉出的檔案。</small>
         </div>}
         {error && <p className="inline-error">{error}</p>}
@@ -541,17 +560,35 @@ function formatTideState(value: string | null): string {
   return ({ rising: "漲潮", falling: "退潮", high: "滿潮", low: "乾潮", unknown: "未知" } as Record<string, string>)[value || ""] || "—";
 }
 
-function ForecastComparisonRows({ forecast }: { forecast: Forecast }) {
-  return (
-    <div className="comparison-metrics">
-      <div><span>總浪</span><strong>{compactMetric(forecast.totalWave.height, "m")}</strong><small>{formatDirection(forecast.totalWave.direction)} · {compactMetric(forecast.totalWave.period, "s")}</small></div>
-      <div><span>主湧浪</span><strong>{compactMetric(forecast.primarySwell.height, "m")}</strong><small>{formatDirection(forecast.primarySwell.direction)} · {compactMetric(forecast.primarySwell.period, "s")}</small></div>
-      <div><span>次湧浪</span><strong>{compactMetric(forecast.secondarySwell.height, "m")}</strong><small>{formatDirection(forecast.secondarySwell.direction)} · {compactMetric(forecast.secondarySwell.period, "s")}</small></div>
-      <div><span>風浪</span><strong>{compactMetric(forecast.windWave.height, "m")}</strong><small>{formatDirection(forecast.windWave.direction)} · {compactMetric(forecast.windWave.period, "s")}</small></div>
-      <div><span>風</span><strong>{compactMetric(forecast.wind.speed, "m/s")}</strong><small>{formatDirection(forecast.wind.direction)} · 陣風 {compactMetric(forecast.wind.gust, "m/s")}</small></div>
-      <div><span>潮位</span><strong>{compactMetric(forecast.tide.height, "m")}</strong><small>{formatTideState(forecast.tide.state)} · 斜率 {compactMetric(forecast.tide.slope, "m/h")}</small></div>
-    </div>
-  );
+function forecastMetricRows(forecast: Forecast): Array<[string, string]> {
+  return [
+    ["總浪", `${compactMetric(forecast.totalWave.height, "m")} · ${formatDirection(forecast.totalWave.direction)} · ${compactMetric(forecast.totalWave.period, "s")}`],
+    ["主湧浪", `${compactMetric(forecast.primarySwell.height, "m")} · ${formatDirection(forecast.primarySwell.direction)} · ${compactMetric(forecast.primarySwell.period, "s")}`],
+    ["次湧浪", `${compactMetric(forecast.secondarySwell.height, "m")} · ${formatDirection(forecast.secondarySwell.direction)} · ${compactMetric(forecast.secondarySwell.period, "s")}`],
+    ["風浪", `${compactMetric(forecast.windWave.height, "m")} · ${formatDirection(forecast.windWave.direction)} · ${compactMetric(forecast.windWave.period, "s")}`],
+    ["風", `${compactMetric(forecast.wind.speed, "m/s")} · ${formatDirection(forecast.wind.direction)} · 陣風 ${compactMetric(forecast.wind.gust, "m/s")}`],
+    ["潮位", `${compactMetric(forecast.tide.height, "m")} · ${formatTideState(forecast.tide.state)} · ${compactMetric(forecast.tide.slope, "m/h")}`],
+  ];
+}
+
+function sourceName(provider: string): string {
+  return provider === "cwa" ? "CWA" : provider === "open-meteo" ? "ECMWF" : provider;
+}
+
+function CombinedForecastDetails({ match }: { match: CombinedMatch }) {
+  return <div className="combined-forecast-details">
+    {match.sources.map((source) => {
+      const targetRows = forecastMetricRows(source.targetForecast);
+      const candidateRows = forecastMetricRows(source.candidateForecast);
+      return <section key={`${source.provider}:${source.model}`} className="combined-source-comparison">
+        <div className="combined-source-heading"><strong>{sourceName(source.provider)}</strong><small>來源相似度 {Math.round(source.score * 100)}%</small></div>
+        <div className="combined-metric-header"><span>特徵</span><span>目標</span><span>實拍當時</span></div>
+        {targetRows.map(([label, targetValue], index) => <div className="combined-metric-row" key={label}>
+          <strong>{label}</strong><span>{targetValue}</span><span>{candidateRows[index][1]}</span>
+        </div>)}
+      </section>;
+    })}
+  </div>;
 }
 
 function CandidateThumbnail({ observation }: { observation: Observation }) {
@@ -694,46 +731,32 @@ function PlaybackModal({ observation, onClose }: { observation: Observation; onC
   </div>;
 }
 
-function MatchComparisonGroup({ group }: { group: MatchGroup }) {
+function CombinedMatchList({ matches }: { matches: CombinedMatch[] }) {
   const [activeObservation, setActiveObservation] = useState<Observation | null>(null);
   return (
-    <section className="match-comparison-group">
-      <div className="match-source-heading">
-        <div><h3>{group.provider} · {group.model}</h3><p>目標與歷史預報使用同一來源比較，不與其他模型平均。</p></div>
-        <small>{group.observations.length} 段候選</small>
-      </div>
-      <div className="forecast-comparison">
-        <article className="target-forecast-card">
-          <div className="target-forecast-visual"><span>比較基準</span></div>
-          <div className="candidate-forecast-heading"><strong>所選預報</strong></div>
-          <ForecastComparisonRows forecast={group.targetForecast}/>
-        </article>
-        <div className="candidate-forecast-strip" aria-label={`${group.provider} 候選影片預報`}>
-          {group.observations.map((item) => {
-            return (
-              <article className="candidate-forecast-card" key={item.observation.id}>
-                <button
-                  type="button"
-                  className="candidate-play-button"
-                  aria-label={`播放 ${item.observation.spot?.name || "浪點"} ${formatTime(item.observation.capturedAt)} 實拍`}
-                  onClick={() => setActiveObservation(item.observation)}
-                >
-                  <CandidateThumbnail observation={item.observation}/>
-                  <span className="candidate-play-icon" aria-hidden="true">▶</span>
-                </button>
-                <div className="candidate-forecast-heading"><strong>{formatTime(item.observation.capturedAt)}</strong><small>相似度 {Math.round(item.score * 100)}%</small></div>
-                <ForecastComparisonRows forecast={item.candidateForecast}/>
-              </article>
-            );
-          })}
-        </div>
+    <section className="combined-match-area">
+      <div className="candidate-forecast-strip" aria-label="CWA 與 ECMWF 綜合相似實拍">
+        {matches.map((match) => <article className="candidate-forecast-card" key={match.observation.id}>
+          <button
+            type="button"
+            className="candidate-play-button"
+            aria-label={`播放 ${match.observation.spot?.name || "浪點"} ${formatTime(match.observation.capturedAt)} 實拍，相似度 ${Math.round(match.score * 100)}%`}
+            onClick={() => setActiveObservation(match.observation)}
+          >
+            <CandidateThumbnail observation={match.observation}/>
+            <span className="candidate-thumbnail-date">{formatTime(match.observation.capturedAt)}</span>
+            <span className="candidate-thumbnail-score">相似度 {Math.round(match.score * 100)}%</span>
+            <span className="candidate-play-icon" aria-hidden="true">▶</span>
+          </button>
+          <CombinedForecastDetails match={match}/>
+        </article>)}
       </div>
       {activeObservation && <PlaybackModal observation={activeObservation} onClose={() => setActiveObservation(null)}/>}
     </section>
   );
 }
 
-export function SurfApp({ loginStatus }: { loginStatus?: LoginStatus }) {
+export function SurfApp({ loginStatus, initialHelpOpen = false }: { loginStatus?: LoginStatus; initialHelpOpen?: boolean }) {
   const [view, setView] = useState<View>(loginStatus ? "mine" : "find");
   const [spots, setSpots] = useState<Spot[]>([]);
   const [me, setMe] = useState<Me | null>(null);
@@ -775,7 +798,7 @@ export function SurfApp({ loginStatus }: { loginStatus?: LoginStatus }) {
   if (fatalError) return <main className="app-shell center-screen"><Brand/><p>{fatalError}</p></main>;
   return (
     <main className="app-shell">
-      <Topbar/>
+      <Topbar initialHelpOpen={initialHelpOpen}/>
       {view === "find" && <FindView spots={spots}/>}
       {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus}/></div>)}
       {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus}/></div>)}
@@ -784,14 +807,120 @@ export function SurfApp({ loginStatus }: { loginStatus?: LoginStatus }) {
   );
 }
 
+function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
+  spots: Spot[];
+  selectedSpotId: string;
+  onSelect: (spotId: string) => void;
+}) {
+  const choices = useMemo(() => [
+    ...spots.map((spot) => ({ id: spot.id, name: spot.name, selectable: true })),
+    ...PLACEHOLDER_SPOTS,
+  ], [spots]);
+  const defaultIds = useMemo(() => choices.map((choice) => choice.id), [choices]);
+  const [order, setOrder] = useState<string[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const pressTimer = useRef<number | null>(null);
+  const drag = useRef<{ id: string; startX: number; startY: number; active: boolean } | null>(null);
+  const suppressClick = useRef(false);
+
+  useEffect(() => {
+    let saved: string[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SPOT_ORDER_STORAGE_KEY) || "[]") as unknown;
+      if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) saved = parsed;
+    } catch {
+      saved = [];
+    }
+    const frame = window.requestAnimationFrame(() => {
+      setOrder((current) => mergeSpotOrder(defaultIds, current.length ? current : saved));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [defaultIds]);
+
+  useEffect(() => {
+    if (order.length) localStorage.setItem(SPOT_ORDER_STORAGE_KEY, JSON.stringify(order));
+  }, [order]);
+
+  function clearTimer() {
+    if (pressTimer.current != null) window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  }
+
+  function beginPress(event: ReactPointerEvent<HTMLButtonElement>, id: string) {
+    clearTimer();
+    suppressClick.current = false;
+    drag.current = { id, startX: event.clientX, startY: event.clientY, active: false };
+    const button = event.currentTarget;
+    pressTimer.current = window.setTimeout(() => {
+      if (!drag.current || drag.current.id !== id) return;
+      drag.current.active = true;
+      suppressClick.current = true;
+      setDraggingId(id);
+      button.setPointerCapture?.(event.pointerId);
+    }, 450);
+  }
+
+  function movePress(event: ReactPointerEvent<HTMLButtonElement>) {
+    const current = drag.current;
+    if (!current) return;
+    if (!current.active) {
+      if (Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 9) {
+        clearTimer();
+        drag.current = null;
+      }
+      return;
+    }
+    event.preventDefault();
+    const target = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-spot-order-id]")
+      ?.dataset.spotOrderId;
+    if (target && target !== current.id) {
+      setOrder((existing) => moveSpotId(existing, current.id, target));
+    }
+  }
+
+  function endPress() {
+    clearTimer();
+    if (drag.current?.active) suppressClick.current = true;
+    drag.current = null;
+    setDraggingId(null);
+  }
+
+  const byId = new Map(choices.map((choice) => [choice.id, choice]));
+  const orderedChoices = mergeSpotOrder(defaultIds, order).flatMap((id) => {
+    const choice = byId.get(id);
+    return choice ? [choice] : [];
+  });
+
+  return <div className="spot-strip" aria-label="選擇浪點；長按按鈕可拖曳排序">
+    {orderedChoices.map((choice) => <button
+      type="button"
+      key={choice.id}
+      data-spot-order-id={choice.id}
+      className={`${choice.id === selectedSpotId ? "selected" : ""} ${draggingId === choice.id ? "dragging" : ""}`}
+      aria-pressed={choice.selectable ? choice.id === selectedSpotId : undefined}
+      aria-disabled={!choice.selectable}
+      onPointerDown={(event) => beginPress(event, choice.id)}
+      onPointerMove={movePress}
+      onPointerUp={endPress}
+      onPointerCancel={endPress}
+      onClick={() => {
+        if (suppressClick.current) {
+          suppressClick.current = false;
+          return;
+        }
+        if (choice.selectable) onSelect(choice.id);
+      }}
+    >{choice.name}</button>)}
+  </div>;
+}
+
 function FindView({ spots }: { spots: Spot[] }) {
   const [now, setNow] = useState(() => new Date());
   const [dayOffset, setDayOffset] = useState(() => firstSelectableForecastHour(0) == null ? 1 : 0);
   const [hour, setHour] = useState(() => firstSelectableForecastHour(0) ?? 8);
   const [spotId, setSpotId] = useState("");
-  const [observations, setObservations] = useState<Observation[]>([]);
-  const [matchGroups, setMatchGroups] = useState<MatchGroup[]>([]);
-  const [forecastProviders, setForecastProviders] = useState<string[]>([]);
+  const [matches, setMatches] = useState<CombinedMatch[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectedSpotId = spotId || spots[0]?.id || "";
@@ -810,9 +939,9 @@ function FindView({ spots }: { spots: Spot[] }) {
     if (!selectedSpotId || !targetTime) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      setLoading(true); setError(null); setForecastProviders([]);
+      setLoading(true); setError(null);
       void api<PublicMatchesResponse>(`/matches?spotId=${encodeURIComponent(selectedSpotId)}&targetTime=${encodeURIComponent(new Date(targetTime).toISOString())}`, { signal: controller.signal })
-        .then((result) => { setObservations(result.observations); setMatchGroups(result.matchesBySource); setForecastProviders(result.forecasts.map((forecast) => forecast.provider)); })
+        .then((result) => setMatches(result.matches))
         .catch((caught) => { if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "比對失敗"); })
         .finally(() => setLoading(false));
     }, 300);
@@ -826,24 +955,19 @@ function FindView({ spots }: { spots: Spot[] }) {
       weekday: new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", weekday: "short" }).format(target),
     };
   });
-  const hasCwaForecast = forecastProviders.includes("cwa");
-
   return <div className="screen find-screen">
     <div className="search-panel">
-      <label><span>浪點</span><select value={selectedSpotId} onChange={(event) => setSpotId(event.target.value)}>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select></label>
-      <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`${offset <= 2 ? "multi-source" : "ecmwf-only"} ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散七日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>前 3 天：CWA＋ECMWF 比較區</span><span className="ecmwf-only"><i/>第 4–7 天：ECMWF</span></div>{effectiveDayOffset <= 2 && !loading && !hasCwaForecast && <small className="forecast-source-notice">此時段目前沒有 CWA 可用快照，先顯示 ECMWF；不混合或補值。</small>}</label>
+      <FindSpotStrip spots={spots} selectedSpotId={selectedSpotId} onSelect={setSpotId}/>
+      <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`multi-source ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散三日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>0–72 小時：CWA＋ECMWF 綜合比對</span></div></label>
       <label className="range-field"><span>時間 <output>{String(effectiveHour).padStart(2, "0")}:00</output></span><input type="range" min={minimumHour} max={FORECAST_HOUR_MAX} step="1" value={effectiveHour} onChange={(event) => setHour(Number(event.target.value))}/></label>
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
     {error && <div className="error-message">{error}</div>}
-    <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{matchGroups.length ? `${matchGroups.length} 組獨立來源` : "累積中"}</small></div>
-      {matchGroups.length
-        ? <div className="match-group-list">{matchGroups.map((group) => <MatchComparisonGroup key={`${group.provider}:${group.model}`} group={group}/>)}</div>
-        : <div className="info-state"><Icon name="wave"/><p>這個時間目前沒有可用的相似歷史實拍，因此沒有可對齊的比較組；不會另放一張獨立預報卡取代歷史比較。</p></div>}
+    <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{matches.length ? `${matches.length} 段` : "累積中"}</small></div>
+      {matches.length
+        ? <CombinedMatchList matches={matches}/>
+        : <div className="info-state"><Icon name="wave"/><p>尚未累積同時具備 CWA 與 ECMWF 歷史預報的實拍；資料完整後會以一個綜合相似度排序。</p></div>}
     </section>
-    {!matchGroups.length && <section className="result-section"><div className="section-heading"><h2>同浪點近期實拍（尚未配對）</h2><small>{observations.length ? `${observations.length} 段` : "累積中"}</small></div>
-      {observations.length ? <div className="record-list">{observations.map((item) => <ObservationCard key={item.id} observation={item}/>)}</div> : <div className="info-state compact"><p>這個浪點還沒有可公開配對的實拍。</p></div>}
-    </section>}
   </div>;
 }
 

@@ -19,6 +19,22 @@ export interface RankedMatch extends HistoricalCondition {
   components: MatchComponent[];
 }
 
+export interface SourceMatchScore {
+  sourceKey: string;
+  score: number;
+  availableWeight: number;
+  matchedWeight: number;
+  coverage: number;
+}
+
+export interface CombinedMatchScore {
+  score: number;
+  availableWeight: number;
+  matchedWeight: number;
+  coverage: number;
+  sources: SourceMatchScore[];
+}
+
 export interface AvailableForecastCandidate<T> {
   value: T;
   id: string;
@@ -44,6 +60,32 @@ export const MATCH_WEIGHTS = {
 } as const;
 
 export const MIN_MATCH_COVERAGE = 0.5;
+
+export function combineRequiredSourceScores(
+  sourceScores: SourceMatchScore[],
+  requiredSourceKeys: readonly string[],
+): CombinedMatchScore | null {
+  if (requiredSourceKeys.length === 0 || new Set(requiredSourceKeys).size !== requiredSourceKeys.length) {
+    return null;
+  }
+  const bySource = new Map(sourceScores.map((source) => [source.sourceKey, source]));
+  const sources = requiredSourceKeys.map((key) => bySource.get(key));
+  if (sources.some((source) => !source
+    || !Number.isFinite(source.score)
+    || !Number.isFinite(source.coverage)
+    || source.coverage < MIN_MATCH_COVERAGE)) {
+    return null;
+  }
+  const completeSources = sources as SourceMatchScore[];
+  const count = completeSources.length;
+  return {
+    score: Number((completeSources.reduce((sum, source) => sum + source.score, 0) / count).toFixed(6)),
+    availableWeight: completeSources.reduce((sum, source) => sum + source.availableWeight, 0),
+    matchedWeight: completeSources.reduce((sum, source) => sum + source.matchedWeight, 0),
+    coverage: completeSources.reduce((sum, source) => sum + source.coverage, 0) / count,
+    sources: completeSources,
+  };
+}
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);

@@ -134,15 +134,24 @@ export async function enforceProductionRedaction({ fetchImpl, accountId, workerN
   return observability;
 }
 
+export function deploymentCliEnvironment(baseEnvironment, token) {
+  const environment = {
+    ...baseEnvironment,
+    NO_COLOR: "1",
+    WRANGLER_SEND_METRICS: "false",
+  };
+  if (typeof token === "string" && token.trim()) {
+    environment.CLOUDFLARE_API_TOKEN = token.trim();
+  } else {
+    delete environment.CLOUDFLARE_API_TOKEN;
+  }
+  return environment;
+}
+
 function runNodeCli(entryPath, args, token) {
   execFileSync(process.execPath, [entryPath, ...args], {
     cwd: projectRoot,
-    env: {
-      ...process.env,
-      CLOUDFLARE_API_TOKEN: token,
-      NO_COLOR: "1",
-      WRANGLER_SEND_METRICS: "false",
-    },
+    env: deploymentCliEnvironment(process.env, token),
     stdio: "inherit",
   });
 }
@@ -174,15 +183,20 @@ export async function main() {
   }
 
   const redactionOnly = process.argv.includes("--redaction-only");
+  // Wrangler refreshes and applies its stored OAuth session itself. The token
+  // returned by `wrangler auth token` is retained only for the script-settings
+  // REST call; forcing it into D1/Workers CLI subprocesses can lose service
+  // authorization even though the stored session has the required scopes.
+  const cliToken = useWranglerOAuth ? null : token;
   if (!redactionOnly) {
     process.stdout.write("Applying reviewed production D1 migrations...\n");
     runNodeCli(
       wranglerEntryPath,
       ["d1", "migrations", "apply", "DB", "--remote", "--config", wranglerConfigPath],
-      token,
+      cliToken,
     );
     process.stdout.write("Publishing the reviewed Worker build...\n");
-    runNodeCli(vinextCloudflareEntryPath, ["deploy"], token);
+    runNodeCli(vinextCloudflareEntryPath, ["deploy"], cliToken);
   }
   process.stdout.write("Restoring and verifying query-string redaction...\n");
   await enforceProductionRedaction({

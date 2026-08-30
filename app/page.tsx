@@ -12,12 +12,14 @@ const LOGIN_STATUSES = new Set<LoginStatus>([
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ login?: string | string[] }>;
+  searchParams: Promise<{ help?: string | string[]; login?: string | string[] }>;
 }) {
-  const rawLogin = (await searchParams).login;
+  const query = await searchParams;
+  const rawLogin = query.login;
   const candidate = Array.isArray(rawLogin) ? rawLogin[0] : rawLogin;
   const loginStatus = candidate && LOGIN_STATUSES.has(candidate as LoginStatus)
     ? candidate as LoginStatus
     : undefined;
-  return <SurfApp loginStatus={loginStatus} />;
+  const rawHelp = Array.isArray(query.help) ? query.help[0] : query.help;
+  return <SurfApp loginStatus={loginStatus} initialHelpOpen={rawHelp === "1"} />;
 }

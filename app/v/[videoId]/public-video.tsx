@@ -35,6 +35,7 @@ function formatTime(iso: string | null): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }).format(new Date(iso));
 }
 
@@ -46,8 +47,10 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
   const [reportOpen, setReportOpen] = useState(false);
   const [reportSent, setReportSent] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [playbackLoading, setPlaybackLoading] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const playbackRecorded = useRef(false);
+  const playbackRequestInFlight = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -83,11 +86,14 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
 
   async function startPlayback() {
     setError(null);
-    playbackRecorded.current = false;
     if (!shareToken) {
       setError("請使用尚未過期的分享連結播放這段影片");
       return;
     }
+    if (playbackRequestInFlight.current) return;
+    playbackRequestInFlight.current = true;
+    playbackRecorded.current = false;
+    setPlaybackLoading(true);
     try {
       setPlayback(await publicApi<PlaybackResponse>(`/shared-videos/${encodeURIComponent(videoId)}/playback`, {
         method: "POST",
@@ -95,6 +101,9 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
       }));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "影片播放失敗");
+    } finally {
+      playbackRequestInFlight.current = false;
+      setPlaybackLoading(false);
     }
   }
 
@@ -163,35 +172,37 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
           : {}),
       }
     : undefined;
+  const publicSummary = [
+    observation.spot?.name || "浪點",
+    formatTime(observation.capturedAt),
+    observation.uploaderDisplayId,
+  ].filter((value): value is string => Boolean(value)).join("．");
 
   return <main className="public-video-shell">
     <header className="public-video-header"><Link href="/">
       {/* This checked-in brand asset does not benefit from runtime optimization. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand-logo.png" alt="" width="36" height="36"/>彼日浪影
-    </Link><span>公開實拍</span></header>
+    </Link></header>
     <article className="public-video-card">
       <div className="public-video-player" style={playerStyle}>
         {playback?.type === "iframe"
           ? <iframe ref={iframeRef} src={playback.iframeUrl} title={`${observation.spot?.name || "浪點"}實拍影片`} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin"/>
           : playback?.type === "mock"
             ? <div className="public-video-placeholder">Mock 播放已啟動</div>
-            : <button type="button" onClick={() => void startPlayback()}>
+            : <button type="button" disabled={playbackLoading} aria-busy={playbackLoading} onClick={() => void startPlayback()}>
                 {observation.video.thumbnailUrl && <>
                   {/* Runtime thumbnails use the first-party lifecycle-checking endpoint. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={observation.video.thumbnailUrl} alt={`${observation.spot?.name || "浪點"}實拍縮圖`}/>
                 </>}
-                <span aria-hidden="true">▶</span><strong>播放實拍</strong>
+                <strong>{playbackLoading ? "載入播放器…" : "載入播放器"}</strong>
               </button>}
       </div>
       <div className="public-video-body">
-        <h1>{observation.spot?.name || "浪點"}實拍</h1>
-        <p>{formatTime(observation.capturedAt)}</p>
-        {observation.uploaderDisplayId && <p className="public-video-uploader">id: {observation.uploaderDisplayId}</p>}
+        <p className="public-video-summary">{publicSummary}</p>
         {observation.funReaction && <p>{observation.funReaction === "fun" ? "👍 上傳者那天玩得開心" : "👎 上傳者那天玩得不開心"}</p>}
-        {observation.uploaderNote && <blockquote>{observation.uploaderNote}</blockquote>}
-        <small>公開影片採 CC0 1.0；播放前會再次確認公開狀態。</small>
+        {observation.uploaderNote && <blockquote><strong>上傳者補充: </strong>{observation.uploaderNote}</blockquote>}
       </div>
     </article>
     <section className="public-video-actions">
@@ -201,6 +212,6 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
       {shareNotice && <p className="public-video-share-notice">{shareNotice}</p>}
       {error && <p>{error}</p>}
     </section>
-    <Link className="public-video-home" href="/">查看相似浪況與更多實拍</Link>
+    <Link className="public-video-home" href="/?help=1">更多浪影．上傳你的浪影</Link>
   </main>;
 }

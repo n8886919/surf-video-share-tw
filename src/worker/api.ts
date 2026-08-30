@@ -24,6 +24,7 @@ import {
   assertWithinUploadWindow,
   PUBLIC_MEDIA_LICENSE,
   PUBLIC_MEDIA_TERMS_VERSION,
+  combineRequiredSourceScores,
   rankSimilarConditions,
   type MarineConditions,
   type TideState,
@@ -45,6 +46,7 @@ import {
 } from "./auth";
 import { cleanupExpiredPendingVideos } from "./video-lifecycle";
 import { resolveVideoStatus } from "./video-status";
+import { internalForecastIngestionApi } from "./internal-forecast-ingestion";
 
 type Variables = { user: UserRow; authMode: "development" | "line" };
 
@@ -53,6 +55,15 @@ const PLAYBACK_TRACKING_TOKEN_SECONDS = 15 * 60;
 const SHARE_LINK_SECONDS = 24 * 60 * 60;
 const SHARE_MONTHLY_ANONYMOUS_PLAY_LIMIT = 100;
 type AnonymousWriteScope = "line-login" | "problem-report" | "video-report";
+
+const REQUIRED_MATCH_SOURCES = [
+  { provider: "cwa", model: "cwa-wave-f-a0020-001" },
+  { provider: "open-meteo", model: "ecmwf_wam" },
+] as const;
+
+function matchSourceKey(provider: string, model: string): string {
+  return `${provider}:${model}`;
+}
 
 function rateLimitResponse(error: "RATE_LIMITED" | "RATE_LIMIT_UNAVAILABLE", message: string, status: 429 | 503) {
   return new Response(JSON.stringify({ error, message }), {
@@ -738,6 +749,8 @@ async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
 export const api = new Hono<{ Bindings: AppEnv; Variables: Variables }>()
   .basePath("/api/v1");
 
+api.route("/internal/forecast-ingestion", internalForecastIngestionApi);
+
 api.get("/health", (context) => context.json({ ok: true }));
 api.get("/auth/line", async (context) => {
   if (isLineAuthConfigured(context.env)) {
@@ -990,7 +1003,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   try {
     assertWithinForecastWindow(input.targetTime);
   } catch {
-    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起六天內的 05:00–19:00 整點，且不可早於現在" }, 422);
+    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起三天內的 05:00–19:00 整點，且不可早於現在" }, 422);
   }
   const now = new Date().toISOString();
 
@@ -1045,43 +1058,75 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     `${row.historical_video_id}:${row.provider}:${row.model}`,
     row,
   ]));
-  const matchesBySource = forecastResult.results.map((targetForecast) => {
+  const targetForecastBySource = new Map(forecastResult.results.map((forecast) => [
+    matchSourceKey(forecast.provider, forecast.model),
+    forecast,
+  ]));
+  const requiredSourceKeys = REQUIRED_MATCH_SOURCES.map(({ provider, model }) => matchSourceKey(provider, model));
+  const rankedBySource = new Map<string, Map<string, ReturnType<typeof rankSimilarConditions>[number]>>();
+  for (const sourceKey of requiredSourceKeys) {
+    const targetForecast = targetForecastBySource.get(sourceKey);
+    if (!targetForecast) continue;
     const candidates = videoResult.results.flatMap((video) => {
       const historical = historicalByVideoAndSource.get(
         `${video.id}:${targetForecast.provider}:${targetForecast.model}`,
       );
       return historical ? [{ id: video.id, conditions: forecastConditions(historical) }] : [];
     });
-    return {
-      provider: targetForecast.provider,
-      model: targetForecast.model,
-      targetForecast: serializeForecast(targetForecast),
-      observations: rankSimilarConditions(forecastConditions(targetForecast), candidates)
-        .map((match) => {
-          const historicalForecast = historicalByVideoAndSource.get(
-            `${match.id}:${targetForecast.provider}:${targetForecast.model}`,
-          )!;
-          return {
-            score: match.score,
-            availableWeight: match.availableWeight,
-            matchedWeight: match.matchedWeight,
-            coverage: match.coverage,
-            candidateForecast: serializeForecast(historicalForecast),
-            observation: serializeObservation(observationById.get(match.id)!),
-          };
-        }),
-    };
-  }).filter((group) => group.observations.length > 0);
+    rankedBySource.set(
+      sourceKey,
+      new Map(rankSimilarConditions(forecastConditions(targetForecast), candidates)
+        .map((match) => [match.id, match])),
+    );
+  }
+
+  const matches = videoResult.results.flatMap((video) => {
+    const combined = combineRequiredSourceScores(
+      requiredSourceKeys.flatMap((sourceKey) => {
+        const match = rankedBySource.get(sourceKey)?.get(video.id);
+        return match ? [{
+          sourceKey,
+          score: match.score,
+          availableWeight: match.availableWeight,
+          matchedWeight: match.matchedWeight,
+          coverage: match.coverage,
+        }] : [];
+      }),
+      requiredSourceKeys,
+    );
+    if (!combined) return [];
+    return [{
+      score: combined.score,
+      availableWeight: combined.availableWeight,
+      matchedWeight: combined.matchedWeight,
+      coverage: combined.coverage,
+      observation: serializeObservation(observationById.get(video.id)!),
+      sources: combined.sources.map((source) => {
+        const targetForecast = targetForecastBySource.get(source.sourceKey)!;
+        const historicalForecast = historicalByVideoAndSource.get(
+          `${video.id}:${targetForecast.provider}:${targetForecast.model}`,
+        )!;
+        return {
+          provider: targetForecast.provider,
+          model: targetForecast.model,
+          score: source.score,
+          availableWeight: source.availableWeight,
+          matchedWeight: source.matchedWeight,
+          coverage: source.coverage,
+          targetForecast: serializeForecast(targetForecast),
+          candidateForecast: serializeForecast(historicalForecast),
+        };
+      }),
+    }];
+  }).sort((a, b) => b.score - a.score || a.observation.id.localeCompare(b.observation.id));
 
   const response: PublicMatchesResponse = {
     spot: { id: spot.id, slug: spot.slug, name: spot.name_zh || spot.name_en },
     targetTime: input.targetTime,
     forecasts: forecastResult.results.map(serializeForecast),
     observations: videoResult.results.map((row) => serializeObservation(row)),
-    matchesBySource,
-    ranking: matchesBySource.length
-      ? "provider-separated-historical-forecast"
-      : "same-spot-recent-until-forecast-history-is-available",
+    matches,
+    ranking: "equal-provider-composite-historical-forecast",
   };
   return context.json(response);
 });

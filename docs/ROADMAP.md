@@ -6,17 +6,22 @@ Complete: public spot/time matching, immutable-spot upload with a seven-day capt
 
 ## Milestone B — forecast history
 
-Complete for ECMWF WAM: immutable run/valid/lead/grid snapshots, retry/idempotency coverage, historical run selection, provider-separated matching, and the fixed-target/horizontally-scrollable comparison UI. Production Cron/D1 behavior and the seven-day ECMWF horizon have been verified.
+Complete for ECMWF WAM and CWA: immutable run/valid/lead/grid snapshots, retry/idempotency coverage, historical run selection, provider-separated matching, and the fixed-target/horizontally-scrollable comparison UI. Production Cron/D1 behavior and the seven-day ECMWF horizon have been verified.
 
-CWA parsing and provenance are implemented and tested, but its official whole-archive ZIP exceeded Workers Free Cron CPU in a guarded production trial. Enabling Workers Paid or approving a separately reviewed chunked design remains a product/operations decision; CWA stays disabled and visibly absent rather than being inferred or mixed into ECMWF.
+CWA archive retrieval and parsing run in the outbound-only Home Assistant App; the Worker accepts fixed five-row HMAC batches and remains within Workers Free CPU. Real production ingestion and idempotent replay passed, CWA remains a separate source from ECMWF, and the Worker no longer stores the CWA provider key.
 
 ## Milestone C — production readiness
 
 Complete: real LINE Login, direct signed Stream upload, lifecycle-gated signed thumbnail/playback, owner MP4 download on both tested mobile platforms, HMAC-pseudonymized burst limits, private 90-day playback feedback, guarded deployments, and query-string-redacted observability.
 
-Implemented locally but not yet released: 24-hour share links with a shared monthly anonymous-playback budget, adaptive portrait/landscape playback, public-write rate limiting, generic client errors with request IDs, and baseline response security headers.
+Released and production-smoked: 24-hour share links with a shared monthly anonymous-playback budget, adaptive portrait/landscape playback, public-write rate limiting, generic client errors with request IDs, and baseline response security headers.
 
-Remaining launch gates: isolated staging verification of seven-day expiry deletion and moderation, Cloudflare cost alarms and restore practice, plus two-phone acceptance of the new share-link/quota flow after an explicitly approved deployment.
+Remaining launch gates: isolated staging verification of seven-day expiry deletion and moderation plus Cloudflare cost alarms and restore practice. The owner deliberately deferred the optional two-phone acceptance pass for this release.
+
+## Pending UX
+
+- Add a `拍攝影片` action beside the existing `選擇影片` action. On supported phones it should request outward-facing video capture, then reuse the existing file inspection and upload path; unsupported browsers may fall back to a normal file picker. Keep the provider-authoritative 10–60 second rule and 200 MB limit, and verify the interaction on iPhone Safari, Android Chrome, and the LINE in-app browser.
+- Replace the circular question-mark control beside `公開提醒` with an inline `更多` text control immediately after the complete `PUBLIC_MEDIA_NOTICE` sentence. It must expand and collapse the existing people/rights guidance, retain accessible expanded/control semantics, and leave the versioned CC0 notice text unchanged.
 
 ## Later experiments
 

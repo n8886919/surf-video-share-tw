@@ -130,7 +130,12 @@ export async function main() {
     .map((secret) => secret.name)
     .filter((name) => typeof name === "string")
     .sort();
-  const requiredSecretNames = ["LINE_CHANNEL_SECRET", "SESSION_SECRET", "CLOUDFLARE_STREAM_API_TOKEN"];
+  const requiredSecretNames = [
+    "LINE_CHANNEL_SECRET",
+    "SESSION_SECRET",
+    "CLOUDFLARE_STREAM_API_TOKEN",
+    "FORECAST_INGESTION_SECRET",
+  ];
   const deployedBindingNames = [...new Set(versions.flatMap((version) =>
     version.bindings.map((binding) => binding.name)
   ))].sort();
@@ -144,6 +149,7 @@ export async function main() {
       requiredSecretNames.map((name) => [name, secretNames.includes(name) ? "present" : "missing"]),
     ),
     cwaApiKey: secretNames.includes("CWA_API_KEY") ? "present" : "absent_optional",
+    forecastIngestionSecret: secretNames.includes("FORECAST_INGESTION_SECRET") ? "present" : "missing",
     latestDeployment: {
       createdOn: latestDeployment.created_on ?? null,
       versions,

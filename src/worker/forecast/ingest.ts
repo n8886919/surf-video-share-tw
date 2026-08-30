@@ -1,5 +1,4 @@
 import type { AppEnv } from "../db";
-import { fetchCwaForecasts } from "./cwa";
 import { fetchOpenMeteoEcmwfWam } from "./open-meteo";
 import { insertForecastSnapshots, listActiveForecastSpots } from "./store";
 import type { ForecastProviderResult } from "./types";
@@ -44,60 +43,6 @@ async function ingestOpenMeteo(
   };
 }
 
-async function ingestCwa(
-  env: AppEnv,
-  spots: Awaited<ReturnType<typeof listActiveForecastSpots>>,
-  retrievedAt: string,
-  fetchImpl: typeof fetch,
-): Promise<ForecastProviderResult> {
-  if (!env.CWA_API_KEY) {
-    return {
-      provider: "cwa/F-A0020-001+F-A0021-001",
-      status: "skipped",
-      attempted: 0,
-      inserted: 0,
-      duplicates: 0,
-      message: "CWA_API_KEY is not configured",
-    };
-  }
-  if (env.CWA_QUERY_STRING_REDACTION_VERIFIED !== "true") {
-    return {
-      provider: "cwa/F-A0020-001+F-A0021-001",
-      status: "skipped",
-      attempted: 0,
-      inserted: 0,
-      duplicates: 0,
-      message: "CWA query-string redaction is not verified",
-    };
-  }
-  const warnings: string[] = [];
-  try {
-    const snapshots = await fetchCwaForecasts(
-      spots,
-      env.CWA_API_KEY,
-      retrievedAt,
-      fetchImpl,
-      (message) => warnings.push(message),
-    );
-    const write = await insertForecastSnapshots(env.DB, snapshots);
-    return {
-      provider: "cwa/F-A0020-001+F-A0021-001",
-      status: warnings.length ? "partial" : "complete",
-      ...write,
-      ...(warnings.length ? { message: warnings.join("; ") } : {}),
-    };
-  } catch (error) {
-    return {
-      provider: "cwa/F-A0020-001+F-A0021-001",
-      status: "failed",
-      attempted: 0,
-      inserted: 0,
-      duplicates: 0,
-      message: safeErrorMessage(error, env.CWA_API_KEY),
-    };
-  }
-}
-
 export async function runForecastIngestion(
   env: AppEnv,
   scheduledAt: Date,
@@ -108,15 +53,12 @@ export async function runForecastIngestion(
   const spots = await listActiveForecastSpots(env.DB);
   if (!spots.length) throw new Error("Forecast ingestion has no active spots with coordinates");
 
-  const [openMeteo, cwa] = await Promise.all([
-    ingestOpenMeteo(env, spots, retrievalStartedAt, fetchImpl),
-    ingestCwa(env, spots, retrievalStartedAt, fetchImpl),
-  ]);
+  const openMeteo = await ingestOpenMeteo(env, spots, retrievalStartedAt, fetchImpl);
   return {
     scheduledAt: scheduledInstant,
     finishedAt: new Date().toISOString(),
     spots: spots.length,
-    providers: [openMeteo, cwa],
+    providers: [openMeteo],
   };
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MarineConditions } from "../packages/domain/src/conditions";
 import {
   circularDirectionDistance,
+  combineRequiredSourceScores,
   MATCH_WEIGHTS,
   rankSimilarConditions,
   selectLatestAvailableForecast,
@@ -45,6 +46,29 @@ function conditionsWithOnly(
 }
 
 describe("condition matching", () => {
+  it("combines required provider scores with equal provider weight", () => {
+    expect(combineRequiredSourceScores([
+      { sourceKey: "cwa", score: 0.8, availableWeight: 2, matchedWeight: 2, coverage: 1 },
+      { sourceKey: "ecmwf", score: 0.4, availableWeight: 8, matchedWeight: 4, coverage: 0.5 },
+    ], ["cwa", "ecmwf"])).toMatchObject({
+      score: 0.6,
+      availableWeight: 10,
+      matchedWeight: 6,
+      coverage: 0.75,
+      sources: [{ sourceKey: "cwa" }, { sourceKey: "ecmwf" }],
+    });
+  });
+
+  it("requires every provider to meet coverage independently", () => {
+    expect(combineRequiredSourceScores([
+      { sourceKey: "cwa", score: 1, availableWeight: 2, matchedWeight: 0.8, coverage: 0.4 },
+      { sourceKey: "ecmwf", score: 1, availableWeight: 8, matchedWeight: 8, coverage: 1 },
+    ], ["cwa", "ecmwf"])).toBeNull();
+    expect(combineRequiredSourceScores([
+      { sourceKey: "cwa", score: 1, availableWeight: 2, matchedWeight: 2, coverage: 1 },
+    ], ["cwa", "ecmwf"])).toBeNull();
+  });
+
   it("uses circular direction distance", () => {
     expect(circularDirectionDistance(359, 1)).toBe(2);
     expect(circularDirectionDistance(0, 180)).toBe(180);

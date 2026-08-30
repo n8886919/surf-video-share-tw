@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  deploymentCliEnvironment,
   enforceProductionRedaction,
   parseWranglerAuthToken,
   REQUIRED_OBSERVABILITY,
@@ -14,6 +15,13 @@ function cloudflareResponse(result: unknown, status = 200): Response {
 }
 
 describe("production deployment safeguard", () => {
+  it("lets Wrangler use its stored OAuth session for CLI subprocesses", () => {
+    expect(deploymentCliEnvironment({ CLOUDFLARE_API_TOKEN: "stale" }, null))
+      .not.toHaveProperty("CLOUDFLARE_API_TOKEN");
+    expect(deploymentCliEnvironment({}, "explicit-token"))
+      .toMatchObject({ CLOUDFLARE_API_TOKEN: "explicit-token" });
+  });
+
   it("uses only an explicit deploy credential locally", () => {
     expect(resolveDeployToken({
       workersCi: undefined,

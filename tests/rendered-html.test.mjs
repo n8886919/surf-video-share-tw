@@ -66,6 +66,11 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /https:\/\/www\.tipo\.gov\.tw\/tw\/copyright\/774-5048\.html/);
   assert.match(clientBundle, /準備下載 MP4/);
   assert.match(clientBundle, /近 90 天播放/);
+  assert.match(clientBundle, /近 90 天播放 · /);
+  assert.match(clientBundle, /當時預報/);
+  assert.doesNotMatch(clientBundle, /拍攝當時預報/);
+  assert.doesNotMatch(clientBundle, /每個來源獨立顯示，不與其他模型平均。/);
+  assert.match(clientBundle, /owner-action-icon/);
   assert.match(clientBundle, /project-version/);
   assert.match(clientBundle, /版本 /);
   assert.match(clientBundle, /公開名稱:/);
@@ -73,20 +78,27 @@ test("renders the product title and language", async () => {
   assert.doesNotMatch(clientBundle, /新影片預設顯示公開名稱/);
   assert.doesNotMatch(clientBundle, /目前 id:/);
   assert.match(clientBundle, /相似歷史實拍/);
-  assert.match(clientBundle, /比較基準/);
-  assert.match(clientBundle, /所選預報/);
+  assert.doesNotMatch(clientBundle, /所選預報/);
+  assert.match(clientBundle, /CWA 與 ECMWF 綜合相似實拍/);
   assert.match(clientBundle, /次湧浪/);
   assert.match(clientBundle, /風浪/);
-  assert.match(clientBundle, /預報日期，離散七日/);
-  assert.match(clientBundle, /前 3 天：CWA＋ECMWF 比較區/);
+  assert.match(clientBundle, /預報日期，離散三日/);
+  assert.match(clientBundle, /0–72 小時：CWA＋ECMWF 綜合比對/);
+  assert.match(clientBundle, /test-spot-/);
+  assert.match(clientBundle, /測試 /);
+  assert.match(clientBundle, /長按按鈕可拖曳排序/);
   assert.match(clientBundle, /更多資訊/);
   assert.match(clientBundle, /待處理檢舉/);
-  assert.match(clientBundle, /候選影片預報/);
+  assert.match(clientBundle, /來源相似度/);
+  assert.match(clientBundle, /實拍當時/);
   assert.match(clientBundle, /candidate-play-button/);
   assert.match(clientBundle, /相似度/);
   assert.match(clientBundle, /10–60 秒/);
   assert.match(clientBundle, /Purpose and position/);
   assert.match(clientBundle, /操作與專案說明/);
+  assert.match(clientBundle, /initialHelpOpen/);
+  assert.match(clientBundle, /replaceState/);
+  assert.match(clientBundle, /searchParams\.delete\([`"']help[`"']\)/);
   assert.match(clientBundle, /檢舉影片/);
   assert.doesNotMatch(clientBundle, /開啟管理頁面/);
   assert.doesNotMatch(clientBundle, /相似指數/);
@@ -97,6 +109,14 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /目前先開放 100 位使用者/);
   assert.match(clientBundle, /LINE 自動登入可能未完成/);
   assert.match(clientBundle, /\/api\/v1\/auth\/line\?manual=1/);
+
+  const helpResponse = await worker.fetch(
+    new Request("http://localhost/?help=1", { headers: { accept: "text/html" } }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  assert.equal(helpResponse.status, 200);
+  assert.match(await helpResponse.text(), /initialHelpOpen.{0,40}true/);
 });
 
 test("renders a share-gated public-video route and first-party preview", async () => {
@@ -122,6 +142,13 @@ test("renders a share-gated public-video route and first-party preview", async (
   assert.match(clientBundle, /\/shared-videos\//);
   assert.match(clientBundle, /尚未過期的分享連結/);
   assert.match(clientBundle, /\/playback-start/);
-  assert.match(clientBundle, /播放實拍/);
+  assert.match(clientBundle, /載入播放器/);
+  assert.match(clientBundle, /載入播放器…/);
+  assert.doesNotMatch(clientBundle, /▶/);
+  assert.match(clientBundle, /上傳者補充: /);
+  assert.match(clientBundle, /public-video-summary/);
+  assert.match(clientBundle, /更多浪影．上傳你的浪影/);
+  assert.match(clientBundle, /\/\?help=1/);
+  assert.doesNotMatch(clientBundle, /公開影片採 CC0 1\.0；播放前會再次確認公開狀態。/);
   assert.match(clientBundle, /檢舉影片/);
 });

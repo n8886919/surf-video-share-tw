@@ -7,11 +7,15 @@ async function readProjectFile(path: string): Promise<string> {
 }
 
 describe("project purpose", () => {
-  it("starts the visible product version at 0.1 and renders it in help", async () => {
-    expect(PROJECT_VERSION).toBe("0.1");
+  it("renders the current visible product version in help", async () => {
+    expect(PROJECT_VERSION).toBe("0.6");
 
-    const app = await readProjectFile("app/surf-app.tsx");
+    const [app, packageMetadata] = await Promise.all([
+      readProjectFile("app/surf-app.tsx"),
+      readProjectFile("package.json"),
+    ]);
     expect(app).toContain("版本 {PROJECT_VERSION}");
+    expect(JSON.parse(packageMetadata)).toMatchObject({ version: `${PROJECT_VERSION}.0` });
   });
 
   it("keeps the five-second purpose synchronized in handoff documents", async () => {
