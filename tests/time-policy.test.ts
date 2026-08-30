@@ -3,6 +3,7 @@ import {
   firstSelectableForecastHour,
   isWithinForecastWindow,
   isWithinUploadWindow,
+  taipeiForecastDayOffset,
   taipeiForecastTarget,
 } from "../packages/domain/src/time-policy";
 
@@ -26,9 +27,9 @@ describe("168-hour upload policy", () => {
 describe("Taipei calendar-day forecast query policy", () => {
   const now = new Date("2026-08-25T10:30:00.000Z"); // 18:30 in Taipei
 
-  it("accepts whole hours from today through calendar day offset two", () => {
+  it("accepts whole hours from today through calendar day offset four", () => {
     expect(isWithinForecastWindow("2026-08-25T11:00:00.000Z", now)).toBe(true);
-    expect(isWithinForecastWindow("2026-08-27T11:00:00.000Z", now)).toBe(true);
+    expect(isWithinForecastWindow("2026-08-29T11:00:00.000Z", now)).toBe(true);
   });
 
   it("rejects past times, minutes, and hours outside 05:00–19:00", () => {
@@ -38,14 +39,15 @@ describe("Taipei calendar-day forecast query policy", () => {
     expect(isWithinForecastWindow("2026-08-25T10:59:59.999Z", now)).toBe(false);
   });
 
-  it("rejects calendar day offset three and invalid timestamps", () => {
-    expect(isWithinForecastWindow("2026-08-28T05:00:00.000+08:00", now)).toBe(false);
+  it("rejects calendar day offset five and invalid timestamps", () => {
+    expect(isWithinForecastWindow("2026-08-30T05:00:00.000+08:00", now)).toBe(false);
     expect(isWithinForecastWindow("not-a-date", now)).toBe(false);
   });
 
   it("constructs targets from Taipei calendar fields independent of browser time zone", () => {
     expect(taipeiForecastTarget(0, 19, now).toISOString()).toBe("2026-08-25T11:00:00.000Z");
-    expect(taipeiForecastTarget(2, 5, now).toISOString()).toBe("2026-08-26T21:00:00.000Z");
+    expect(taipeiForecastTarget(4, 5, now).toISOString()).toBe("2026-08-28T21:00:00.000Z");
+    expect(taipeiForecastDayOffset("2026-08-28T21:00:00.000Z", now)).toBe(4);
     expect(firstSelectableForecastHour(0, now)).toBe(19);
     expect(firstSelectableForecastHour(1, now)).toBe(5);
   });

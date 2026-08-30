@@ -6,6 +6,7 @@ async function readClientBundle(pattern, description) {
   const directories = [
     new URL("../dist/client/assets/", import.meta.url),
     new URL("../dist/client/_next/static/chunks/", import.meta.url),
+    new URL("../dist/client/_next/static/css/", import.meta.url),
   ];
   for (const directory of directories) {
     let names;
@@ -82,11 +83,20 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /CWA 與 ECMWF 綜合相似實拍/);
   assert.match(clientBundle, /次湧浪/);
   assert.match(clientBundle, /風浪/);
-  assert.match(clientBundle, /預報日期，離散三日/);
-  assert.match(clientBundle, /0–72 小時：CWA＋ECMWF 綜合比對/);
+  assert.match(clientBundle, /預報日期，離散五日/);
+  assert.match(clientBundle, /第 1–3 天：CWA＋ECMWF/);
+  assert.match(clientBundle, /第 4–5 天：ECMWF-only/);
   assert.match(clientBundle, /test-spot-/);
   assert.match(clientBundle, /測試 /);
-  assert.match(clientBundle, /長按按鈕可拖曳排序/);
+  assert.match(clientBundle, /左右拖曳可滑動，長按按鈕可拖曳排序/);
+  assert.match(clientBundle, /setPointerCapture/);
+  assert.match(clientBundle, /scrollLeft/);
+  assert.match(clientBundle, /candidate-thumbnail-date/);
+  const clientCss = await readClientBundle(/^index\..*\.css$/, "app css");
+  assert.match(clientCss, /touch-action:pan-y/);
+  assert.match(clientCss, /user-select:none/);
+  assert.match(clientCss, /grid-template-columns:repeat\(5,1fr\)/);
+  assert.match(clientCss, /transform:scale\(1\.1\)/);
   assert.match(clientBundle, /更多資訊/);
   assert.match(clientBundle, /待處理檢舉/);
   assert.match(clientBundle, /來源相似度/);

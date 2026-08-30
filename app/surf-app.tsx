@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type {
   CombinedMatchResponse as CombinedMatch,
   ForecastResponse as Forecast,
@@ -16,6 +16,7 @@ import {
   MIN_VIDEO_DURATION_SECONDS,
 } from "../packages/api-contract/src";
 import {
+  COMPOSITE_FORECAST_DAY_OFFSET_MAX,
   firstSelectableForecastHour,
   FORECAST_DAY_OFFSET_MAX,
   FORECAST_HOUR_MAX,
@@ -819,8 +820,17 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
   const defaultIds = useMemo(() => choices.map((choice) => choice.id), [choices]);
   const [order, setOrder] = useState<string[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
   const pressTimer = useRef<number | null>(null);
-  const drag = useRef<{ id: string; startX: number; startY: number; active: boolean } | null>(null);
+  const drag = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    startScrollLeft: number;
+    active: boolean;
+    scrolling: boolean;
+  } | null>(null);
+  const previousPositions = useRef(new Map<string, DOMRect>());
   const suppressClick = useRef(false);
 
   useEffect(() => {
@@ -841,40 +851,110 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
     if (order.length) localStorage.setItem(SPOT_ORDER_STORAGE_KEY, JSON.stringify(order));
   }, [order]);
 
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const scrollWheelHorizontally = (event: WheelEvent) => {
+      if (strip.scrollWidth <= strip.clientWidth) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (delta === 0) return;
+      strip.scrollLeft += delta;
+      event.preventDefault();
+    };
+    strip.addEventListener("wheel", scrollWheelHorizontally, { passive: false });
+    return () => strip.removeEventListener("wheel", scrollWheelHorizontally);
+  }, []);
+
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    const previous = previousPositions.current;
+    if (!strip || previous.size === 0) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const shell of strip.querySelectorAll<HTMLElement>("[data-spot-order-id]")) {
+      const before = previous.get(shell.dataset.spotOrderId || "");
+      if (!before) continue;
+      const after = shell.getBoundingClientRect();
+      const deltaX = before.left - after.left;
+      if (!reduceMotion && Math.abs(deltaX) > 1) {
+        shell.animate(
+          [{ transform: `translateX(${deltaX}px)` }, { transform: "translateX(0)" }],
+          { duration: 180, easing: "cubic-bezier(.2,.75,.25,1)" },
+        );
+      }
+    }
+    previous.clear();
+  }, [order]);
+
   function clearTimer() {
     if (pressTimer.current != null) window.clearTimeout(pressTimer.current);
     pressTimer.current = null;
   }
 
   function beginPress(event: ReactPointerEvent<HTMLButtonElement>, id: string) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
     clearTimer();
     suppressClick.current = false;
-    drag.current = { id, startX: event.clientX, startY: event.clientY, active: false };
+    drag.current = {
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: stripRef.current?.scrollLeft ?? 0,
+      active: false,
+      scrolling: false,
+    };
     const button = event.currentTarget;
+    const pointerId = event.pointerId;
     pressTimer.current = window.setTimeout(() => {
       if (!drag.current || drag.current.id !== id) return;
       drag.current.active = true;
       suppressClick.current = true;
       setDraggingId(id);
-      button.setPointerCapture?.(event.pointerId);
+      button.setPointerCapture?.(pointerId);
     }, 450);
+  }
+
+  function capturePositions() {
+    const strip = stripRef.current;
+    if (!strip) return;
+    previousPositions.current = new Map(
+      [...strip.querySelectorAll<HTMLElement>("[data-spot-order-id]")]
+        .map((shell) => [shell.dataset.spotOrderId || "", shell.getBoundingClientRect()]),
+    );
   }
 
   function movePress(event: ReactPointerEvent<HTMLButtonElement>) {
     const current = drag.current;
     if (!current) return;
+    const deltaX = event.clientX - current.startX;
+    const deltaY = event.clientY - current.startY;
     if (!current.active) {
-      if (Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 9) {
+      if (!current.scrolling && Math.abs(deltaY) > 9 && Math.abs(deltaY) >= Math.abs(deltaX)) {
         clearTimer();
         drag.current = null;
+        return;
+      }
+      if (current.scrolling || (Math.abs(deltaX) > 6 && Math.abs(deltaX) > Math.abs(deltaY))) {
+        clearTimer();
+        current.scrolling = true;
+        suppressClick.current = true;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        if (stripRef.current) stripRef.current.scrollLeft = current.startScrollLeft - deltaX;
+        event.preventDefault();
       }
       return;
     }
     event.preventDefault();
+    const strip = stripRef.current;
+    if (strip) {
+      const bounds = strip.getBoundingClientRect();
+      if (event.clientX < bounds.left + 36) strip.scrollLeft -= 12;
+      else if (event.clientX > bounds.right - 36) strip.scrollLeft += 12;
+    }
     const target = document.elementFromPoint(event.clientX, event.clientY)
       ?.closest<HTMLElement>("[data-spot-order-id]")
       ?.dataset.spotOrderId;
     if (target && target !== current.id) {
+      capturePositions();
       setOrder((existing) => moveSpotId(existing, current.id, target));
     }
   }
@@ -892,26 +972,35 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
     return choice ? [choice] : [];
   });
 
-  return <div className="spot-strip" aria-label="選擇浪點；長按按鈕可拖曳排序">
-    {orderedChoices.map((choice) => <button
-      type="button"
+  return <div
+    ref={stripRef}
+    className={`spot-strip ${draggingId ? "reordering" : ""}`}
+    aria-label="選擇浪點；左右拖曳可滑動，長按按鈕可拖曳排序"
+    onContextMenu={(event) => event.preventDefault()}
+  >
+    {orderedChoices.map((choice) => <span
+      className={`spot-choice-shell ${draggingId === choice.id ? "dragging" : ""}`}
       key={choice.id}
       data-spot-order-id={choice.id}
-      className={`${choice.id === selectedSpotId ? "selected" : ""} ${draggingId === choice.id ? "dragging" : ""}`}
-      aria-pressed={choice.selectable ? choice.id === selectedSpotId : undefined}
-      aria-disabled={!choice.selectable}
-      onPointerDown={(event) => beginPress(event, choice.id)}
-      onPointerMove={movePress}
-      onPointerUp={endPress}
-      onPointerCancel={endPress}
-      onClick={() => {
-        if (suppressClick.current) {
-          suppressClick.current = false;
-          return;
-        }
-        if (choice.selectable) onSelect(choice.id);
-      }}
-    >{choice.name}</button>)}
+    ><button
+        type="button"
+        draggable={false}
+        className={`${choice.id === selectedSpotId ? "selected" : ""} ${draggingId === choice.id ? "dragging" : ""}`}
+        aria-pressed={choice.selectable ? choice.id === selectedSpotId : undefined}
+        aria-disabled={!choice.selectable}
+        onDragStart={(event) => event.preventDefault()}
+        onPointerDown={(event) => beginPress(event, choice.id)}
+        onPointerMove={movePress}
+        onPointerUp={endPress}
+        onPointerCancel={endPress}
+        onClick={() => {
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          if (choice.selectable) onSelect(choice.id);
+        }}
+      >{choice.name}</button></span>)}
   </div>;
 }
 
@@ -958,7 +1047,7 @@ function FindView({ spots }: { spots: Spot[] }) {
   return <div className="screen find-screen">
     <div className="search-panel">
       <FindSpotStrip spots={spots} selectedSpotId={selectedSpotId} onSelect={setSpotId}/>
-      <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`multi-source ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散三日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>0–72 小時：CWA＋ECMWF 綜合比對</span></div></label>
+      <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`${offset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "multi-source" : "ecmwf-only"} ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散五日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>第 1–3 天：CWA＋ECMWF</span><span className="ecmwf-only"><i/>第 4–5 天：ECMWF-only</span></div></label>
       <label className="range-field"><span>時間 <output>{String(effectiveHour).padStart(2, "0")}:00</output></span><input type="range" min={minimumHour} max={FORECAST_HOUR_MAX} step="1" value={effectiveHour} onChange={(event) => setHour(Number(event.target.value))}/></label>
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
@@ -966,7 +1055,7 @@ function FindView({ spots }: { spots: Spot[] }) {
     <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{matches.length ? `${matches.length} 段` : "累積中"}</small></div>
       {matches.length
         ? <CombinedMatchList matches={matches}/>
-        : <div className="info-state"><Icon name="wave"/><p>尚未累積同時具備 CWA 與 ECMWF 歷史預報的實拍；資料完整後會以一個綜合相似度排序。</p></div>}
+        : <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 ECMWF 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 ECMWF 歷史預報的實拍；第 4–5 天會使用 ECMWF-only 相似度排序。"}</p></div>}
     </section>
   </div>;
 }

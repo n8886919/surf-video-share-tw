@@ -2,7 +2,7 @@
 
 Last checked: 2026-08-30. Provider/model values remain independent; do not average them.
 
-Historical matching uses the newest forecast run issued by capture time whose valid time is near the capture. Current public queries use the newest run issued by query time whose valid time is near the selected `Asia/Taipei` day-offset 0–2, 05:00–19:00 whole-hour target. Lead time is preserved for provenance but is not a similarity requirement. CWA and ECMWF remain separate feature rows and separate distance calculations; only their normalized source scores are combined at equal weight after both pass coverage. Reanalysis, hindcast, buoy, satellite, and other post-event observations may be stored only as separately labelled data; they never replace or overwrite the historical forecast used for matching.
+Historical matching uses the newest forecast run issued by capture time whose valid time is near the capture. Current public queries use the newest run issued by query time whose valid time is near the selected `Asia/Taipei` day-offset 0–4, 05:00–19:00 whole-hour target. Lead time is preserved for provenance but is not a similarity requirement. At offsets 0–2 CWA and ECMWF remain separate feature rows and separate distance calculations, and only their normalized source scores are combined at equal weight after both pass coverage. Offsets 3–4 use the independent ECMWF score only. Reanalysis, hindcast, buoy, satellite, and other post-event observations may be stored only as separately labelled data; they never replace or overwrite the historical forecast used for matching.
 
 | Purpose | Preferred source | Current decision |
 |---|---|---|

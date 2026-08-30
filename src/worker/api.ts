@@ -22,10 +22,12 @@ import {
 import {
   assertWithinForecastWindow,
   assertWithinUploadWindow,
+  COMPOSITE_FORECAST_DAY_OFFSET_MAX,
   PUBLIC_MEDIA_LICENSE,
   PUBLIC_MEDIA_TERMS_VERSION,
   combineRequiredSourceScores,
   rankSimilarConditions,
+  taipeiForecastDayOffset,
   type MarineConditions,
   type TideState,
 } from "../../packages/domain/src";
@@ -1003,7 +1005,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   try {
     assertWithinForecastWindow(input.targetTime);
   } catch {
-    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起三天內的 05:00–19:00 整點，且不可早於現在" }, 422);
+    return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起五天內的 05:00–19:00 整點，且不可早於現在" }, 422);
   }
   const now = new Date().toISOString();
 
@@ -1062,7 +1064,11 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     matchSourceKey(forecast.provider, forecast.model),
     forecast,
   ]));
-  const requiredSourceKeys = REQUIRED_MATCH_SOURCES.map(({ provider, model }) => matchSourceKey(provider, model));
+  const dayOffset = taipeiForecastDayOffset(input.targetTime);
+  const requiredSources = dayOffset !== null && dayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX
+    ? REQUIRED_MATCH_SOURCES
+    : REQUIRED_MATCH_SOURCES.slice(1);
+  const requiredSourceKeys = requiredSources.map(({ provider, model }) => matchSourceKey(provider, model));
   const rankedBySource = new Map<string, Map<string, ReturnType<typeof rankSimilarConditions>[number]>>();
   for (const sourceKey of requiredSourceKeys) {
     const targetForecast = targetForecastBySource.get(sourceKey);
@@ -1126,7 +1132,9 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     forecasts: forecastResult.results.map(serializeForecast),
     observations: videoResult.results.map((row) => serializeObservation(row)),
     matches,
-    ranking: "equal-provider-composite-historical-forecast",
+    ranking: requiredSources.length === 2
+      ? "equal-provider-composite-historical-forecast"
+      : "ecmwf-only-historical-forecast",
   };
   return context.json(response);
 });

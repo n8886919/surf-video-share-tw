@@ -1,12 +1,18 @@
 # Project state
 
-Updated: 2026-08-30. This describes the fully verified local product `0.6` release candidate, deployed Home Assistant App `0.1.2`, and the still-current Cloudflare production product `0.5` version `83099da5-af86-4faf-a1f7-ef1f0a895026`. The approved next step is to commit/push product `0.6`, then publish it through the guarded OAuth workflow from a fresh isolated worktree.
+Updated: 2026-08-30. Product `0.7` is the fully implemented local release candidate; production still serves pushed product `0.6` commit `cab68aa` at 100% as Cloudflare version `aca9ce05-eff0-4d2f-89ce-4b424614d2d4`. Home Assistant App `0.1.2` remains deployed. The approved next step is to commit/push `0.7` and deploy it from a fresh isolated worktree through the guarded OAuth workflow.
 
 ## Completed checkpoint
+
+- Product `0.7` restores two later ECMWF-only calendar days. Offsets 0–2 retain strict CWA＋ECMWF matching with each normalized source score weighted 50%; offsets 3–4 require only ECMWF and expose `ecmwf-only-historical-forecast`, so their displayed score is explicitly the ECMWF source score. Raw source fields remain independent and immutable in both modes.
+- The find spot strip now owns horizontal gestures instead of asking the browser to switch from native pan to JavaScript after the 450 ms long-press threshold. Touch and mouse horizontal dragging scroll the strip, vertical pan remains page-owned, and desktop wheel deltas scroll horizontally. Text selection, native dragging, context menu, and iOS touch callout are suppressed on the controls.
+- Long press scales the held spot button to 1.1, keeps pointer capture through reorder, auto-scrolls near strip edges, and applies a 180 ms FLIP-style Web Animation to buttons changing position. The eight buttons use the same one-fifth width as the five date cells, so the strip overflows on phone and desktop while keeping a 68 px minimum target width.
 
 - Product `0.6` replaces provider-separated result groups with one strict composite rank. CWA `cwa-wave-f-a0020-001` and Open-Meteo `ecmwf_wam` retain separate immutable fields and separate normalized distances; each source must independently cover at least 50% of its target and contributes exactly 50% of the final score. A video missing either source is not ranked, so the two existing pre-CWA videos are left untouched and currently produce an honest empty result.
 - Find now accepts only Taipei day offsets 0–2 at 05:00–19:00. It has one horizontally scrolling result rail, no fixed 「所選預報」 column or source switch, and overlays 24-hour capture time plus the single similarity score on each thumbnail. Both source comparisons remain visible together inside each candidate card.
 - The find-only spot selector is now a horizontally scrolling button row with the two real API spots plus six disabled client-only placeholders. Long press for 450 ms enables drag reordering, early pointer movement preserves normal horizontal scrolling, and order persists only in local storage. Placeholder IDs can never become the selected API spot. Date controls use the same 50 px height and larger three-day text.
+- Guarded `pnpm deploy:oauth` from fresh isolated worktree `surf-video-deploy-20260830-2` applied no migration, published version `aca9ce05-eff0-4d2f-89ce-4b424614d2d4`, restored/read back query-string redaction, and retained Cron `20 */6 * * *`. Read-only preflight found the ingestion secret present, retired Worker CWA key absent, no pending migration, all bindings present, and the new version at 100%.
+- Production smoke returned home/health/spots/matches/public-video/playback success, retained the LINE unauthenticated boundary and signed playback boundary, and returned the new `equal-provider-composite-historical-forecast` contract with both required target sources. The live result count is correctly zero because existing videos predate CWA history. Deployed CSS/client chunks contain the three-date grid, reorderable spot strip, thumbnail date/score overlays, and no 「所選預報」 field.
 
 - Home Assistant CWA ingestion is live end to end without Workers Paid. App `0.1.2` commit `4995af9` reads its visible startup version from packaged metadata; 21 tests, typecheck, build, audit, and GitHub Actions `linux/arm64` image inspection passed with `aarch64 / app / 0.1.2` labels.
 - Worker product version `0.5` was published through the guarded OAuth workflow. Reviewed code deployment `2c3f9e23-0049-4671-984e-3715d89942f2` passed migration and redaction safeguards; deleting the retired Worker-side CWA secret created configuration version `83099da5-af86-4faf-a1f7-ef1f0a895026`, now serving 100% of traffic with the same code.
@@ -14,7 +20,7 @@ Updated: 2026-08-30. This describes the fully verified local product `0.6` relea
 - Ten HMAC ingestion batches completed within Workers Free CPU limits; the observed maximum was 9 ms. A real App replay reported `attempted=50`, `inserted=0`, `duplicates=50`, `resumedPending=false`; D1 still has 50 CWA rows and zero duplicate source/run/valid groups.
 - The retired production `CWA_API_KEY` Worker secret was deleted only after real ingestion and replay succeeded. Final preflight reports it absent, `FORECAST_INGESTION_SECRET` present, `CWA_QUERY_STRING_REDACTION_VERIFIED=false`, query-string redaction enabled, no pending migrations, and Cron unchanged at `20 */6 * * *` UTC. Final health, LINE boundary, public video/playback/share, two-spot matching, and provider-separated CWA/ECMWF smoke checks passed.
 
-- The six-item pre-push review batch is implemented locally without a push or deployment. `pnpm audit` reports zero known vulnerabilities after upgrading Next/React/Vite/Vinext, adding the split `@vinext/cloudflare` deploy CLI, and applying a scoped transitive esbuild override; frozen-lockfile install, build, and deploy dry-run pass.
+- The six-item review batch is included in pushed/deployed product `0.6`. `pnpm audit` reports zero known vulnerabilities after upgrading Next/React/Vite/Vinext, adding the split `@vinext/cloudflare` deploy CLI, and applying a scoped transitive esbuild override; frozen-lockfile install, build, and deploy dry-run pass.
 - Anonymous D1-writing entry points now fail closed behind `PUBLIC_WRITE_RATE_LIMITER`. LINE-login creation, product reports, and video reports use independent scoped keys containing only an HMAC pseudonym of the Cloudflare client address, and rejection occurs before OAuth/report D1 access.
 - Unexpected API failures now return a generic Chinese message plus `requestId`/`X-Request-ID` instead of the original exception. Structured server logs correlate that ID with method, path, error name, and a bounded/redacted summary without request bodies or query strings. Every Worker response adds `Referrer-Policy: strict-origin` and `X-Content-Type-Options: nosniff`.
 - The versioned upload notice now says identifiable people require consent only when they are the main subject, not when they are incidental in a wide surf-condition view. Its accessible circular question-mark expands inline official MOJ/TIPO/Judicial Yuan/CC0 references, the minor/crop-or-blur rule, reporting path, and the explicit boundary that CC0 does not remove third-party likeness/privacy rights.
@@ -25,7 +31,7 @@ Updated: 2026-08-30. This describes the fully verified local product `0.6` relea
 - Local sharing now creates an AES-GCM opaque `/v/:videoId?share=…` link with a fixed 24-hour expiry. Any authenticated user may export a currently public video; all links created by that exporter in one Taipei month share 100 anonymous playback grants. Page/thumbnail loads are free, a granted anonymous playback atomically consumes one, and a viewer with a valid login session consumes none. Regenerating a link does not reset the counter, and link sharing never prepares MP4 bytes.
 - The local public-video page still exposes uploader supplement, fun reaction, optional `display_id`, first-party preview, and reporting only through the complete/ready/public/current-terms/moderation-visible boundary. A clean `/v/:videoId` can render metadata but cannot use the shared-page player without a valid token; expired or exhausted links stop before Stream token creation. No Stream UID, exporter/owner ID, playback token, owner count, or provider identity appears in the URL or DTO.
 - Local playback responses now carry sanitized Cloudflare Stream input width/height. Both candidate/owner modals and shared pages use the original aspect ratio; portrait players are centered and capped at 60/72 `svh`, with 16:9 only as the unknown-dimension fallback.
-- Migration `0007_lumpy_pride.sql` adds playback events. New local migration `0008_tiresome_daredevil.sql` adds the per-exporter/month `share_playback_budgets` table and unique index; `0008` is applied locally but is not applied or deployed to production.
+- Migration `0007_lumpy_pride.sql` adds playback events. Migration `0008_tiresome_daredevil.sql` adds the per-exporter/month `share_playback_budgets` table and unique index; both are applied locally and in production.
 - Production continues saving immutable, provider-separated ECMWF WAM snapshots on the six-hour Worker schedule. CWA archive retrieval and parsing now run in the outbound-only Home Assistant App; the Worker performs only bounded HMAC validation and five-row D1 batches while `CWA_QUERY_STRING_REDACTION_VERIFIED=false` keeps the retired Worker fetch path disabled.
 
 - React/Hono/D1 modular monolith, LINE auth/session, direct Stream uploads, public reports, administrator delisting, and the three-tab mobile UI exist locally.
@@ -79,11 +85,11 @@ Updated: 2026-08-30. This describes the fully verified local product `0.6` relea
 
 | Check | Result | Last run |
 |---|---|---|
-| `pnpm verify` | pass; typecheck, 136 tests across 28 files, and production build including dynamic `/v/:videoId` | 2026-08-30 |
-| `pnpm test` | pass, 136 tests across 28 files, including composite equal-source scoring, strict dual-source coverage, spot-order behavior, CWA HMAC ingestion, contract parity, share quota, playback, lifecycle, deployment safeguards, and provider regressions | 2026-08-30 |
+| `pnpm verify` | pass; typecheck, 137 tests across 28 files, and production build including dynamic `/v/:videoId` | 2026-08-30 |
+| `pnpm test` | pass, 137 tests across 28 files, including dual-source plus ECMWF-only API modes, time-window boundaries, matching, spot-order behavior, CWA ingestion, sharing, playback, lifecycle, and deployment safeguards | 2026-08-30 |
 | `pnpm lint` | pass with zero warnings and zero errors | 2026-08-30 |
 | `pnpm build` | pass; `/`, `/admin`, and dynamic `/v/:videoId` emitted | 2026-08-30 |
-| rendered-site test | pass, 2 tests; product `0.6`, three-day/dual-source controls, client-only spot placeholders/reorder affordance, combined result copy, account/legal/share behavior, and no Stream URL leakage are present | 2026-08-30 |
+| rendered-site test | pass, 2 tests; product `0.7`, five-day source legends, pointer capture/manual scroll code, no-select/touch-action/scale/five-cell CSS, account/legal/share behavior, and no Stream URL leakage are present | 2026-08-30 |
 | `pnpm deploy:dry-run` | pass through `vinext-cloudflare`; configuration recognized and command confirmed no build or deployment | 2026-08-30 |
 | `pnpm audit --audit-level low` | pass; no known vulnerabilities | 2026-08-30 |
 | frozen-lockfile install | pass; lockfile and manifest are synchronized | 2026-08-30 |
@@ -92,6 +98,8 @@ Updated: 2026-08-30. This describes the fully verified local product `0.6` relea
 | HA CWA production E2E | pass; 50 rows, 2 spots, complete 0–72-hour provenance/tide data, ten HMAC batches at at most 9 ms CPU, and ECMWF remained separate at 3,960 rows | 2026-08-30 |
 | HA CWA idempotent replay | pass; App reported attempted 50, inserted 0, duplicates 50, no pending-batch resume; D1 duplicate groups remained zero | 2026-08-30 |
 | CWA Worker-secret retirement | pass; `CWA_API_KEY` absent, ingestion secret present, guard false, redaction enabled, no pending migrations, Cron unchanged, and final production smoke passed | 2026-08-30 |
+| product `0.6` composite release deploy | pass; guarded OAuth version `aca9ce05-eff0-4d2f-89ce-4b424614d2d4` at 100%, no pending migration, redaction enabled, Cron unchanged, and exact commit `cab68aa` pushed to `main` | 2026-08-30 |
+| product `0.6` production smoke | pass; home/health/spots/matches/LINE boundary/public metadata/thumbnail/protected playback returned expected statuses, composite API exposed both target sources with zero honest legacy-video matches, and deployed UI assets contain the new controls/overlays | 2026-08-30 |
 | `pnpm db:generate` / local migration | pass; 11-table schema has no ungenerated change and local D1 has no pending migration | 2026-08-30 |
 | `wrangler deploy --dry-run` | pass; D1 plus upload/playback/download/problem-report rate-limit bindings present | 2026-08-29 |
 | local D1 migration/query | pass; `0008` applied locally and `share_playback_budgets` exists | 2026-08-30 |
@@ -124,7 +132,7 @@ Updated: 2026-08-30. This describes the fully verified local product `0.6` relea
 ## Production status
 
 - The owner explicitly authorized this internal-test release and its migrations. Future deployments, secret changes, and production deletion still require explicit authorization.
-- The current internal-test release is product version `0.5` and Cloudflare version `83099da5-af86-4faf-a1f7-ef1f0a895026` at 100% traffic. It includes the guarded Home Assistant CWA ingestion boundary, provider-separated empty match groups, the share/public-player batch, and the normal six-hour ECMWF/cleanup Cron.
+- The current internal-test release is product version `0.6`, commit `cab68aa`, and Cloudflare version `aca9ce05-eff0-4d2f-89ce-4b424614d2d4` at 100% traffic. It includes guarded Home Assistant CWA ingestion, equal-provider composite matching, the share/public-player batch, and the normal six-hour ECMWF/cleanup Cron.
 - Real production LINE redirect/callback and the signed-in UI succeeded with the owner. The resulting internal user ID matches `ADMIN_USER_ID`; `/api/v1/me` exposes no raw LINE subject.
 - The earlier iPhone failure/manual-retry fix remains included in the current release, and the previously rejected second LINE account has completed real iPhone login after channel publication.
 - Live iPhone diagnosis on LINE 26.12.1 / iOS 18.7 showed the LINE in-app browser reaching `/api/v1/auth/line` and receiving `302`, but no callback ever reached the Worker and no new session was created. The owner reports LINE's generic execution error in-app and `400 Bad Request` in Safari. A separate no-account probe confirmed LINE accepts the deployed normal and manual authorization URLs, redirecting them to its `/login` and `/noauto-login` flows respectively. The owner confirmed the iPhone uses a different LINE account from the account that previously completed production login, making `Developing`-channel account eligibility the leading cause; the new account must be invited as a channel Tester and linked to the accepting Business ID, or the channel must later be deliberately published.
@@ -148,14 +156,13 @@ Updated: 2026-08-30. This describes the fully verified local product `0.6` relea
 
 ## Completed UX batches
 
-The compact find/comparison/upload batches, revised `我的` layout, private playback feedback, and the former stable-link/public-video split are deployed and publicly smoked. The replacement 24-hour share/quota flow, adaptive player, dependency/security batch, inline person-rights guidance, version 0.1 label, simplified public-name controls, narrower icon-free comparison baseline, and the latest desktop-nav/owner-card polish are implemented, documented, typechecked, tested, built, linted, and rendered-site checked only in the local worktree; they are not deployed. The latest polish keeps the desktop bottom navigation in a dedicated non-overlapping footer, moves the private 90-day count onto the thumbnail, changes owner share/download to icon actions, shortens the forecast heading to `當時預報`, and removes the redundant model-separation note. Visual desktop/phone acceptance remains required.
+The compact find/comparison/upload batches, revised `我的` layout, private playback feedback, 24-hour share/quota flow, adaptive player, dependency/security batch, inline person-rights guidance, simplified public-name controls, desktop navigation/owner-card polish, Home Assistant ingestion, and product `0.6` composite matching are deployed and publicly smoked. Per owner direction, iPhone/Android physical-device acceptance is skipped for this release.
 
 ## Owner actions remaining
 
 - After an approved deployment, accept the 24-hour recipient page, anonymous-versus-authenticated quota behavior, portrait/landscape player sizing, and Web Share/clipboard flow on both target phones. Record the exact browser/WebView if behavior differs.
 - Keep the CWA authorization key in the password manager and HA App only; keep the ingestion secret in HA App and Cloudflare only. No Workers Paid upgrade is required for the deployed adapter.
 - In a later operations session, create isolated staging resources before expiry/webhook or destructive moderation tests and configure Cloudflare cost alarms below the NT$1,000/month ceiling.
-- Decide separately whether to commit/push the current coherent release to GitHub `main`. The OAuth production release is live, but this instruction did not authorize a push that would trigger Workers Builds again.
 
 ## Pending UX backlog
 
@@ -164,6 +171,4 @@ The compact find/comparison/upload batches, revised `我的` layout, private pla
 
 ## Next task
 
-Objective: commit and push the coherent product `0.6` release, create a fresh isolated worktree at that exact commit, publish only through `pnpm deploy:oauth`, and complete read-only production preflight plus public matching/UI smoke.
-
-Done when product `0.6` serves 100% of traffic, redaction remains enabled, no migration is pending, Cron remains `20 */6 * * *`, CWA/ECMWF aggregates remain separate, and a 0–72-hour `/matches` query returns the new composite contract without exposing sensitive values or changing any production video.
+Objective: commit and push product `0.7`, create a fresh isolated worktree at that exact commit, deploy only through `pnpm deploy:oauth`, and verify both 0–2 composite and 3–4 ECMWF-only production queries plus the deployed spot-strip interaction assets. Do not modify production videos or reveal sensitive values.

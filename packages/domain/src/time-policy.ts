@@ -1,6 +1,7 @@
 export const PRODUCT_TIME_ZONE = "Asia/Taipei";
 export const UPLOAD_WINDOW_HOURS = 7 * 24;
-export const FORECAST_DAY_OFFSET_MAX = 2;
+export const COMPOSITE_FORECAST_DAY_OFFSET_MAX = 2;
+export const FORECAST_DAY_OFFSET_MAX = 4;
 export const FORECAST_HOUR_MIN = 5;
 export const FORECAST_HOUR_MAX = 19;
 
@@ -94,9 +95,8 @@ export function isWithinForecastWindow(
 ): boolean {
   const target = targetTime instanceof Date ? targetTime : new Date(targetTime);
   const targetParts = taipeiParts(target);
-  const nowParts = taipeiParts(now);
-  if (!targetParts || !nowParts || target.getUTCMilliseconds() !== 0) return false;
-  const dayOffset = calendarDayNumber(targetParts) - calendarDayNumber(nowParts);
+  const dayOffset = taipeiForecastDayOffset(target, now);
+  if (!targetParts || dayOffset === null || target.getUTCMilliseconds() !== 0) return false;
   return target.getTime() >= now.getTime()
     && dayOffset >= 0
     && dayOffset <= FORECAST_DAY_OFFSET_MAX
@@ -106,8 +106,19 @@ export function isWithinForecastWindow(
     && targetParts.second === 0;
 }
 
+export function taipeiForecastDayOffset(
+  targetTime: string | Date,
+  now = new Date(),
+): number | null {
+  const target = targetTime instanceof Date ? targetTime : new Date(targetTime);
+  const targetParts = taipeiParts(target);
+  const nowParts = taipeiParts(now);
+  if (!targetParts || !nowParts) return null;
+  return calendarDayNumber(targetParts) - calendarDayNumber(nowParts);
+}
+
 export function assertWithinForecastWindow(targetTime: string, now = new Date()): void {
   if (!isWithinForecastWindow(targetTime, now)) {
-    throw new Error("查詢時間必須是台北時間今天起三天內的 05:00–19:00 整點，且不可早於現在");
+    throw new Error("查詢時間必須是台北時間今天起五天內的 05:00–19:00 整點，且不可早於現在");
   }
 }

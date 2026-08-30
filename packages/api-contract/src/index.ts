@@ -107,7 +107,9 @@ export interface PublicMatchesResponse {
   forecasts: ForecastResponse[];
   observations: ObservationResponse[];
   matches: CombinedMatchResponse[];
-  ranking: "equal-provider-composite-historical-forecast";
+  ranking:
+    | "equal-provider-composite-historical-forecast"
+    | "ecmwf-only-historical-forecast";
 }
 
 export type PlaybackResponse =

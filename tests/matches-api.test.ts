@@ -194,4 +194,87 @@ describe("public matches response", () => {
     expect(body.matches[0].sources[0].coverage).toBeCloseTo(1.35 / 2);
     expect(body.matches[0].sources[1].coverage).toBeCloseTo(2.25 / 3.45);
   });
+
+  it("uses only ECMWF for calendar day offsets three and four", async () => {
+    const current = new Date();
+    const targetTime = taipeiForecastTarget(3, 8, current).toISOString();
+    const capturedAt = new Date(current.getTime() - 24 * 60 * 60_000).toISOString();
+    const ecmwfTarget = {
+      ...emptyForecastMetrics,
+      id: "forecast_ecmwf_later_target",
+      provider: "open-meteo",
+      model: "ecmwf_wam",
+      issued_at: current.toISOString(),
+      model_run_at: null,
+      valid_at: targetTime,
+      lead_hours: 80,
+      swell_height: 1,
+      swell_period: 10,
+      swell_direction: 90,
+    };
+    const cwaTarget = {
+      ...ecmwfTarget,
+      id: "forecast_cwa_later_target",
+      provider: "cwa",
+      model: "cwa-wave-f-a0020-001",
+    };
+    const ecmwfHistory = {
+      ...ecmwfTarget,
+      id: "forecast_ecmwf_later_history",
+      historical_video_id: "video_later",
+      issued_at: capturedAt,
+      valid_at: capturedAt,
+    };
+    const cwaHistory = {
+      ...cwaTarget,
+      id: "forecast_cwa_later_history",
+      historical_video_id: "video_later",
+      issued_at: capturedAt,
+      valid_at: capturedAt,
+    };
+    const db = {
+      prepare: (sql: string) => {
+        const statement = {
+          bind: () => statement,
+          first: async () => sql.includes("FROM spots WHERE")
+            ? {
+                id: "spot_double-lions",
+                slug: "double-lions",
+                name_en: "Double Lions",
+                name_zh: "雙獅",
+                region: "Northeast",
+                latitude: 24.8887597,
+                longitude: 121.8495724,
+              }
+            : null,
+          all: async () => {
+            if (sql.includes("WITH candidate_videos")) return { results: [ecmwfHistory, cwaHistory] };
+            if (sql.includes("FROM forecast_snapshots fs")) return { results: [ecmwfTarget, cwaTarget] };
+            if (sql.includes("FROM videos v")) return { results: [observationRow("video_later", capturedAt)] };
+            return { results: [] };
+          },
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+
+    const response = await api.fetch(
+      new Request(`https://example.com/api/v1/matches?spotId=spot_double-lions&targetTime=${encodeURIComponent(targetTime)}`),
+      { APP_ENV: "production", DB: db } as AppEnv,
+    );
+    const body = await response.json() as PublicMatchesResponse;
+
+    expect(response.status).toBe(200);
+    expect(body.ranking).toBe("ecmwf-only-historical-forecast");
+    expect(body.matches).toHaveLength(1);
+    expect(body.matches[0]).toMatchObject({
+      score: 1,
+      sources: [{
+        provider: "open-meteo",
+        model: "ecmwf_wam",
+        targetForecast: { id: "forecast_ecmwf_later_target" },
+        candidateForecast: { id: "forecast_ecmwf_later_history" },
+      }],
+    });
+  });
 });
