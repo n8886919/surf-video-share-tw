@@ -54,7 +54,7 @@ function observationRow(id: string, capturedAt: string) {
 }
 
 describe("public matches response", () => {
-  it("returns one equal-provider score and requires adequate CWA and ECMWF history", async () => {
+  it("returns one equal-provider score and requires adequate CWA and MFWAM history", async () => {
     const current = new Date();
     const dayOffset = firstSelectableForecastHour(0, current) == null ? 1 : 0;
     const targetTime = taipeiForecastTarget(dayOffset, firstSelectableForecastHour(dayOffset, current) ?? 5, current).toISOString();
@@ -70,7 +70,7 @@ describe("public matches response", () => {
       ...emptyForecastMetrics,
       id: "forecast_ecmwf_target",
       provider: "open-meteo",
-      model: "ecmwf_wam",
+      model: "meteofrance_wave",
       issued_at: new Date(now).toISOString(),
       model_run_at: null,
       valid_at: targetTime,
@@ -179,6 +179,7 @@ describe("public matches response", () => {
 
     expect(response.status).toBe(200);
     expect(body.targetTime).toBe(targetTime);
+    expect(historicalSql).toContain("fs.snapshot_kind = 'historical_forecast'");
     expect(historicalSql).toContain("CAST(strftime('%s', fs.issued_at) AS INTEGER)");
     expect(historicalSql).toContain("CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)");
     expect(timeWindowSql).toContain("julianday(v.captured_at) BETWEEN julianday(?) AND julianday(?)");
@@ -191,7 +192,7 @@ describe("public matches response", () => {
     expect(requestNow - recentCutoff).toBe(2 * 60 * 60_000);
     expect(requestNow).toBeGreaterThanOrEqual(current.getTime());
     expect(body.timeWindowObservations.map((observation) => observation.id)).toEqual(["video_nearby"]);
-    expect(body.ranking).toBe("equal-provider-composite-historical-forecast");
+    expect(body.ranking).toBe("equal-cwa-mfwam-composite-historical-forecast");
     expect(body.matches).toHaveLength(1);
     expect(body.matches[0]).toMatchObject({
       score: 1,
@@ -211,7 +212,7 @@ describe("public matches response", () => {
         },
         {
           provider: "open-meteo",
-          model: "ecmwf_wam",
+          model: "meteofrance_wave",
           targetForecast: { id: "forecast_ecmwf_target" },
           candidateForecast: {
             id: "forecast_ecmwf_adequate",
@@ -224,7 +225,7 @@ describe("public matches response", () => {
     expect(body.matches[0].sources[1].coverage).toBeCloseTo(2.25 / 3.45);
   });
 
-  it("uses only ECMWF for calendar day offsets three and four", async () => {
+  it("uses only MFWAM for calendar day offsets three and four", async () => {
     const current = new Date();
     const targetTime = taipeiForecastTarget(3, 8, current).toISOString();
     const capturedAt = new Date(current.getTime() - 24 * 60 * 60_000).toISOString();
@@ -232,7 +233,7 @@ describe("public matches response", () => {
       ...emptyForecastMetrics,
       id: "forecast_ecmwf_later_target",
       provider: "open-meteo",
-      model: "ecmwf_wam",
+      model: "meteofrance_wave",
       issued_at: current.toISOString(),
       model_run_at: null,
       valid_at: targetTime,
@@ -303,13 +304,13 @@ describe("public matches response", () => {
     const body = await response.json() as PublicMatchesResponse;
 
     expect(response.status).toBe(200);
-    expect(body.ranking).toBe("ecmwf-only-historical-forecast");
+    expect(body.ranking).toBe("mfwam-only-historical-forecast");
     expect(body.matches).toHaveLength(1);
     expect(body.matches[0]).toMatchObject({
       score: 1,
       sources: [{
         provider: "open-meteo",
-        model: "ecmwf_wam",
+        model: "meteofrance_wave",
         swellPairing: [
           { target: "primary", candidate: "secondary" },
           { target: "secondary", candidate: "primary" },

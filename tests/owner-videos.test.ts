@@ -25,7 +25,7 @@ const emptyMetrics = {
 };
 
 describe("owner video history response", () => {
-  it("returns newest-at-capture forecasts as separate provider rows", async () => {
+  it("returns active sources first and retains collect-only model rows", async () => {
     const capturedAt = "2026-08-25T03:00:00.000Z";
     const historicalSql: string[] = [];
     const observation = {
@@ -58,8 +58,9 @@ describe("owner video history response", () => {
       id: "forecast_history",
       historical_video_id: "video_owner",
       provider: "open-meteo",
-      model: "ecmwf_wam",
-      issued_at: "2026-08-25T00:00:00.000Z",
+      model: "meteofrance_wave",
+      snapshot_kind: "historical_forecast",
+      issued_at: "2026-08-25T04:00:00.000Z",
       model_run_at: null,
       valid_at: capturedAt,
       lead_hours: 3,
@@ -67,6 +68,21 @@ describe("owner video history response", () => {
       swell_height: 0.8,
       swell_direction: 90,
       swell_period: 8,
+    };
+    const cwaHistory = {
+      ...history,
+      id: "forecast_cwa",
+      provider: "cwa",
+      model: "cwa-wave-f-a0020-001",
+      snapshot_kind: "forecast",
+      issued_at: "2026-08-25T00:00:00.000Z",
+    };
+    const ecmwfHistory = {
+      ...history,
+      id: "forecast_ecmwf_collect_only",
+      model: "ecmwf_wam",
+      snapshot_kind: "forecast",
+      issued_at: "2026-08-25T00:00:00.000Z",
     };
     const user = {
       id: "user_dev_local",
@@ -83,7 +99,7 @@ describe("owner video history response", () => {
           all: async () => {
             if (sql.includes("WITH candidate_videos AS")) {
               historicalSql.push(sql);
-              return { results: [history] };
+              return { results: [ecmwfHistory, history, cwaHistory] };
             }
             if (sql.includes("metadata_expires_at <=") || sql.includes("status IN ('pending', 'processing')")) {
               return { results: [] };
@@ -113,16 +129,33 @@ describe("owner video history response", () => {
     expect(response.status).toBe(200);
     expect(body.observations[0]).toMatchObject({
       id: "video_owner",
-      historicalForecasts: [{
-        id: "forecast_history",
-        provider: "open-meteo",
-        model: "ecmwf_wam",
-        primarySwell: { height: 0.8, direction: 90, period: 8 },
-      }],
+      historicalForecasts: [
+        {
+          id: "forecast_cwa",
+          sourceDisplayName: "CWA",
+          matchingRole: "active",
+        },
+        {
+          id: "forecast_history",
+          provider: "open-meteo",
+          model: "meteofrance_wave",
+          sourceDisplayName: "Météo-France MFWAM",
+          matchingRole: "active",
+          snapshotKind: "historical_forecast",
+          primarySwell: { height: 0.8, direction: 90, period: 8 },
+        },
+        {
+          id: "forecast_ecmwf_collect_only",
+          sourceDisplayName: "ECMWF WAM 9 km",
+          matchingRole: "collect-only",
+        },
+      ],
       playbackCount90d: 7,
     });
     expect(historicalSql[0]).toContain("CAST(strftime('%s', fs.issued_at) AS INTEGER)");
     expect(historicalSql[0]).toContain("CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)");
+    expect(historicalSql[0]).toContain("fs.snapshot_kind = 'historical_forecast'");
+    expect(historicalSql[0]).toContain("CASE WHEN fs.snapshot_kind = 'historical_forecast' THEN 0 ELSE 1 END");
     expect(historicalSql[0]).toContain("PARTITION BY candidate_videos.id, fs.provider, fs.model");
   });
 });

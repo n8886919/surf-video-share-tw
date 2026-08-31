@@ -30,7 +30,9 @@ New uploads require `videos.spot_id`; the column remains nullable only for legac
 
 `condition_snapshots` describes capture-time context when a provider is available. Missing context is valid and never blocks a completed video.
 
-`forecast_snapshots` stores immutable provider/model/run/valid/lead/grid rows. Total wave, primary/secondary swell, wind wave, tide, wind, and gust fields are nullable because a provider may omit components. A unique source key prevents duplicate ingestion while never averaging models.
+`forecast_snapshots` stores immutable provider/model/run/valid/lead/grid rows plus `snapshot_kind` (`forecast` or `historical_forecast`). Total wave, total swell, primary/secondary/tertiary swell, wind wave, their available peak periods, tide, wind, and gust fields are nullable because a provider may omit components. Explicit total-swell columns prevent DWD GWAM's aggregate swell from being mislabeled as a primary partition. A unique source key prevents duplicate ingestion while never averaging models.
+
+Videos do not copy every provider row or retain multiple timeseries. Owner and matching reads select one nearby row per video/provider/model: prefer `historical_forecast`, otherwise use a `forecast` issued by capture time. The underlying immutable archive is shared across videos. Open-Meteo collect-only models retain only one future plus six recent-past hours per scheduled run; only active MFWAM retains the 168-hour future horizon.
 
 `ops_events` stores only curated operational event codes, severity, source, bounded route/error metadata, optional request ID, a sanitized summary, and timestamps. It never stores request bodies, cookies, authorization headers, provider credentials, raw client addresses, LINE subjects, or raw Cloudflare log payloads. `ops_incidents` deduplicates actionable fingerprints and records notification/recovery lifecycle. `ops_analysis_runs` stores one bounded structured result per hourly UTC window. Event retention is seven days and analysis retention is thirty days; raw Workers Logs remain the evidence source rather than being copied into D1.
 

@@ -1,5 +1,9 @@
 import type { AppEnv } from "../db";
-import { fetchOpenMeteoEcmwfWam } from "./open-meteo";
+import {
+  fetchOpenMeteoMarineModel,
+  OPEN_METEO_WAVE_MODELS,
+  type OpenMeteoWaveModel,
+} from "./open-meteo";
 import { insertForecastSnapshots, listActiveForecastSpots } from "./store";
 import type { ForecastProviderResult } from "./types";
 
@@ -18,15 +22,16 @@ function safeErrorMessage(error: unknown, sensitiveValue?: string): string {
     .slice(0, 500);
 }
 
-async function ingestOpenMeteo(
+async function ingestOpenMeteoModel(
   env: AppEnv,
   spots: Awaited<ReturnType<typeof listActiveForecastSpots>>,
   retrievedAt: string,
+  model: OpenMeteoWaveModel,
   fetchImpl: typeof fetch,
 ): Promise<ForecastProviderResult> {
   const results = await Promise.allSettled(spots.map(async (spot) => {
-    const snapshots = await fetchOpenMeteoEcmwfWam(spot, retrievedAt, fetchImpl);
-    if (!snapshots.length) throw new Error("Open-Meteo returned no usable ECMWF WAM forecasts");
+    const snapshots = await fetchOpenMeteoMarineModel(spot, retrievedAt, model, fetchImpl);
+    if (!snapshots.length) throw new Error(`Open-Meteo returned no usable ${model} forecasts`);
     return insertForecastSnapshots(env.DB, snapshots);
   }));
   const successful = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
@@ -34,7 +39,7 @@ async function ingestOpenMeteo(
     ? [`${spots[index].slug}: ${safeErrorMessage(result.reason)}`]
     : []);
   return {
-    provider: "open-meteo/ecmwf_wam",
+    provider: `open-meteo/${model}`,
     status: failures.length === 0 ? "complete" : successful.length ? "partial" : "failed",
     attempted: successful.reduce((sum, result) => sum + result.attempted, 0),
     inserted: successful.reduce((sum, result) => sum + result.inserted, 0),
@@ -53,12 +58,14 @@ export async function runForecastIngestion(
   const spots = await listActiveForecastSpots(env.DB);
   if (!spots.length) throw new Error("Forecast ingestion has no active spots with coordinates");
 
-  const openMeteo = await ingestOpenMeteo(env, spots, retrievalStartedAt, fetchImpl);
+  const openMeteo = await Promise.all(OPEN_METEO_WAVE_MODELS.map(({ model }) =>
+    ingestOpenMeteoModel(env, spots, retrievalStartedAt, model, fetchImpl)
+  ));
   return {
     scheduledAt: scheduledInstant,
     finishedAt: new Date().toISOString(),
     spots: spots.length,
-    providers: [openMeteo],
+    providers: openMeteo,
   };
 }
 
@@ -67,8 +74,8 @@ export async function runScheduledForecastIngestion(
   scheduledAt: Date,
 ): Promise<void> {
   const summary = await runForecastIngestion(env, scheduledAt);
-  const usableProviders = summary.providers.filter((provider) =>
-    provider.status === "complete" || provider.status === "partial"
+  const requiredMfwam = summary.providers.find(
+    (provider) => provider.provider === "open-meteo/meteofrance_wave",
   );
   const log = JSON.stringify({ event: "forecast_ingestion", ...summary });
   if (summary.providers.some((provider) => provider.status === "failed" || provider.status === "partial")) {
@@ -76,5 +83,7 @@ export async function runScheduledForecastIngestion(
   } else {
     console.log(log);
   }
-  if (!usableProviders.length) throw new Error("All configured forecast providers failed");
+  if (!requiredMfwam || requiredMfwam.status === "failed") {
+    throw new Error("Required Météo-France MFWAM ingestion failed");
+  }
 }

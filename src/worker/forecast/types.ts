@@ -4,11 +4,15 @@ export interface ForecastSpot {
   latitude: number;
   longitude: number;
 }
+
+export type ForecastSnapshotKind = "forecast" | "historical_forecast";
+
 export interface ForecastSnapshotInput {
   id: string;
   spotId: string;
   provider: string;
   model: string;
+  snapshotKind: ForecastSnapshotKind;
   issuedAt: string;
   modelRunAt: string | null;
   validAt: string;
@@ -18,15 +22,25 @@ export interface ForecastSnapshotInput {
   waveHeight: number | null;
   waveDirection: number | null;
   wavePeriod: number | null;
+  wavePeakPeriod: number | null;
+  totalSwellHeight: number | null;
+  totalSwellDirection: number | null;
+  totalSwellPeriod: number | null;
+  totalSwellPeakPeriod: number | null;
   swellHeight: number | null;
   swellDirection: number | null;
   swellPeriod: number | null;
+  swellPeakPeriod: number | null;
   secondarySwellHeight: number | null;
   secondarySwellDirection: number | null;
   secondarySwellPeriod: number | null;
+  tertiarySwellHeight: number | null;
+  tertiarySwellDirection: number | null;
+  tertiarySwellPeriod: number | null;
   windWaveHeight: number | null;
   windWaveDirection: number | null;
   windWavePeriod: number | null;
+  windWavePeakPeriod: number | null;
   tideHeight: number | null;
   tideSlope: number | null;
   tideState: string | null;

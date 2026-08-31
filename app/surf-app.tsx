@@ -301,19 +301,30 @@ function compactForecastGroup(group: Forecast["primarySwell"]): string {
   const height = group.height == null ? "—" : `${group.height.toFixed(1)}m`;
   const direction = formatDirection(group.direction);
   const period = group.period == null ? "—" : `${group.period.toFixed(1)}s`;
-  return `${height} / ${direction} / ${period}`;
+  const peakPeriod = group.peakPeriod == null ? "—" : `${group.peakPeriod.toFixed(1)}s`;
+  return `${height} / ${direction} / ${period} / ${peakPeriod}`;
 }
 
 function HistoricalForecastTable({ forecasts }: { forecasts: Forecast[] }) {
   if (!forecasts.length) return <p className="owner-forecast-empty">拍攝當時沒有可用的預報快照。</p>;
   return <div className="owner-forecast-scroll">
     <div className="owner-forecast-table">
-      <div className="owner-forecast-header"><span>預報</span><span>主浪<br/>浪高／浪向／週期</span><span>次浪<br/>浪高／浪向／週期</span><span>風<br/>風速／風向</span></div>
+      <div className="owner-forecast-header"><span>預報來源</span><span>總浪<br/>高／向／週期／峰值</span><span>總湧浪<br/>高／向／週期／峰值</span><span>主浪<br/>高／向／週期／峰值</span><span>次浪<br/>高／向／週期／峰值</span><span>第三浪<br/>高／向／週期／峰值</span><span>風浪<br/>高／向／週期／峰值</span><span>風<br/>風速／風向／陣風</span><span>潮位<br/>高度／狀態／斜率</span></div>
       {forecasts.map((forecast) => <div className="owner-forecast-row" key={forecast.id}>
-        <span><strong>{forecast.provider}</strong><small>{forecast.model}</small></span>
+        <span>
+          <strong>{forecast.sourceDisplayName}</strong>
+          <small>{forecast.model}</small>
+          <em className={forecast.matchingRole}>{forecast.matchingRole === "active" ? "參與相似度" : "僅蒐集，不影響相似度"}</em>
+          <small>{forecast.snapshotKind === "historical_forecast" ? "近期歷史預報" : "拍攝當時可得預報"}</small>
+        </span>
+        <span>{compactForecastGroup(forecast.totalWave)}</span>
+        <span>{compactForecastGroup(forecast.totalSwell)}</span>
         <span>{compactForecastGroup(forecast.primarySwell)}</span>
         <span>{compactForecastGroup(forecast.secondarySwell)}</span>
-        <span>{forecast.wind.speed == null ? "—" : `${forecast.wind.speed.toFixed(1)}m/s`} / {formatDirection(forecast.wind.direction)}</span>
+        <span>{compactForecastGroup(forecast.tertiarySwell)}</span>
+        <span>{compactForecastGroup(forecast.windWave)}</span>
+        <span>{forecast.wind.speed == null ? "—" : `${forecast.wind.speed.toFixed(1)}m/s`} / {formatDirection(forecast.wind.direction)} / {forecast.wind.gust == null ? "—" : `${forecast.wind.gust.toFixed(1)}m/s`}</span>
+        <span>{forecast.tide.height == null ? "—" : `${forecast.tide.height.toFixed(1)}m`} / {formatTideState(forecast.tide.state)} / {forecast.tide.slope == null ? "—" : `${forecast.tide.slope.toFixed(1)}m/h`}</span>
       </div>)}
     </div>
   </div>;
@@ -468,7 +479,7 @@ function ObservationCard({ observation, ownerActions }: {
           <div className="fun-field"><span>那天玩得如何？（公開、選填）</span><div><button type="button" className={observation.funReaction === "fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "fun" ? null : "fun" })}>👍 開心</button><button type="button" className={observation.funReaction === "not_fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "not_fun" ? null : "not_fun" })}>👎 不開心</button></div></div>
           <label className="note-field"><span>上傳者補充（公開、CC0、選填，最多 100 字）</span><input value={note} maxLength={100} placeholder="那天想補充什麼？" onChange={(event) => setNote(event.target.value)} onBlur={() => { if (note !== (observation.uploaderNote || "")) void patch({ uploaderNote: note.trim() || null }); }}/></label>
         </div>
-        <section className="owner-forecast-section"><h4>當時預報</h4><HistoricalForecastTable forecasts={observation.historicalForecasts ?? []}/></section>
+        <section className="owner-forecast-section"><h4>影片時間的模型資料</h4><HistoricalForecastTable forecasts={observation.historicalForecasts ?? []}/><small>CWA 與 MFWAM 排在前面並參與相似度；其餘模型照常保存與顯示，但不影響目前排序。</small></section>
         {canShareOwnerVideo && <div className="owner-share-panel">
           <div className="owner-share-actions">
             <button className="owner-action-icon" type="button" aria-label="分享連結" title="分享連結" onClick={() => void sharePublicLink()}><Icon name="share"/></button>
@@ -645,10 +656,6 @@ function forecastComparisonRows(
   ];
 }
 
-function sourceName(provider: string): string {
-  return provider === "cwa" ? "CWA" : provider === "open-meteo" ? "ECMWF" : provider;
-}
-
 function CombinedForecastDetails({ match }: { match: CombinedMatch }) {
   return <div className="combined-forecast-details">
     {match.sources.map((source) => {
@@ -658,7 +665,7 @@ function CombinedForecastDetails({ match }: { match: CombinedMatch }) {
         source.swellPairing,
       );
       return <section key={`${source.provider}:${source.model}`} className="combined-source-comparison">
-        <div className="combined-source-heading"><strong>{sourceName(source.provider)}</strong><small>來源相似度 {Math.round(source.score * 100)}%</small></div>
+        <div className="combined-source-heading"><strong>{source.targetForecast.sourceDisplayName}</strong><small>來源相似度 {Math.round(source.score * 100)}%</small></div>
         <div className="combined-metric-header"><span>特徵</span><span>目標</span><span>實拍當時（配對）</span></div>
         {rows.map((row) => <div className="combined-metric-row" data-swell-pairing={row.pairing} key={row.label}>
           <strong>{row.label}</strong><span>{row.targetValue}</span><span>{row.candidateValue}</span>
@@ -812,7 +819,7 @@ function CombinedMatchList({ matches }: { matches: CombinedMatch[] }) {
   const [activeObservation, setActiveObservation] = useState<Observation | null>(null);
   return (
     <section className="combined-match-area">
-      <div className="candidate-forecast-strip" aria-label="CWA 與 ECMWF 綜合相似實拍">
+      <div className="candidate-forecast-strip" aria-label="CWA 與 MFWAM 綜合相似實拍">
         {matches.map((match) => <article className="candidate-forecast-card" key={match.observation.id}>
           <button
             type="button"
@@ -1203,7 +1210,7 @@ function FindView({ spots }: { spots: Spot[] }) {
   return <div className="screen find-screen">
     <div className="search-panel">
       <FindSpotStrip spots={spots} selectedSpotId={selectedSpotId} onSelect={setSpotId}/>
-      <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`${offset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "multi-source" : "ecmwf-only"} ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散五日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>第 1–3 天：CWA＋ECMWF</span><span className="ecmwf-only"><i/>第 4–5 天：ECMWF-only</span></div></label>
+      <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`${offset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "multi-source" : "mfwam-only"} ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散五日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>第 1–3 天：CWA＋MFWAM</span><span className="mfwam-only"><i/>第 4–5 天：MFWAM-only</span></div></label>
       <label className="range-field"><span>時間 <output>{String(effectiveHour).padStart(2, "0")}:00</output></span><input type="range" min={minimumHour} max={FORECAST_HOUR_MAX} step="1" value={effectiveHour} onChange={(event) => setHour(Number(event.target.value))}/></label>
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
@@ -1211,7 +1218,7 @@ function FindView({ spots }: { spots: Spot[] }) {
     <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{loading ? "查詢中" : matches.length ? `${matches.length} 段` : "累積中"}</small></div>
       {matches.length
         ? <CombinedMatchList matches={matches}/>
-        : !loading && !error && <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 ECMWF 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 ECMWF 歷史預報的實拍；第 4–5 天會使用 ECMWF-only 相似度排序。"}</p></div>}
+        : !loading && !error && <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 MFWAM 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 MFWAM 歷史預報的實拍；第 4–5 天會使用 MFWAM-only 相似度排序。"}</p></div>}
       <div className="time-window-observation-section">
         <div className="section-heading"><h3>即時影片（近 2 小時）</h3><small>{loading ? "查詢中" : `${timeWindowObservations.length} 段`}</small></div>
         {timeWindowObservations.length
@@ -1323,7 +1330,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
           >?</button>
         </div>
         {uploadGuideOpen && <p className="upload-confidence-guide" id="upload-confidence-guide">
-          系統會以影片的拍攝時間與浪點，比對當時可得的 CWA 與 ECMWF 浪況。之後有人搜尋到相似預報時，這段實拍就可能成為他的浪況參考。每一段真實畫面，都能讓下一位浪人更有把握出發。
+          系統會以影片的拍攝時間與浪點，比對 CWA 與 MFWAM 浪況。若一般預報流程稍後提供該時段的近期歷史預報，會優先使用它；其他模型只保存與顯示，不影響相似度。之後有人搜尋到相似預報時，這段實拍就可能成為他的浪況參考。
         </p>}
         <div className="upload-source-picker" role="group" aria-label="影片來源">
           <label title="選擇影片"><input aria-label="選擇影片" type="file" accept="video/*" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="upload"/></label>

@@ -1,44 +1,62 @@
 # Data sources
 
-Last checked: 2026-08-31. Provider/model values remain independent; do not average them.
+Last checked against official documentation and small live responses: 2026-08-31. Provider/model rows are immutable and independent. A shared API field name never authorizes mixing features across models.
 
-Historical matching uses the newest forecast run issued by capture time whose valid time is near the capture. Current public queries use the newest run issued by query time whose valid time is near the selected `Asia/Taipei` day-offset 0–4, 05:00–19:00 whole-hour target. Lead time is preserved for provenance but is not a similarity requirement. At offsets 0–2 CWA and ECMWF remain separate feature rows and separate distance calculations, and only their normalized source scores are combined at equal weight after both pass coverage. Offsets 3–4 use the independent ECMWF score only. Reanalysis, hindcast, buoy, satellite, and other post-event observations may be stored only as separately labelled data; they never replace or overwrite the historical forecast used for matching.
+## Source registry
 
-| Purpose | Preferred source | Current decision |
-|---|---|---|
-| Taiwan wave forecast | CWA F-A0020-001 | Preserve each run at three-hourly 0–72 h leads; total wave height/direction/period |
-| Tide forecast | CWA F-A0021-001 | Per-spot approved locations, `AboveLocalMSL` cm converted to m, with half-cosine height/slope/state interpolation; exact spot/location provenance is immutable and Worker-validated |
-| Wave model comparison | ECMWF WAM through Open-Meteo Marine | 168 hourly forecast hours per run as separate feature rows; explicit WAM test returned total wave fields but null components |
-| Optional component comparison | Open-Meteo best-match Marine | Separate model/source only; never silently merge with WAM |
-| Wind | Open-Meteo Weather or verified CWA dataset | Wind speed/direction/gust, separate provenance |
-| Video | Cloudflare Stream | Direct creator upload plus signed thumbnail/playback and owner encoded-MP4 paths are live-verified; general expiry deletion and staged moderation remain pending |
+| Provider / model | Native coverage and update | Retained fields observed for Taiwan | Product role |
+|---|---|---|---|
+| CWA `cwa-wave-f-a0020-001` | 0–72 h, retained every 3 h | total wave height/direction/period | active match |
+| CWA `F-A0021-001` | approved per-spot locations | tide height/slope/state with exact LocationId and datum provenance | enriches the CWA active row |
+| Open-Meteo `meteofrance_wave` (MFWAM 0.08°) | global, native 3-hourly, 10-day forecast, updated every 12 h | total wave, wind wave, primary and secondary swell; peak fields retained if later supplied | active match |
+| Open-Meteo `ecmwf_wam` (WAM HRES 9 km) | global, hourly, 15-day forecast, updated every 6 h | total wave plus total-wave peak period; component arrays were null in the checked response | collect-only |
+| Open-Meteo `ncep_gfswave016` (GFS Wave 0.16°) | Taiwan is inside 52.5°N–15°S; hourly, 16-day forecast, updated every 6 h | total wave, wind wave, primary, secondary, and tertiary swell | collect-only |
+| Open-Meteo `dwd_gwam` (GWAM 0.25°) | global, hourly, 4-day forecast, updated every 12 h | total wave, wind wave, and one total-swell system with available peak periods | collect-only |
+| Cloudflare Stream | provider lifecycle | direct upload, signed thumbnail/playback, owner encoded MP4 | video |
 
-Official references:
+Matching uses only CWA and MFWAM. Offsets 0–2 require both source scores and average them equally after independent 50% coverage gates; offsets 3–4 use MFWAM-only. ECMWF, GFS, and GWAM are still stored and shown after the active rows in 「我的影片」 with an explicit collect-only label.
+
+## Normalization semantics
+
+- `wave_*` is total wave for every listed wave model.
+- MFWAM and GFS `swell_wave_*` is normalized as the first partitioned swell component; their secondary and tertiary arrays remain separate.
+- DWD GWAM `swell_wave_*` is normalized into explicit `total_swell_*` columns, never into the primary-swell columns.
+- ECMWF component arrays remain null when the provider does not supply them. Nothing is inferred from total wave.
+- `wave_peak_period`, `swell_peak_period`, `total_swell_peak_period`, and `wind_wave_peak_period` are retained when present. Peak period is not a current matching input.
+- Provider null remains null. A numeric zero returned by a provider remains a numeric zero and is not silently converted to missing.
+- Grid coordinates, retrieval time, model, requested spot coordinates, response hash, and swell semantics remain in normalized columns or bounded provenance.
+
+## Forecast versus historical forecast
+
+Open-Meteo ingestion always calls the normal live Marine Forecast endpoint. MFWAM requests 168 future hours because it serves future matching; the three collect-only models request one future hour. All four also request `past_hours=6`.
+
+A returned row with `valid_at < retrieved_at` is stored as `snapshot_kind = historical_forecast`; a current/future row is `forecast`. For a video, an available `historical_forecast` near capture is preferred as a later, more reality-adjacent model estimate. If absent, matching falls back to the newest `forecast` issued by capture. Future target queries filter to `forecast`, so a post-capture historical row can never become a future target.
+
+The service does not switch to Open-Meteo Historical Forecast mode, Single Runs, reanalysis, or hindcast, and does not backfill existing videos. Scheduled recent-past capture is bounded and naturally stops changing once a valid time leaves the six-hour live window.
+
+## CWA boundary
+
+The outbound-only Home Assistant App owns the expensive official CWA archive parsing. The CWA key stays in App options and never reaches Cloudflare. The Worker accepts only fixed HMAC-authenticated batches, validates active spots and time relationships, recomputes IDs, and rejects tide provenance that does not match the reviewed allowlist:
+
+- `O00400`: 烏石港、雙獅
+- `10002030`: 無尾
+- `O01200`: 蜜月灣
+- `O01300`: 金樽、北東河
+- `B02400`: 漁光島
+- `O00700`: 南灣
+
+CWA `Sent` is `issued_at`; `model_run_at` is derived from valid time minus lead. F-A0021-001 `AboveLocalMSL` centimetres are converted to metres, and interpolation provenance remains immutable.
+
+## Official references
 
 - CWA wave forecast: https://opendata.cwa.gov.tw/dataset/forecast/F-A0020-001
 - CWA tide forecast: https://opendata.cwa.gov.tw/dataset/forecast/F-A0021-001
-- Open-Meteo Marine: https://open-meteo.com/en/docs/marine-weather-api
+- Open-Meteo Marine API, model coverage, variables, and recent-past controls: https://open-meteo.com/en/docs/marine-weather-api
+- Open-Meteo model update status: https://open-meteo.com/en/docs/model-updates
 - Cloudflare Stream direct uploads: https://developers.cloudflare.com/stream/uploading-videos/direct-creator-uploads/
 
-Implementation notes checked against live responses and official provider pages on 2026-08-30:
+Provider attribution and licence requirements must be rechecked before public launch and presented in the product's non-interrupting About/Support area. Do not infer licence terms from an API response.
 
-- The current CWA wave download is a large ZIP of PascalCase XML files. The parser also accepts the older lowercase schema fixture. The archive is streamed and bounded; hourly files not on a three-hour lead are skipped without decompression to control Worker CPU and D1 writes.
-- CWA `Sent` is preserved as `issued_at`; `model_run_at` is derived from `valid_at - lead_hours`. Tide interpolation provenance stays in `raw_payload` and does not change the wave run identity.
-- Production CWA retrieval runs only in the outbound-only Home Assistant App. Its CWA key is stored in App options and never sent to Cloudflare. The Worker's retired `CWA_QUERY_STRING_REDACTION_VERIFIED` guard remains `false`; Cloudflare Cron continues ECMWF WAM independently.
-- The 2026-08-30 production E2E retained 3,960 immutable `open-meteo` / `ecmwf_wam` snapshots and added 50 independent `cwa` / `cwa-wave-f-a0020-001` snapshots across the two active spots. The Raspberry Pi adapter replaces the rejected Worker-side archive compute path without Workers Paid; ten five-row HMAC/D1 batches stayed within Workers Free CPU, with an observed maximum of 9 ms. Replaying the same upstream run inserted zero rows and reported 50 duplicates, while D1 retained zero duplicate source/run/valid groups.
-- Open-Meteo exposes grid coordinates and hourly values but not an ECMWF model-run timestamp. `issued_at` therefore records the first retrieval by this service, `model_run_at` is null, and a normalized response hash makes an identical retry idempotent. Missing component arrays remain null rather than inferred.
-- The owner-provided official F-A0021-001 JSON sent at `2026-08-31T00:07:02+08:00` contained 266 locations and 32 forecast days per reviewed location. It exposed newer exact surf locations `O01200` 蜜月灣 and `O01300` 金樽 even though the previously indexed explanatory PDF stopped at `O01000`. All six approved location IDs had complete `AboveLocalMSL` extrema. Candidate comparison found identical full event sequences for 無尾's three nearby official locations, 金樽／東河's three candidates, and the three reviewed 安平 candidates; 蜜月灣's exact surf point was within 0.06 km of the owner coordinate. The approved mapping is therefore `O00400` 烏石港／雙獅, `10002030` 無尾, `O01200` 蜜月灣, `O01300` 金樽／北東河, `B02400` 漁光島, and `O00700` 南灣.
-- F-A0021-001 locations are official forecast locations, not assertions that each point contains a physical tide gauge. CWA documents that locations without a gauge may be adjusted from numerical modelling and nearby-station harmonic forecasts. The product preserves the official LocationId and `AboveLocalMSL` datum rather than describing it as a measured station.
+## Spot coordinates
 
-Launch coordinates and provenance:
-
-- 烏石港: `24.8731036, 121.8411446`, user-supplied Google Maps point.
-- 雙獅: `24.8887597, 121.8495724`, user-supplied Google Maps place marker.
-- 無尾: `24.6114709, 121.867805`, user-supplied coordinates.
-- 蜜月灣: `24.9333608, 121.885568`, user-supplied coordinates.
-- 金樽: `22.9558919, 121.2942829`, user-supplied coordinates.
-- 北東河: `22.976243201721132, 121.31300650318626`, user-supplied coordinates.
-- 漁光島: `22.980289143624113, 120.15516081806676`, user-supplied coordinates.
-- 南灣: `21.95878467673781, 120.76046672044414`, user-supplied coordinates.
-
-Only the names and coordinates supplied by the owner are authoritative for the six additions. Existing checklist slugs/English labels are internal identifiers, not newly verified translations or external descriptions.
+The eight active coordinates in `data/spots.csv` come from owner-supplied points and are not provider grid assertions. Provider responses preserve their independently selected sea-grid coordinates.

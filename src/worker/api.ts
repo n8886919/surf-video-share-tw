@@ -20,12 +20,15 @@ import {
   type VideoShareLinkResponse,
 } from "../../packages/api-contract/src";
 import {
+  ACTIVE_MATCH_SOURCES,
   assertWithinForecastWindow,
   assertWithinUploadWindow,
   COMPOSITE_FORECAST_DAY_OFFSET_MAX,
   PUBLIC_MEDIA_LICENSE,
   PUBLIC_MEDIA_TERMS_VERSION,
   combineRequiredSourceScores,
+  findForecastSource,
+  forecastSourceKey,
   rankSimilarConditions,
   taipeiForecastDayOffset,
   type MarineConditions,
@@ -60,14 +63,7 @@ const SHARE_MONTHLY_ANONYMOUS_PLAY_LIMIT = 100;
 const RECENT_OBSERVATION_WINDOW_MS = 2 * 60 * 60_000;
 type AnonymousWriteScope = "line-login" | "problem-report" | "video-report";
 
-const REQUIRED_MATCH_SOURCES = [
-  { provider: "cwa", model: "cwa-wave-f-a0020-001" },
-  { provider: "open-meteo", model: "ecmwf_wam" },
-] as const;
-
-function matchSourceKey(provider: string, model: string): string {
-  return `${provider}:${model}`;
-}
+const REQUIRED_MATCH_SOURCES = ACTIVE_MATCH_SOURCES;
 
 function canonicalUtcTimestamp(timestamp: string): string {
   return new Date(timestamp).toISOString();
@@ -470,6 +466,7 @@ interface ForecastRow {
   id: string;
   provider: string;
   model: string;
+  snapshot_kind: string;
   issued_at: string;
   model_run_at: string | null;
   valid_at: string;
@@ -477,15 +474,25 @@ interface ForecastRow {
   wave_height: number | null;
   wave_direction: number | null;
   wave_period: number | null;
+  wave_peak_period: number | null;
+  total_swell_height: number | null;
+  total_swell_direction: number | null;
+  total_swell_period: number | null;
+  total_swell_peak_period: number | null;
   swell_height: number | null;
   swell_direction: number | null;
   swell_period: number | null;
+  swell_peak_period: number | null;
   secondary_swell_height: number | null;
   secondary_swell_direction: number | null;
   secondary_swell_period: number | null;
+  tertiary_swell_height: number | null;
+  tertiary_swell_direction: number | null;
+  tertiary_swell_period: number | null;
   wind_wave_height: number | null;
   wind_wave_direction: number | null;
   wind_wave_period: number | null;
+  wind_wave_peak_period: number | null;
   tide_height: number | null;
   tide_slope: number | null;
   tide_state: string | null;
@@ -615,19 +622,70 @@ function isAdmin(env: AppEnv, user: UserRow): boolean {
   return Boolean(env.ADMIN_USER_ID) && env.ADMIN_USER_ID === user.id;
 }
 
+function forecastMetricGroup(
+  height: number | null | undefined,
+  direction: number | null | undefined,
+  period: number | null | undefined,
+  peakPeriod: number | null | undefined = null,
+): ForecastResponse["totalWave"] {
+  return {
+    height: height ?? null,
+    direction: direction ?? null,
+    period: period ?? null,
+    peakPeriod: peakPeriod ?? null,
+  };
+}
+
 function serializeForecast(row: ForecastRow): ForecastResponse {
+  const source = findForecastSource(row.provider, row.model);
   return {
     id: row.id,
     provider: row.provider,
     model: row.model,
+    sourceDisplayName: source?.displayName ?? `${row.provider} / ${row.model}`,
+    matchingRole: source?.matchingRole ?? "collect-only",
+    swellSemantics: source?.swellSemantics ?? "unknown",
+    snapshotKind: row.snapshot_kind === "historical_forecast"
+      ? "historical_forecast"
+      : "forecast",
     issuedAt: row.issued_at,
     modelRunAt: row.model_run_at,
     validAt: row.valid_at,
     leadHours: row.lead_hours,
-    totalWave: { height: row.wave_height, direction: row.wave_direction, period: row.wave_period },
-    primarySwell: { height: row.swell_height, direction: row.swell_direction, period: row.swell_period },
-    secondarySwell: { height: row.secondary_swell_height, direction: row.secondary_swell_direction, period: row.secondary_swell_period },
-    windWave: { height: row.wind_wave_height, direction: row.wind_wave_direction, period: row.wind_wave_period },
+    totalWave: forecastMetricGroup(
+      row.wave_height,
+      row.wave_direction,
+      row.wave_period,
+      row.wave_peak_period,
+    ),
+    totalSwell: forecastMetricGroup(
+      row.total_swell_height,
+      row.total_swell_direction,
+      row.total_swell_period,
+      row.total_swell_peak_period,
+    ),
+    primarySwell: forecastMetricGroup(
+      row.swell_height,
+      row.swell_direction,
+      row.swell_period,
+      row.swell_peak_period,
+    ),
+    secondarySwell: forecastMetricGroup(
+      row.secondary_swell_height,
+      row.secondary_swell_direction,
+      row.secondary_swell_period,
+    ),
+    tertiarySwell: forecastMetricGroup(
+      row.tertiary_swell_height,
+      row.tertiary_swell_direction,
+      row.tertiary_swell_period,
+    ),
+    windWave: forecastMetricGroup(
+      row.wind_wave_height,
+      row.wind_wave_direction,
+      row.wind_wave_period,
+      row.wind_wave_peak_period,
+    ),
     tide: { height: row.tide_height, slope: row.tide_slope, state: row.tide_state },
     wind: { speed: row.wind_speed, direction: row.wind_direction, gust: row.wind_gust },
   };
@@ -691,14 +749,18 @@ async function findOwnedHistoricalForecasts(
        SELECT fs.*, candidate_videos.id AS historical_video_id,
          ROW_NUMBER() OVER (
            PARTITION BY candidate_videos.id, fs.provider, fs.model
-           ORDER BY fs.issued_at DESC,
+           ORDER BY CASE WHEN fs.snapshot_kind = 'historical_forecast' THEN 0 ELSE 1 END,
              ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)),
+             fs.issued_at DESC,
              fs.id
          ) AS historical_rank
        FROM candidate_videos
        JOIN forecast_snapshots fs ON fs.spot_id = candidate_videos.spot_id
-       WHERE CAST(strftime('%s', fs.issued_at) AS INTEGER)
-         <= CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)
+       WHERE (
+         fs.snapshot_kind = 'historical_forecast'
+         OR CAST(strftime('%s', fs.issued_at) AS INTEGER)
+           <= CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)
+       )
          AND ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)) <= 14400
      )
      SELECT * FROM ranked_history WHERE historical_rank = 1
@@ -710,12 +772,26 @@ async function findOwnedHistoricalForecasts(
   return result.results;
 }
 
+function sortForecastsForDisplay(forecasts: ForecastResponse[]): ForecastResponse[] {
+  return forecasts.sort((left, right) => {
+    const leftOrder = findForecastSource(left.provider, left.model)?.displayOrder
+      ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = findForecastSource(right.provider, right.model)?.displayOrder
+      ?? Number.MAX_SAFE_INTEGER;
+    return leftOrder - rightOrder
+      || left.sourceDisplayName.localeCompare(right.sourceDisplayName);
+  });
+}
+
 function historicalForecastMap(rows: HistoricalForecastRow[]): Map<string, ForecastResponse[]> {
   const byVideo = new Map<string, ForecastResponse[]>();
   for (const row of rows) {
     const current = byVideo.get(row.historical_video_id) ?? [];
     current.push(serializeForecast(row));
     byVideo.set(row.historical_video_id, current);
+  }
+  for (const forecasts of byVideo.values()) {
+    sortForecastsForDisplay(forecasts);
   }
   return byVideo;
 }
@@ -1159,7 +1235,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
              ABS(strftime('%s', valid_at) - strftime('%s', ?)), id
          ) AS source_rank
          FROM forecast_snapshots fs
-         WHERE spot_id = ? AND issued_at <= ?
+         WHERE spot_id = ? AND snapshot_kind = 'forecast' AND issued_at <= ?
            AND ABS(strftime('%s', valid_at) - strftime('%s', ?)) <= 14400
        ) WHERE source_rank = 1 LIMIT 8`,
     ).bind(targetTime, targetTime, spot.id, now, targetTime).all<ForecastRow>(),
@@ -1181,14 +1257,18 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
          SELECT fs.*, candidate_videos.id AS historical_video_id,
            ROW_NUMBER() OVER (
              PARTITION BY candidate_videos.id, fs.provider, fs.model
-             ORDER BY fs.issued_at DESC,
+             ORDER BY CASE WHEN fs.snapshot_kind = 'historical_forecast' THEN 0 ELSE 1 END,
                ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)),
+               fs.issued_at DESC,
                fs.id
            ) AS historical_rank
          FROM candidate_videos
          JOIN forecast_snapshots fs ON fs.spot_id = ?
-         WHERE CAST(strftime('%s', fs.issued_at) AS INTEGER)
-           <= CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)
+         WHERE (
+           fs.snapshot_kind = 'historical_forecast'
+           OR CAST(strftime('%s', fs.issued_at) AS INTEGER)
+             <= CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)
+         )
            AND ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)) <= 14400
        )
        SELECT * FROM ranked_history WHERE historical_rank = 1`,
@@ -1209,14 +1289,14 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     row,
   ]));
   const targetForecastBySource = new Map(forecastResult.results.map((forecast) => [
-    matchSourceKey(forecast.provider, forecast.model),
+    forecastSourceKey(forecast.provider, forecast.model),
     forecast,
   ]));
   const dayOffset = taipeiForecastDayOffset(targetTime);
   const requiredSources = dayOffset !== null && dayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX
     ? REQUIRED_MATCH_SOURCES
     : REQUIRED_MATCH_SOURCES.slice(1);
-  const requiredSourceKeys = requiredSources.map(({ provider, model }) => matchSourceKey(provider, model));
+  const requiredSourceKeys = requiredSources.map(({ provider, model }) => forecastSourceKey(provider, model));
   const rankedBySource = new Map<string, Map<string, ReturnType<typeof rankSimilarConditions>[number]>>();
   for (const sourceKey of requiredSourceKeys) {
     const targetForecast = targetForecastBySource.get(sourceKey);
@@ -1284,8 +1364,8 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     timeWindowObservations: recentVideoResult.results.map((row) => serializeObservation(row)),
     matches,
     ranking: requiredSources.length === 2
-      ? "equal-provider-composite-historical-forecast"
-      : "ecmwf-only-historical-forecast",
+      ? "equal-cwa-mfwam-composite-historical-forecast"
+      : "mfwam-only-historical-forecast",
   };
   return context.json(response);
 });
@@ -1532,7 +1612,13 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
     findOwnedHistoricalForecasts(context.env, user.id, video.id),
   ]);
   return context.json({
-    observation: observation ? serializeObservation(observation, true, historicalRows.map(serializeForecast)) : null,
+    observation: observation
+      ? serializeObservation(
+          observation,
+          true,
+          sortForecastsForDisplay(historicalRows.map(serializeForecast)),
+        )
+      : null,
     conditionsAttached: Boolean(conditionSnapshotId),
   });
 });
@@ -1545,7 +1631,13 @@ api.get("/videos/:id", async (context) => {
     findOwnedHistoricalForecasts(context.env, user.id, videoId),
   ]);
   if (!observation) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到影片" }, 404);
-  return context.json({ observation: serializeObservation(observation, true, historicalRows.map(serializeForecast)) });
+  return context.json({
+    observation: serializeObservation(
+      observation,
+      true,
+      sortForecastsForDisplay(historicalRows.map(serializeForecast)),
+    ),
+  });
 });
 
 api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) => {
@@ -1636,7 +1728,13 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
     findOwnedHistoricalForecasts(context.env, user.id, current.id),
   ]);
   return context.json({
-    observation: observation ? serializeObservation(observation, true, historicalRows.map(serializeForecast)) : null,
+    observation: observation
+      ? serializeObservation(
+          observation,
+          true,
+          sortForecastsForDisplay(historicalRows.map(serializeForecast)),
+        )
+      : null,
   });
 });
 

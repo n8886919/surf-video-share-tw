@@ -1,5 +1,8 @@
 import type { MarineConditions } from "./conditions";
 
+// Scoring authority: every change to this file must update docs/MATCHING.md.
+// tests/matching-doc.test.ts enforces the source fingerprint and documented constants.
+
 export interface HistoricalCondition {
   id: string;
   conditions: MarineConditions;

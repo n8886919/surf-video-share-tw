@@ -80,7 +80,7 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /準備下載 MP4/);
   assert.match(clientBundle, /近 90 天播放/);
   assert.match(clientBundle, /近 90 天播放 · /);
-  assert.match(clientBundle, /當時預報/);
+  assert.match(clientBundle, /影片時間的模型資料/);
   assert.doesNotMatch(clientBundle, /拍攝當時預報/);
   assert.doesNotMatch(clientBundle, /每個來源獨立顯示，不與其他模型平均。/);
   assert.match(clientBundle, /owner-action-icon/);
@@ -95,12 +95,13 @@ test("renders the product title and language", async () => {
   assert.doesNotMatch(clientBundle, /所選時間前後 2 小時/);
   assert.match(clientBundle, /timeWindowObservations/);
   assert.doesNotMatch(clientBundle, /所選預報/);
-  assert.match(clientBundle, /CWA 與 ECMWF 綜合相似實拍/);
+  assert.match(clientBundle, /CWA 與 MFWAM 綜合相似實拍/);
   assert.match(clientBundle, /次湧浪/);
   assert.match(clientBundle, /風浪/);
   assert.match(clientBundle, /預報日期，離散五日/);
-  assert.match(clientBundle, /第 1–3 天：CWA＋ECMWF/);
-  assert.match(clientBundle, /第 4–5 天：ECMWF-only/);
+  assert.match(clientBundle, /第 1–3 天：CWA＋MFWAM/);
+  assert.match(clientBundle, /第 4–5 天：MFWAM-only/);
+  assert.match(clientBundle, /僅蒐集，不影響相似度/);
   assert.doesNotMatch(clientBundle, /test-spot-/);
   assert.doesNotMatch(clientBundle, /測試 [1-6]/);
   assert.match(clientBundle, /拍攝時間 05:00–19:59/);

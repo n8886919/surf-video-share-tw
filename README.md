@@ -57,13 +57,14 @@ pnpm db:migrate:local
 4. Production deploys to Cloudflare Worker `surf-video-share-tw` with D1 binding `DB`. `pnpm deploy` requires a separate write credential, applies pending remote migrations, publishes, then restores and reads back query-string redaction. Cloudflare Workers Builds must be configured in its Dashboard settings to use `pnpm deploy`; framework auto-detection may otherwise bypass this guard.
 5. Configure the Worker secrets from `.env.example`, including the dedicated `FORECAST_INGESTION_SECRET`; never commit `.env.local`.
 
-LINE Login remains fail-closed when production values are incomplete. Signed, origin-restricted Stream upload/thumbnail/playback and owner MP4 download have passed real mobile checks; the newer 24-hour share-link/quota flow still needs two-phone acceptance after an approved deployment. Cloudflare Cron retains ECMWF WAM and cleanup duties, while a separate hourly Workers AI path summarizes curated operations events and sends only actionable LINE alerts. An independent GitHub Actions workflow probes production about every five minutes and stays silent during steady health. The outbound-only Home Assistant App performs the CWA whole-ZIP compute and submits small HMAC-authenticated batches; it never receives a D1 token. See [Operations](docs/OPERATIONS.md) and [Data sources](docs/DATA_SOURCES.md).
+LINE Login remains fail-closed when production values are incomplete. Signed, origin-restricted Stream upload/thumbnail/playback and owner MP4 download have passed real mobile checks; the newer 24-hour share-link/quota flow still needs two-phone acceptance after an approved deployment. Cloudflare Cron independently collects active MFWAM plus collect-only ECMWF WAM, GFS Wave 0.16°, and DWD GWAM, while the outbound-only Home Assistant App performs CWA whole-ZIP compute and submits small HMAC-authenticated batches without a D1 token. Matching uses only CWA＋MFWAM; all five model rows remain independently visible in the owner view. A separate hourly Workers AI path summarizes curated operations events, and GitHub Actions probes production independently. See [Operations](docs/OPERATIONS.md), [Data sources](docs/DATA_SOURCES.md), and [Matching algorithm](docs/MATCHING.md).
 
 ## Documentation
 
 - [Product](docs/PRODUCT.md)
 - [Project principles](docs/PROJECT_PRINCIPLES.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Matching algorithm](docs/MATCHING.md)
 - [Data model](docs/DATA_MODEL.md)
 - [API](docs/API.md)
 - [Security and privacy](docs/SECURITY_PRIVACY.md)

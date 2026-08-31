@@ -84,19 +84,26 @@ export interface ForecastMetricGroupResponse {
   height: number | null;
   direction: number | null;
   period: number | null;
+  peakPeriod: number | null;
 }
 
 export interface ForecastResponse {
   id: string;
   provider: string;
   model: string;
+  sourceDisplayName: string;
+  matchingRole: "active" | "collect-only";
+  swellSemantics: "none" | "partitioned" | "total" | "unknown";
+  snapshotKind: "forecast" | "historical_forecast";
   issuedAt: string;
   modelRunAt: string | null;
   validAt: string;
   leadHours: number | null;
   totalWave: ForecastMetricGroupResponse;
+  totalSwell: ForecastMetricGroupResponse;
   primarySwell: ForecastMetricGroupResponse;
   secondarySwell: ForecastMetricGroupResponse;
+  tertiarySwell: ForecastMetricGroupResponse;
   windWave: ForecastMetricGroupResponse;
   tide: { height: number | null; slope: number | null; state: string | null };
   wind: { speed: number | null; direction: number | null; gust: number | null };
@@ -134,8 +141,8 @@ export interface PublicMatchesResponse {
   timeWindowObservations: ObservationResponse[];
   matches: CombinedMatchResponse[];
   ranking:
-    | "equal-provider-composite-historical-forecast"
-    | "ecmwf-only-historical-forecast";
+    | "equal-cwa-mfwam-composite-historical-forecast"
+    | "mfwam-only-historical-forecast";
 }
 
 export type PlaybackResponse =

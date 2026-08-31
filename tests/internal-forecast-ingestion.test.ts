@@ -158,8 +158,9 @@ describe("internal forecast ingestion API", () => {
       snapshots: [{ ...validSnapshot(), spotId: "spot_jinzun" }],
     }, env(db));
     expect(response.status).toBe(200);
-    expect(db.lastValues?.slice(22, 25)).toEqual([null, null, null]);
-    expect(JSON.parse(String(db.lastValues?.[30]))).toMatchObject({ tide: null });
+    expect(db.lastValues).toHaveLength(43);
+    expect(db.lastValues?.slice(33, 36)).toEqual([null, null, null]);
+    expect(JSON.parse(String(db.lastValues?.[41]))).toMatchObject({ tide: null });
   });
 
   it.each([
@@ -178,8 +179,9 @@ describe("internal forecast ingestion API", () => {
     snapshot.provenance.tide.locationId = locationId;
     const response = await post({ version: 2, snapshots: [snapshot] }, env(db));
     expect(response.status).toBe(200);
-    expect(db.lastValues?.slice(22, 25)).toEqual([0.2, -0.31, "falling"]);
-    expect(JSON.parse(String(db.lastValues?.[30]))).toMatchObject({
+    expect(db.lastValues).toHaveLength(43);
+    expect(db.lastValues?.slice(33, 36)).toEqual([0.2, -0.31, "falling"]);
+    expect(JSON.parse(String(db.lastValues?.[41]))).toMatchObject({
       tide: { dataset: "F-A0021-001", locationId },
     });
   });

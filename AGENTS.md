@@ -24,7 +24,8 @@ The non-negotiable philosophy is in `docs/PROJECT_PRINCIPLES.md`. The canonical 
 - D1 stores normalized searchable metrics and provider provenance. Never overwrite historical snapshots when providers change.
 - External video, marine, and tide systems stay behind provider interfaces.
 - Backend owns authorization and all business rules, including the 168-hour validation and public/private lifecycle.
-- Forecast runs are immutable, provider-specific snapshots. For both a future query and a historical capture, use the newest run available at that moment with a valid time near the target; do not require equal lead time. Never average CWA, ECMWF WAM, or other models into one feature row.
+- Forecast runs are immutable, provider-specific snapshots. A future query uses the newest available `forecast` row near its target. A historical capture prefers a separately labelled `historical_forecast` row collected through the normal live forecast endpoint's bounded recent-past window, then falls back to the newest `forecast` row available at capture; never invoke an old Historical Forecast mode or fabricate backfill. Never average CWA, MFWAM, ECMWF WAM, GFS Wave, GWAM, or other models into one feature row.
+- Matching currently uses only CWA `cwa-wave-f-a0020-001` and Open-Meteo `meteofrance_wave`; ECMWF WAM, GFS Wave 0.16°, and DWD GWAM are collect-only and must still remain independently stored and visible in the owner video view.
 - No SwellEye crawler or copied descriptions/media/forecasts. Spot names are only a checklist.
 - Never invent spot coordinates, translations, provider behavior, or licensing. Verify official docs and leave fields blank/TODO.
 
@@ -62,7 +63,7 @@ Production deployment uses the reviewed Wrangler configuration. Cloudflare Strea
 | API validation | `packages/api-contract/src/index.ts` |
 | API behavior | `src/worker/api.ts` |
 | Time/date policy | `packages/domain/src/time-policy.ts` |
-| Matching behavior | `packages/domain/src/matching.ts` |
+| Matching behavior | `packages/domain/src/matching.ts`; detailed synchronized specification in `docs/MATCHING.md` |
 | Spot checklist | `data/spots.csv` |
 | Providers and provenance | `src/worker/providers/`, `docs/DATA_SOURCES.md` |
 | Secrets/deployment/cost | `docs/OPERATIONS.md`, `.env.example` |

@@ -73,17 +73,44 @@ function forecast(
   return {
     id,
     provider: "open-meteo",
-    model: "ecmwf_wam",
+    model: "meteofrance_wave",
+    sourceDisplayName: "Météo-France MFWAM",
+    matchingRole: "active",
+    swellSemantics: "partitioned",
+    snapshotKind: "forecast",
     issuedAt: "2026-08-30T00:00:00.000Z",
     modelRunAt: null,
     validAt: "2026-08-30T01:00:00.000Z",
     leadHours: 1,
-    totalWave: { height: 1.5, direction: 80, period: 10 },
-    primarySwell: primary,
-    secondarySwell: secondary,
-    windWave: { height: 0.3, direction: 20, period: 4 },
+    totalWave: { height: 1.5, direction: 80, period: 10, peakPeriod: null },
+    totalSwell: { height: null, direction: null, period: null, peakPeriod: null },
+    primarySwell: { ...primary, peakPeriod: null },
+    secondarySwell: { ...secondary, peakPeriod: null },
+    tertiarySwell: { height: null, direction: null, period: null, peakPeriod: null },
+    windWave: { height: 0.3, direction: 20, period: 4, peakPeriod: null },
     tide: { height: 0.5, slope: 0.1, state: "rising" },
     wind: { speed: 4, direction: 10, gust: 6 },
+  };
+}
+
+function ownerForecast(
+  id: string,
+  provider: string,
+  model: string,
+  sourceDisplayName: string,
+  matchingRole: "active" | "collect-only",
+) {
+  return {
+    ...forecast(
+      id,
+      { height: 1.2, direction: 40, period: 11 },
+      { height: 0.8, direction: 120, period: 8 },
+    ),
+    provider,
+    model,
+    sourceDisplayName,
+    matchingRole,
+    snapshotKind: "historical_forecast",
   };
 }
 
@@ -114,7 +141,7 @@ function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
       observation: item,
       sources: [{
         provider: "open-meteo",
-        model: "ecmwf_wam",
+        model: "meteofrance_wave",
         score: 1,
         availableWeight: 3.45,
         matchedWeight: 3.45,
@@ -127,7 +154,7 @@ function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
         candidateForecast: forecast("candidate", secondary, primary),
       }],
     }],
-    ranking: "equal-provider-composite-historical-forecast",
+    ranking: "equal-cwa-mfwam-composite-historical-forecast",
   };
 }
 
@@ -193,6 +220,59 @@ test("shows the exact swapped swell assignment used by matching", async ({ page 
   await expect(primaryRow).toContainText("次湧浪 · 1.2m · 40° · 11.0s");
   await expect(secondaryRow).toContainText("次湧浪");
   await expect(secondaryRow).toContainText("主湧浪 · 0.8m · 120° · 8.0s");
+});
+
+test("owner video shows active sources first and every collect-only model", async ({ page }) => {
+  const ownerItem = {
+    ...observation("video_owner_models", spots[0].id, spots[0].name),
+    showUploader: false,
+    playbackCount90d: 0,
+    historicalForecasts: [
+      ownerForecast("cwa", "cwa", "cwa-wave-f-a0020-001", "CWA", "active"),
+      ownerForecast("mfwam", "open-meteo", "meteofrance_wave", "Météo-France MFWAM", "active"),
+      ownerForecast("ecmwf", "open-meteo", "ecmwf_wam", "ECMWF WAM 9 km", "collect-only"),
+      ownerForecast("gfs", "open-meteo", "ncep_gfswave016", "NOAA GFS Wave 0.16°", "collect-only"),
+      ownerForecast("gwam", "open-meteo", "dwd_gwam", "DWD GWAM", "collect-only"),
+    ],
+  };
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/v1/spots") return fulfillJson(route, 200, { spots });
+    if (url.pathname === "/api/v1/me") {
+      return fulfillJson(route, 200, {
+        id: "user_owner",
+        suggestedDisplayName: null,
+        displayId: "浪人",
+        showIdentityDefault: false,
+        authMode: "line",
+        isAdmin: false,
+      });
+    }
+    if (url.pathname === "/api/v1/videos") {
+      return fulfillJson(route, 200, { observations: [ownerItem] });
+    }
+    if (url.pathname === "/api/v1/matches") {
+      return fulfillJson(route, 200, matchesResponse(route.request().url(), spots[0].id, spots[0].name));
+    }
+    return fulfillJson(route, 404, { error: "NOT_FOUND", message: "找不到資源" });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "我的", exact: true }).click();
+  await page.getByRole("button", { name: "更多資訊", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "影片時間的模型資料" })).toBeVisible();
+  const headers = page.locator(".owner-forecast-header span");
+  await expect(headers.filter({ hasText: "總湧浪" })).toBeVisible();
+  await expect(headers.filter({ hasText: "第三浪" })).toBeVisible();
+  const rows = page.locator(".owner-forecast-row");
+  await expect(rows).toHaveCount(5);
+  await expect(rows.nth(0)).toContainText("CWA");
+  await expect(rows.nth(1)).toContainText("Météo-France MFWAM");
+  await expect(rows.nth(2)).toContainText("ECMWF WAM 9 km");
+  await expect(rows.nth(3)).toContainText("NOAA GFS Wave 0.16°");
+  await expect(rows.nth(4)).toContainText("DWD GWAM");
+  await expect(page.getByText("僅蒐集，不影響相似度", { exact: true })).toHaveCount(3);
 });
 
 test("public Find has no automatically detectable WCAG A/AA violations", async ({ page }) => {

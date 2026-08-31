@@ -30,7 +30,7 @@ stable IDs, supplies server timestamps, and uses `INSERT OR IGNORE` for replay
 idempotency. No nonce receipt is stored, avoiding a receipt-written/data-missing
 failure mode.
 
-Cloudflare Cron retains `20 */6 * * *` for ECMWF WAM and cleanup. The retired
+Cloudflare Cron retains `20 */6 * * *` for independent Open-Meteo model ingestion and cleanup. The retired
 Worker CWA guard remains false and its CWA secret is removed only after a real
 adapter ingestion succeeds.
 
