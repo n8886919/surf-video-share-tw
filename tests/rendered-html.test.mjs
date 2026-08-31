@@ -100,8 +100,15 @@ test("renders the product title and language", async () => {
   assert.match(clientCss, /user-select:none/);
   assert.match(clientCss, /grid-template-columns:repeat\(5,1fr\)/);
   assert.match(clientCss, /transform:scale\(1\.1\)/);
-  assert.match(clientBundle, /拍攝影片/);
+  assert.match(clientBundle, /錄影/);
   assert.match(clientBundle, /environment/);
+  assert.match(clientBundle, /上傳你也希望在找浪時看到的影片/);
+  assert.match(clientBundle, /這段實拍就可能成為他的浪況參考/);
+  assert.match(clientBundle, /了解上傳影片如何成為浪況參考/);
+  assert.match(clientBundle, /aria-expanded/);
+  assert.match(clientCss, /upload-source-card/);
+  assert.match(clientCss, /upload-confidence-help/);
+  assert.match(clientCss, /border-radius:50%/);
   assert.match(clientBundle, /影片原始拍攝時間（含時區），請確認/);
   assert.match(clientBundle, /檔案最後修改時間（最低可信度），請確認/);
   assert.match(clientBundle, /位置本身不會送出或保存/);

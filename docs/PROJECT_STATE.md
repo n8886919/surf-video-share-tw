@@ -1,9 +1,11 @@
 # Project state
 
-Updated: 2026-08-31. Product `0.10` commit `e5beb18` is deployed at 100% as Cloudflare version `84f5cec2-ce89-49f4-af18-c912a6deaa61`, and Home Assistant App `0.2.0` repository commit `43c56ea` is published with the shared product logo and passing arm64 CI. The installed App remains `0.1.2` until the owner refreshes, updates, and restarts it on the Pi.
+Updated: 2026-08-31. Product `0.11` upload-card redesign is locally verified and ready for owner-authorized deployment. Production still serves product `0.10` commit `e5beb18` as Cloudflare version `84f5cec2-ce89-49f4-af18-c912a6deaa61`; Home Assistant App `0.2.0` repository commit `43c56ea` remains published with the shared product logo and passing arm64 CI.
 
 ## Completed checkpoint
 
+- Product `0.11` replaces the separate upload page title and two text-heavy source tiles with one calm bordered card. The card contains the upload title, exact 10–60 second and 05:00–19:59 limits, an encouraging contribution prompt with an accessible circular question-mark disclosure, two centered circular icon-only source controls, and the selected-file summary. The source controls retain visible hover/focus treatment, `aria-label`s, and the existing gallery/camera capture behavior.
+- The disclosure accurately explains that capture time and spot are used to compare the CWA and ECMWF conditions available at that time, and that a later similar-forecast search may use the video as a real-world reference. It encourages contribution without promising exposure or changing matching. Lint, typecheck, 172 tests across 31 files, production build, two rendered-site checks, deploy dry-run, and diff check passed; no schema, API, provider, upload validation, or storage behavior changed.
 - Product `0.10` keeps matching deterministic and label-free while treating primary and secondary swell as an unordered pair. Their existing fixed swell feature budget is split by target height squared, labels may swap without penalty, and every circular direction now uses cosine distance so 10°, 90°, and 180° differences are distinctly nonlinear. Missing values remain unknown, provider rows remain independent, and views/reactions/uploader supplement still do not affect ranking.
 - CWA ingestion contract `cwa-forecast-ingestion-v2` adds a fingerprinted server-owned tide allowlist for every active spot: `O00400` 烏石港／雙獅, `10002030` 無尾, `O01200` 蜜月灣, `O01300` 金樽／北東河, `B02400` 漁光島, and `O00700` 南灣. The Worker rejects mismatched v2 spot/location provenance before D1 while temporarily accepting persisted v1 batches with their former two-spot tide behavior for safe Worker-first rollout.
 - Home Assistant App `0.2.0` requests the six approved F-A0021-001 locations once with the CWA key in the Authorization header, interpolates each spot's reviewed location independently, sends contract v2, and can retry persisted v1 batches. The main repository passed lint, typecheck, 172 tests across 31 files, production build, two rendered-site checks, schema generation with no migration, deploy dry-run, and diff check. The App passed typecheck, 23 tests across eight files, build, audit with zero known vulnerabilities, and synchronized `linux/arm64` CI metadata.
@@ -116,6 +118,7 @@ Updated: 2026-08-31. Product `0.10` commit `e5beb18` is deployed at 100% as Clou
 
 | Check | Result | Last run |
 |---|---|---|
+| product `0.11` upload-card gate | pass; lint, typecheck, 172 tests across 31 files, production build, two rendered-site tests, deploy dry-run, diff check, accessible disclosure, icon-only source labels, unchanged capture behavior, and exact contribution copy | 2026-08-31 |
 | product `0.10` full local gate | pass; lint, typecheck, 172 tests across 31 files, production build, two rendered-site tests, no schema migration, deploy dry-run, and diff check | 2026-08-31 |
 | matching v2 focused coverage | pass; unordered swell-label swap, squared-height budget split, nonlinear 10°/90°/180° circular distances, fixed total budget, missing coverage, and provider composition | 2026-08-31 |
 | CWA ingestion v2 focused coverage | pass; all eight exact spot/location pairs retained, wrong mapping rejected before writes, structural and mapping fingerprints pinned, and persisted v1 accepted | 2026-08-31 |
@@ -221,4 +224,4 @@ The compact find/comparison/upload batches, revised `我的` layout, private pla
 
 ## Next task
 
-Objective: refresh the Home Assistant App store on the Pi, update and restart `Surf Video Share CWA Ingestor` to `0.2.0`, then observe one new immutable v2 CWA run and read-only verify exact per-spot tide provenance without overwriting historical snapshots.
+Objective: commit and deploy product `0.11`, run production preflight plus public asset smoke for the redesigned upload card, then return to the Pi `0.2.0` update and first immutable v2 CWA-run verification.

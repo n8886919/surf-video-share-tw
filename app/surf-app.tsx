@@ -1090,6 +1090,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   const [file, setFile] = useState<File | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [showUploader, setShowUploader] = useState(false);
+  const [uploadGuideOpen, setUploadGuideOpen] = useState(false);
   const [rightsHelpOpen, setRightsHelpOpen] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1162,15 +1163,35 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
     } catch (caught) { setError(caught instanceof Error ? caught.message : "上傳失敗"); setProgress(null); }
   }
 
-  return <div className="screen upload-screen"><div className="page-title"><h1>上傳</h1><p>10–60 秒，最多 200 MB；拍攝時間 05:00–19:59</p></div>
+  return <div className="screen upload-screen">
     <form onSubmit={submit} className="upload-form">
-      <div className="upload-source-picker" role="group" aria-label="影片來源">
-        <label><input type="file" accept="video/*" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="upload"/><strong>選擇影片</strong></label>
-        <label><input type="file" accept="video/*" capture="environment" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="camera"/><strong>拍攝影片</strong></label>
-      </div>
-      {file && duration != null
-        ? <div className="selected-video-summary"><strong>{file.name}</strong><small>{duration.toFixed(1)} 秒 · {(file.size / 1_000_000).toFixed(1)} MB</small></div>
-        : <p className="upload-source-help">支援相簿與裝置相機；不支援直接拍攝時會退回一般影片選擇器。</p>}
+      <section className="upload-source-card" aria-labelledby="upload-source-title">
+        <div className="upload-source-heading">
+          <h1 id="upload-source-title">上傳影片</h1>
+          <p>10–60 秒，拍攝時間 05:00–19:59</p>
+        </div>
+        <div className="upload-confidence-prompt">
+          <span>上傳你也希望在找浪時看到的影片</span>
+          <button
+            className="upload-confidence-help"
+            type="button"
+            aria-label="了解上傳影片如何成為浪況參考"
+            aria-expanded={uploadGuideOpen}
+            aria-controls="upload-confidence-guide"
+            onClick={() => setUploadGuideOpen((open) => !open)}
+          >?</button>
+        </div>
+        {uploadGuideOpen && <p className="upload-confidence-guide" id="upload-confidence-guide">
+          系統會以影片的拍攝時間與浪點，比對當時可得的 CWA 與 ECMWF 浪況。之後有人搜尋到相似預報時，這段實拍就可能成為他的浪況參考。每一段真實畫面，都能讓下一位浪人更有把握出發。
+        </p>}
+        <div className="upload-source-picker" role="group" aria-label="影片來源">
+          <label title="選擇影片"><input aria-label="選擇影片" type="file" accept="video/*" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="upload"/></label>
+          <label title="錄影"><input aria-label="錄影" type="file" accept="video/*" capture="environment" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="camera"/></label>
+        </div>
+        {file && duration != null
+          ? <div className="selected-video-summary"><strong>{file.name}</strong><small>{duration.toFixed(1)} 秒 · {(file.size / 1_000_000).toFixed(1)} MB</small></div>
+          : <p className="upload-source-help">可從相簿選擇，或使用裝置相機錄影</p>}
+      </section>
       <div className="two-fields"><label><span>浪點</span><select required value={spotId} onChange={(event) => { setSpotId(event.target.value); setSpotHint("已手動選擇；上傳後不可變更"); }}>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select><small className="field-hint">{spotHint}</small></label><label><span>拍攝時間</span><input type="datetime-local" min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} value={capturedAt} onChange={(event) => { setCapturedAt(event.target.value); setCaptureTimeHint("已手動調整，送出前請確認"); }}/><small className="field-hint">{captureTimeHint}</small></label></div>
       <p className="pending-help">浪點上傳後不可補選或變更；拍攝時間可在 7 天內補齊，補齊前影片不公開。</p>
       <label className="switch-row"><span><strong>顯示公開名稱</strong><small>{me.displayId || "先到「我的」確認公開名稱"}</small></span><input type="checkbox" disabled={!me.displayId} checked={showUploader} onChange={(event) => setShowUploader(event.target.checked)}/></label>
