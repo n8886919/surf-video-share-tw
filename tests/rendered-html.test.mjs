@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
+async function readCanonicalProjectPurpose() {
+  const source = await readFile(
+    new URL("../packages/domain/src/project-purpose.ts", import.meta.url),
+    "utf8",
+  );
+  const match = source.match(/PROJECT_PURPOSE\s*=\s*"([^"]+)"/s);
+  assert.ok(match, "PROJECT_PURPOSE should remain a string literal");
+  return match[1];
+}
+
 async function readClientBundle(pattern, description) {
   const directories = [
     new URL("../dist/client/assets/", import.meta.url),
@@ -52,9 +62,11 @@ test("renders the product title and language", async () => {
   const html = await response.text();
   assert.match(html, /<html[^>]+lang=["']zh-Hant-TW["']/i);
   assert.match(html, /彼日浪影/);
-  assert.match(html, /不預測浪好不好；只用社群共享的歷史實拍/);
+  const projectPurpose = await readCanonicalProjectPurpose();
+  assert.ok(html.includes(projectPurpose), "rendered HTML should contain the exact PROJECT_PURPOSE");
 
   const clientBundle = await readClientBundle(/^surf-app-.*\.js$/, "surf app");
+  assert.ok(clientBundle.includes(projectPurpose), "client bundle should contain the exact PROJECT_PURPOSE");
   assert.match(clientBundle, /彼日浪影/);
   assert.match(clientBundle, /問題回報/);
   assert.match(clientBundle, /分享連結/);
@@ -119,7 +131,8 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /更多資訊/);
   assert.match(clientBundle, /待處理檢舉/);
   assert.match(clientBundle, /來源相似度/);
-  assert.match(clientBundle, /實拍當時/);
+  assert.match(clientBundle, /實拍當時（配對）/);
+  assert.match(clientBundle, /data-swell-pairing/);
   assert.match(clientBundle, /candidate-play-button/);
   assert.match(clientBundle, /相似度/);
   assert.match(clientBundle, /10–60 秒/);

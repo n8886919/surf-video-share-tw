@@ -58,8 +58,12 @@ describe("public matches response", () => {
     const current = new Date();
     const dayOffset = firstSelectableForecastHour(0, current) == null ? 1 : 0;
     const targetTime = taipeiForecastTarget(dayOffset, firstSelectableForecastHour(dayOffset, current) ?? 5, current).toISOString();
+    const offsetTargetTime = new Date(new Date(targetTime).getTime() + 8 * 60 * 60_000)
+      .toISOString()
+      .replace("Z", "+08:00");
     const now = current.getTime();
     const capturedAt = new Date(now - 24 * 60 * 60_000).toISOString();
+    let historicalSql = "";
     const ecmwfTarget = {
       ...emptyForecastMetrics,
       id: "forecast_ecmwf_target",
@@ -137,6 +141,7 @@ describe("public matches response", () => {
             : null,
           all: async () => {
             if (sql.includes("WITH candidate_videos")) {
+              historicalSql = sql;
               return { results: [
                 adequateEcmwfHistory,
                 adequateCwaHistory,
@@ -156,12 +161,15 @@ describe("public matches response", () => {
     } as unknown as D1Database;
 
     const response = await api.fetch(
-      new Request(`https://example.com/api/v1/matches?spotId=spot_double-lions&targetTime=${encodeURIComponent(targetTime)}`),
+      new Request(`https://example.com/api/v1/matches?spotId=spot_double-lions&targetTime=${encodeURIComponent(offsetTargetTime)}`),
       { APP_ENV: "production", DB: db } as AppEnv,
     );
     const body = await response.json() as PublicMatchesResponse;
 
     expect(response.status).toBe(200);
+    expect(body.targetTime).toBe(targetTime);
+    expect(historicalSql).toContain("CAST(strftime('%s', fs.issued_at) AS INTEGER)");
+    expect(historicalSql).toContain("CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)");
     expect(body.ranking).toBe("equal-provider-composite-historical-forecast");
     expect(body.matches).toHaveLength(1);
     expect(body.matches[0]).toMatchObject({
@@ -211,6 +219,9 @@ describe("public matches response", () => {
       swell_height: 1,
       swell_period: 10,
       swell_direction: 90,
+      secondary_swell_height: 0.6,
+      secondary_swell_period: 7,
+      secondary_swell_direction: 150,
     };
     const cwaTarget = {
       ...ecmwfTarget,
@@ -224,6 +235,12 @@ describe("public matches response", () => {
       historical_video_id: "video_later",
       issued_at: capturedAt,
       valid_at: capturedAt,
+      swell_height: 0.6,
+      swell_period: 7,
+      swell_direction: 150,
+      secondary_swell_height: 1,
+      secondary_swell_period: 10,
+      secondary_swell_direction: 90,
     };
     const cwaHistory = {
       ...cwaTarget,
@@ -272,6 +289,10 @@ describe("public matches response", () => {
       sources: [{
         provider: "open-meteo",
         model: "ecmwf_wam",
+        swellPairing: [
+          { target: "primary", candidate: "secondary" },
+          { target: "secondary", candidate: "primary" },
+        ],
         targetForecast: { id: "forecast_ecmwf_later_target" },
         candidateForecast: { id: "forecast_ecmwf_later_history" },
       }],

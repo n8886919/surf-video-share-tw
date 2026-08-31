@@ -95,6 +95,44 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return payload;
 }
 
+export interface FindQueryState<T> {
+  requestId: number;
+  queryKey: string | null;
+  results: T;
+  loading: boolean;
+  error: string | null;
+}
+
+export type FindQueryAction<T> =
+  | { type: "start"; requestId: number; queryKey: string; emptyResults: T }
+  | { type: "success"; requestId: number; queryKey: string; results: T }
+  | { type: "failure"; requestId: number; queryKey: string; error: string };
+
+export function reduceFindQuery<T>(state: FindQueryState<T>, action: FindQueryAction<T>): FindQueryState<T> {
+  if (action.type === "start") {
+    return {
+      requestId: action.requestId,
+      queryKey: action.queryKey,
+      results: action.emptyResults,
+      loading: true,
+      error: null,
+    };
+  }
+  if (state.requestId !== action.requestId || state.queryKey !== action.queryKey) return state;
+  if (action.type === "success") return { ...state, results: action.results, loading: false, error: null };
+  return { ...state, loading: false, error: action.error };
+}
+
+export function visibleFindQuery<T>(
+  state: FindQueryState<T>,
+  currentQueryKey: string | null,
+  emptyResults: T,
+): Pick<FindQueryState<T>, "results" | "loading" | "error"> {
+  if (currentQueryKey === null) return { results: emptyResults, loading: false, error: null };
+  if (state.queryKey !== currentQueryKey) return { results: emptyResults, loading: true, error: null };
+  return { results: state.results, loading: state.loading, error: state.error };
+}
+
 function toLocalDateTime(date: Date): string {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
@@ -560,14 +598,50 @@ function formatTideState(value: string | null): string {
   return ({ rising: "漲潮", falling: "退潮", high: "滿潮", low: "乾潮", unknown: "未知" } as Record<string, string>)[value || ""] || "—";
 }
 
-function forecastMetricRows(forecast: Forecast): Array<[string, string]> {
+type SwellPairing = CombinedMatch["sources"][number]["swellPairing"];
+
+interface ForecastComparisonRow {
+  label: string;
+  targetValue: string;
+  candidateValue: string;
+  pairing?: string;
+}
+
+function swellName(label: "primary" | "secondary"): string {
+  return label === "primary" ? "主湧浪" : "次湧浪";
+}
+
+function swellGroup(forecast: Forecast, label: "primary" | "secondary") {
+  return label === "primary" ? forecast.primarySwell : forecast.secondarySwell;
+}
+
+function compactForecastMetricGroup(group: Forecast["totalWave"]): string {
+  return `${compactMetric(group.height, "m")} · ${formatDirection(group.direction)} · ${compactMetric(group.period, "s")}`;
+}
+
+function forecastComparisonRows(
+  target: Forecast,
+  candidate: Forecast,
+  pairing: SwellPairing,
+): ForecastComparisonRow[] {
+  const pairingByTarget = new Map(pairing.map((item) => [item.target, item.candidate]));
+  const swellRows = (["primary", "secondary"] as const).map((targetLabel): ForecastComparisonRow => {
+    const candidateLabel = pairingByTarget.get(targetLabel) ?? null;
+    return {
+      label: swellName(targetLabel),
+      targetValue: compactForecastMetricGroup(swellGroup(target, targetLabel)),
+      candidateValue: candidateLabel
+        ? `${swellName(candidateLabel)} · ${compactForecastMetricGroup(swellGroup(candidate, candidateLabel))}`
+        : "未配對",
+      pairing: `${targetLabel}:${candidateLabel ?? "none"}`,
+    };
+  });
   return [
-    ["總浪", `${compactMetric(forecast.totalWave.height, "m")} · ${formatDirection(forecast.totalWave.direction)} · ${compactMetric(forecast.totalWave.period, "s")}`],
-    ["主湧浪", `${compactMetric(forecast.primarySwell.height, "m")} · ${formatDirection(forecast.primarySwell.direction)} · ${compactMetric(forecast.primarySwell.period, "s")}`],
-    ["次湧浪", `${compactMetric(forecast.secondarySwell.height, "m")} · ${formatDirection(forecast.secondarySwell.direction)} · ${compactMetric(forecast.secondarySwell.period, "s")}`],
-    ["風浪", `${compactMetric(forecast.windWave.height, "m")} · ${formatDirection(forecast.windWave.direction)} · ${compactMetric(forecast.windWave.period, "s")}`],
-    ["風", `${compactMetric(forecast.wind.speed, "m/s")} · ${formatDirection(forecast.wind.direction)} · 陣風 ${compactMetric(forecast.wind.gust, "m/s")}`],
-    ["潮位", `${compactMetric(forecast.tide.height, "m")} · ${formatTideState(forecast.tide.state)} · ${compactMetric(forecast.tide.slope, "m/h")}`],
+    { label: "總浪", targetValue: compactForecastMetricGroup(target.totalWave), candidateValue: compactForecastMetricGroup(candidate.totalWave) },
+    ...swellRows,
+    { label: "風浪", targetValue: compactForecastMetricGroup(target.windWave), candidateValue: compactForecastMetricGroup(candidate.windWave) },
+    { label: "風", targetValue: `${compactMetric(target.wind.speed, "m/s")} · ${formatDirection(target.wind.direction)} · 陣風 ${compactMetric(target.wind.gust, "m/s")}`, candidateValue: `${compactMetric(candidate.wind.speed, "m/s")} · ${formatDirection(candidate.wind.direction)} · 陣風 ${compactMetric(candidate.wind.gust, "m/s")}` },
+    { label: "潮位", targetValue: `${compactMetric(target.tide.height, "m")} · ${formatTideState(target.tide.state)} · ${compactMetric(target.tide.slope, "m/h")}`, candidateValue: `${compactMetric(candidate.tide.height, "m")} · ${formatTideState(candidate.tide.state)} · ${compactMetric(candidate.tide.slope, "m/h")}` },
   ];
 }
 
@@ -578,13 +652,16 @@ function sourceName(provider: string): string {
 function CombinedForecastDetails({ match }: { match: CombinedMatch }) {
   return <div className="combined-forecast-details">
     {match.sources.map((source) => {
-      const targetRows = forecastMetricRows(source.targetForecast);
-      const candidateRows = forecastMetricRows(source.candidateForecast);
+      const rows = forecastComparisonRows(
+        source.targetForecast,
+        source.candidateForecast,
+        source.swellPairing,
+      );
       return <section key={`${source.provider}:${source.model}`} className="combined-source-comparison">
         <div className="combined-source-heading"><strong>{sourceName(source.provider)}</strong><small>來源相似度 {Math.round(source.score * 100)}%</small></div>
-        <div className="combined-metric-header"><span>特徵</span><span>目標</span><span>實拍當時</span></div>
-        {targetRows.map(([label, targetValue], index) => <div className="combined-metric-row" key={label}>
-          <strong>{label}</strong><span>{targetValue}</span><span>{candidateRows[index][1]}</span>
+        <div className="combined-metric-header"><span>特徵</span><span>目標</span><span>實拍當時（配對）</span></div>
+        {rows.map((row) => <div className="combined-metric-row" data-swell-pairing={row.pairing} key={row.label}>
+          <strong>{row.label}</strong><span>{row.targetValue}</span><span>{row.candidateValue}</span>
         </div>)}
       </section>;
     })}
@@ -1030,15 +1107,24 @@ function FindView({ spots }: { spots: Spot[] }) {
   const [dayOffset, setDayOffset] = useState(() => firstSelectableForecastHour(0) == null ? 1 : 0);
   const [hour, setHour] = useState(() => firstSelectableForecastHour(0) ?? 8);
   const [spotId, setSpotId] = useState("");
-  const [matches, setMatches] = useState<CombinedMatch[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [queryState, setQueryState] = useState<FindQueryState<CombinedMatch[]>>({
+    requestId: 0,
+    queryKey: null,
+    results: [],
+    loading: false,
+    error: null,
+  });
+  const requestIdRef = useRef(0);
   const selectedSpotId = spotId || spots[0]?.id || "";
   const minimumDayOffset = firstSelectableForecastHour(0, now) == null ? 1 : 0;
   const effectiveDayOffset = Math.max(dayOffset, minimumDayOffset);
   const minimumHour = firstSelectableForecastHour(effectiveDayOffset, now) ?? FORECAST_HOUR_MIN;
   const effectiveHour = Math.max(hour, minimumHour);
   const targetTime = taipeiForecastTarget(effectiveDayOffset, effectiveHour, now).toISOString();
+  const requestPath = selectedSpotId
+    ? `/matches?spotId=${encodeURIComponent(selectedSpotId)}&targetTime=${encodeURIComponent(targetTime)}`
+    : null;
+  const { results: matches, loading, error } = visibleFindQuery(queryState, requestPath, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
@@ -1046,17 +1132,36 @@ function FindView({ spots }: { spots: Spot[] }) {
   }, []);
 
   useEffect(() => {
-    if (!selectedSpotId || !targetTime) return;
+    if (!requestPath) return;
+    requestIdRef.current += 1;
+    const requestId = requestIdRef.current;
     const controller = new AbortController();
+    setQueryState((current) => reduceFindQuery(current, {
+      type: "start",
+      requestId,
+      queryKey: requestPath,
+      emptyResults: [],
+    }));
     const timer = window.setTimeout(() => {
-      setLoading(true); setError(null);
-      void api<PublicMatchesResponse>(`/matches?spotId=${encodeURIComponent(selectedSpotId)}&targetTime=${encodeURIComponent(new Date(targetTime).toISOString())}`, { signal: controller.signal })
-        .then((result) => setMatches(result.matches))
-        .catch((caught) => { if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(caught instanceof Error ? caught.message : "比對失敗"); })
-        .finally(() => setLoading(false));
+      void api<PublicMatchesResponse>(requestPath, { signal: controller.signal })
+        .then((result) => setQueryState((current) => reduceFindQuery(current, {
+          type: "success",
+          requestId,
+          queryKey: requestPath,
+          results: result.matches,
+        })))
+        .catch((caught) => {
+          if (caught instanceof DOMException && caught.name === "AbortError") return;
+          setQueryState((current) => reduceFindQuery(current, {
+            type: "failure",
+            requestId,
+            queryKey: requestPath,
+            error: caught instanceof Error ? caught.message : "比對失敗",
+          }));
+        });
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [selectedSpotId, targetTime]);
+  }, [requestPath]);
 
   const dayCells = Array.from({ length: FORECAST_DAY_OFFSET_MAX + 1 }, (_, offset) => {
     const target = taipeiForecastTarget(offset, 12, now);
@@ -1073,10 +1178,10 @@ function FindView({ spots }: { spots: Spot[] }) {
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
     {error && <div className="error-message">{error}</div>}
-    <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{matches.length ? `${matches.length} 段` : "累積中"}</small></div>
+    <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{loading ? "查詢中" : matches.length ? `${matches.length} 段` : "累積中"}</small></div>
       {matches.length
         ? <CombinedMatchList matches={matches}/>
-        : <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 ECMWF 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 ECMWF 歷史預報的實拍；第 4–5 天會使用 ECMWF-only 相似度排序。"}</p></div>}
+        : !loading && !error && <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 ECMWF 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 ECMWF 歷史預報的實拍；第 4–5 天會使用 ECMWF-only 相似度排序。"}</p></div>}
     </section>
   </div>;
 }

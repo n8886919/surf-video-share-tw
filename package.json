@@ -1,6 +1,6 @@
 {
   "name": "surf-video-share-tw",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "packageManager": "pnpm@11.19.0",
   "engines": {
@@ -13,8 +13,12 @@
     "start": "vinext start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:site": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test:site": "pnpm build && pnpm test:site:built",
+    "test:site:built": "node --test tests/rendered-html.test.mjs",
+    "test:browser": "pnpm build && pnpm test:browser:built",
+    "test:browser:built": "playwright test",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .wrangler",
+    "db:check": "node ops/check-migration-drift.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
@@ -24,7 +28,7 @@
     "production:preflight": "node ops/preflight-production.mjs",
     "production:redaction": "node ops/deploy-production.mjs --redaction-only",
     "production:redaction:oauth": "node ops/deploy-production.mjs --redaction-only --wrangler-oauth",
-    "verify": "pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm db:check && pnpm build && pnpm test:site:built && pnpm test:browser:built"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.2",
@@ -36,8 +40,10 @@
     "zod": "^4.1.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@cloudflare/vite-plugin": "1.54.1",
     "@cloudflare/workers-types": "5.20260826.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",

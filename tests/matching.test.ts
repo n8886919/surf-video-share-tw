@@ -102,7 +102,53 @@ describe("condition matching", () => {
       availableWeight: 3.45,
       matchedWeight: 3.45,
       coverage: 1,
+      swellPairing: [
+        { target: "primary", candidate: "secondary" },
+        { target: "secondary", candidate: "primary" },
+      ],
     });
+  });
+
+  it("reports a deterministic identity pairing when both swell assignments tie", () => {
+    const tied = {
+      ...conditionsWithOnly(["swellHeight", "swellPeriod", "swellDirection"]),
+      swellHeight: 1,
+      swellPeriod: 10,
+      swellDirection: 90,
+      secondarySwellHeight: 1,
+      secondarySwellPeriod: 10,
+      secondarySwellDirection: 90,
+    };
+
+    expect(rankSimilarConditions(tied, [{ id: "tie", conditions: tied }])[0]?.swellPairing)
+      .toEqual([
+        { target: "primary", candidate: "primary" },
+        { target: "secondary", candidate: "secondary" },
+      ]);
+  });
+
+  it("reports an unmatched target swell when the candidate has no second component", () => {
+    const target = {
+      ...conditionsWithOnly(["swellHeight", "swellPeriod", "swellDirection"]),
+      swellHeight: 1.2,
+      swellPeriod: 11,
+      swellDirection: 40,
+      secondarySwellHeight: 0.4,
+      secondarySwellPeriod: 7,
+      secondarySwellDirection: 150,
+    };
+    const candidate = {
+      ...target,
+      secondarySwellHeight: null,
+      secondarySwellPeriod: null,
+      secondarySwellDirection: null,
+    };
+
+    expect(rankSimilarConditions(target, [{ id: "missing", conditions: candidate }])[0]?.swellPairing)
+      .toEqual([
+        { target: "primary", candidate: "primary" },
+        { target: "secondary", candidate: null },
+      ]);
   });
 
   it("weights direction differences by squared swell height without growing the swell budget", () => {
@@ -137,6 +183,7 @@ describe("condition matching", () => {
       availableWeight: 9.2,
       matchedWeight: 9.2,
       coverage: 1,
+      swellPairing: [{ target: "primary", candidate: "primary" }],
     });
   });
 

@@ -121,7 +121,8 @@ describe("owner video history response", () => {
       }],
       playbackCount90d: 7,
     });
-    expect(historicalSql[0]).toContain("fs.issued_at <= candidate_videos.captured_at");
+    expect(historicalSql[0]).toContain("CAST(strftime('%s', fs.issued_at) AS INTEGER)");
+    expect(historicalSql[0]).toContain("CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)");
     expect(historicalSql[0]).toContain("PARTITION BY candidate_videos.id, fs.provider, fs.model");
   });
 });

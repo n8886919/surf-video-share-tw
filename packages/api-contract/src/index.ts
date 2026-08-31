@@ -109,6 +109,10 @@ export interface CombinedMatchSourceResponse {
   availableWeight: number;
   matchedWeight: number;
   coverage: number;
+  swellPairing: Array<{
+    target: "primary" | "secondary";
+    candidate: "primary" | "secondary" | null;
+  }>;
   targetForecast: ForecastResponse;
   candidateForecast: ForecastResponse;
 }

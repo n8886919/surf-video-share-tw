@@ -68,6 +68,10 @@ function matchSourceKey(provider: string, model: string): string {
   return `${provider}:${model}`;
 }
 
+function canonicalUtcTimestamp(timestamp: string): string {
+  return new Date(timestamp).toISOString();
+}
+
 function rateLimitResponse(error: "RATE_LIMITED" | "RATE_LIMIT_UNAVAILABLE", message: string, status: 429 | 503) {
   return new Response(JSON.stringify({ error, message }), {
     status,
@@ -692,7 +696,8 @@ async function findOwnedHistoricalForecasts(
          ) AS historical_rank
        FROM candidate_videos
        JOIN forecast_snapshots fs ON fs.spot_id = candidate_videos.spot_id
-       WHERE fs.issued_at <= candidate_videos.captured_at
+       WHERE CAST(strftime('%s', fs.issued_at) AS INTEGER)
+         <= CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)
          AND ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)) <= 14400
      )
      SELECT * FROM ranked_history WHERE historical_rank = 1
@@ -1129,10 +1134,11 @@ api.post("/videos/:id/playback-start", zValidator("json", playbackStartSchema), 
 api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   await ensureDevelopmentDatabase(context.env);
   const input = context.req.valid("query");
+  const targetTime = canonicalUtcTimestamp(input.targetTime);
   const spot = await findActiveSpot(context.env, input.spotId);
   if (!spot) return context.json({ error: "SPOT_NOT_FOUND", message: "找不到浪點" }, 404);
   try {
-    assertWithinForecastWindow(input.targetTime);
+    assertWithinForecastWindow(targetTime);
   } catch {
     return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起五天內的 05:00–19:00 整點，且不可早於現在" }, 422);
   }
@@ -1152,7 +1158,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
          WHERE spot_id = ? AND issued_at <= ?
            AND ABS(strftime('%s', valid_at) - strftime('%s', ?)) <= 14400
        ) WHERE source_rank = 1 LIMIT 8`,
-    ).bind(input.targetTime, input.targetTime, spot.id, now, input.targetTime).all<ForecastRow>(),
+    ).bind(targetTime, targetTime, spot.id, now, targetTime).all<ForecastRow>(),
     context.env.DB.prepare(
       `${observationSelect}
        WHERE v.spot_id = ? AND v.metadata_status = 'complete'
@@ -1177,7 +1183,8 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
            ) AS historical_rank
          FROM candidate_videos
          JOIN forecast_snapshots fs ON fs.spot_id = ?
-         WHERE fs.issued_at <= candidate_videos.captured_at
+         WHERE CAST(strftime('%s', fs.issued_at) AS INTEGER)
+           <= CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)
            AND ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)) <= 14400
        )
        SELECT * FROM ranked_history WHERE historical_rank = 1`,
@@ -1193,7 +1200,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     matchSourceKey(forecast.provider, forecast.model),
     forecast,
   ]));
-  const dayOffset = taipeiForecastDayOffset(input.targetTime);
+  const dayOffset = taipeiForecastDayOffset(targetTime);
   const requiredSources = dayOffset !== null && dayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX
     ? REQUIRED_MATCH_SOURCES
     : REQUIRED_MATCH_SOURCES.slice(1);
@@ -1241,6 +1248,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
         const historicalForecast = historicalByVideoAndSource.get(
           `${video.id}:${targetForecast.provider}:${targetForecast.model}`,
         )!;
+        const sourceMatch = rankedBySource.get(source.sourceKey)!.get(video.id)!;
         return {
           provider: targetForecast.provider,
           model: targetForecast.model,
@@ -1248,6 +1256,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
           availableWeight: source.availableWeight,
           matchedWeight: source.matchedWeight,
           coverage: source.coverage,
+          swellPairing: sourceMatch.swellPairing,
           targetForecast: serializeForecast(targetForecast),
           candidateForecast: serializeForecast(historicalForecast),
         };
@@ -1257,7 +1266,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
 
   const response: PublicMatchesResponse = {
     spot: { id: spot.id, slug: spot.slug, name: spot.name_zh || spot.name_en },
-    targetTime: input.targetTime,
+    targetTime,
     forecasts: forecastResult.results.map(serializeForecast),
     observations: videoResult.results.map((row) => serializeObservation(row)),
     matches,
@@ -1401,7 +1410,7 @@ api.post("/videos/:id/download", async (context) => {
 api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), async (context) => {
   const user = context.get("user");
   const input = context.req.valid("json");
-  const capturedAt = input.capturedAt ?? null;
+  const capturedAt = input.capturedAt ? canonicalUtcTimestamp(input.capturedAt) : null;
   if (capturedAt) assertWithinUploadWindow(capturedAt);
   const spot = await findActiveSpot(context.env, input.spotId);
   if (!spot) return context.json({ error: "SPOT_NOT_FOUND", message: "找不到浪點" }, 404);
@@ -1561,7 +1570,8 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
     return context.json({ error: "VIDEO_EXPIRED", message: "這支待補影片已超過七天期限" }, 410);
   }
 
-  const capturedAt = input.capturedAt === undefined ? current.captured_at : input.capturedAt;
+  const requestedCapturedAt = input.capturedAt === undefined ? current.captured_at : input.capturedAt;
+  const capturedAt = requestedCapturedAt ? canonicalUtcTimestamp(requestedCapturedAt) : null;
   if (capturedAt) assertWithinUploadWindow(capturedAt, new Date(current.created_at));
   const spot = await findActiveSpot(context.env, current.spot_id);
   if (!spot) return context.json({ error: "SPOT_NOT_FOUND", message: "這支影片沒有有效浪點，無法補資料" }, 409);

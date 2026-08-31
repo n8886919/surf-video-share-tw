@@ -11,12 +11,20 @@ export interface MatchComponent {
   weight: number;
 }
 
+export type SwellLabel = "primary" | "secondary";
+
+export interface SwellPairing {
+  target: SwellLabel;
+  candidate: SwellLabel | null;
+}
+
 export interface RankedMatch extends HistoricalCondition {
   score: number;
   availableWeight: number;
   matchedWeight: number;
   coverage: number;
   components: MatchComponent[];
+  swellPairing: SwellPairing[];
 }
 
 export interface SourceMatchScore {
@@ -61,8 +69,6 @@ export const MATCH_WEIGHTS = {
 
 const SWELL_COMPONENT_KEYS = ["swellHeight", "swellPeriod", "swellDirection"] as const;
 type SwellComponentKey = typeof SWELL_COMPONENT_KEYS[number];
-type SwellLabel = "primary" | "secondary";
-
 interface WeightedSwellComponent {
   label: SwellLabel;
   share: number;
@@ -155,6 +161,7 @@ interface SwellComparison {
   matchedWeight: number;
   distanceWeight: number;
   components: MatchComponent[];
+  pairing: SwellPairing[];
 }
 
 function bestSwellComparison(
@@ -167,10 +174,16 @@ function bestSwellComparison(
     * SWELL_COMPONENT_KEYS.reduce((fieldSum, key) => fieldSum
       + (isFiniteNumber(component.values[key]) ? MATCH_WEIGHTS[key].weight : 0), 0), 0);
   if (!targets.length || !candidates.length) {
-    return { availableWeight, matchedWeight: 0, distanceWeight: 0, components: [] };
+    return {
+      availableWeight,
+      matchedWeight: 0,
+      distanceWeight: 0,
+      components: [],
+      pairing: targets.map((target) => ({ target: target.label, candidate: null })),
+    };
   }
 
-  const evaluations: Array<SwellComparison & { assignmentPenalty: number }> = [];
+  const evaluations: Array<SwellComparison & { assignmentPenalty: number; assignmentKey: string }> = [];
   const evaluate = (assignment: Array<number | null>) => {
     const components: MatchComponent[] = [];
     let assignmentPenalty = 0;
@@ -208,7 +221,20 @@ function bestSwellComparison(
         0,
       ),
       components,
+      pairing: targets.map((target, index) => {
+        const candidateIndex = assignment[index];
+        return {
+          target: target.label,
+          candidate: candidateIndex === null || candidateIndex === undefined
+            ? null
+            : candidates[candidateIndex]!.label,
+        };
+      }),
       assignmentPenalty,
+      assignmentKey: assignment.map((candidateIndex) => candidateIndex === null
+        || candidateIndex === undefined
+        ? "~"
+        : candidates[candidateIndex]!.label).join(":"),
     });
   };
   const visit = (targetIndex: number, used: Set<number>, assignment: Array<number | null>) => {
@@ -230,8 +256,15 @@ function bestSwellComparison(
   };
   visit(0, new Set(), []);
   const best = evaluations.sort((a, b) => a.assignmentPenalty - b.assignmentPenalty
-    || b.matchedWeight - a.matchedWeight)[0];
-  return best ?? { availableWeight, matchedWeight: 0, distanceWeight: 0, components: [] };
+    || b.matchedWeight - a.matchedWeight
+    || (a.assignmentKey < b.assignmentKey ? -1 : a.assignmentKey > b.assignmentKey ? 1 : 0))[0];
+  return best ?? {
+    availableWeight,
+    matchedWeight: 0,
+    distanceWeight: 0,
+    components: [],
+    pairing: targets.map((target) => ({ target: target.label, candidate: null })),
+  };
 }
 
 export function selectLatestAvailableForecast<T>(
@@ -306,6 +339,7 @@ export function rankSimilarConditions(
         matchedWeight,
         coverage,
         components,
+        swellPairing: swell.pairing,
       };
     })
     .filter((match) => match.coverage >= MIN_MATCH_COVERAGE)

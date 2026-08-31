@@ -31,10 +31,11 @@ The git-ignored `.dev.vars` explicitly enables fake auth, mock video, and mock c
 ## Verify
 
 ```bash
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm exec playwright install chromium
+pnpm verify
 ```
+
+`pnpm verify` runs lint, TypeScript, unit/API tests, isolated Drizzle migration-history and schema-drift checks, one production build, rendered-site checks, and Chromium browser/accessibility tests. Playwright's Chromium install is a one-time local prerequisite; CI installs it automatically.
 
 ## Database
 
@@ -45,7 +46,7 @@ pnpm db:generate
 pnpm db:migrate:local
 ```
 
-`data/spots.csv` seeds development. 首波只啟用烏石港與雙獅；其他清單項目保持停用。
+`data/spots.csv` seeds development. 首波正式啟用烏石港、雙獅、無尾、蜜月灣、金樽、北東河、漁光島與南灣；其他 checklist 項目保持停用。浪點啟用狀態不代表歷史預報已被回填，各來源仍保存獨立快照，最新 production 覆蓋與 rollout 狀態以 [Current project state](docs/PROJECT_STATE.md) 為準。
 
 ## Cloudflare and LINE setup
 
