@@ -131,6 +131,7 @@ export interface PublicMatchesResponse {
   targetTime: string;
   forecasts: ForecastResponse[];
   observations: ObservationResponse[];
+  timeWindowObservations: ObservationResponse[];
   matches: CombinedMatchResponse[];
   ranking:
     | "equal-provider-composite-historical-forecast"

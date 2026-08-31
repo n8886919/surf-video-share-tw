@@ -91,6 +91,8 @@ test("renders the product title and language", async () => {
   assert.doesNotMatch(clientBundle, /新影片預設顯示公開名稱/);
   assert.doesNotMatch(clientBundle, /目前 id:/);
   assert.match(clientBundle, /相似歷史實拍/);
+  assert.match(clientBundle, /所選時間前後 2 小時/);
+  assert.match(clientBundle, /timeWindowObservations/);
   assert.doesNotMatch(clientBundle, /所選預報/);
   assert.match(clientBundle, /CWA 與 ECMWF 綜合相似實拍/);
   assert.match(clientBundle, /次湧浪/);
@@ -134,6 +136,7 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /實拍當時（配對）/);
   assert.match(clientBundle, /data-swell-pairing/);
   assert.match(clientBundle, /candidate-play-button/);
+  assert.match(clientBundle, /time-window-observation-card/);
   assert.match(clientBundle, /相似度/);
   assert.match(clientBundle, /10–60 秒/);
   assert.match(clientBundle, /Purpose and position/);

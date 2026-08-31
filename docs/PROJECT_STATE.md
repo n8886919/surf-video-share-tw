@@ -1,9 +1,10 @@
 # Project state
 
-Updated: 2026-08-31. Product `0.12` commit `f0b63a6` is deployed at 100% as Cloudflare version `a1488c0e-171c-426a-b2cf-b6091e4944a3`. UTC timestamp integrity, exact Find query ownership, swell-pairing explainability, and the expanded CI gate passed production and local verification; Home Assistant App `0.2.0` repository commit `43c56ea` remains published with the shared product logo and passing arm64 CI.
+Updated: 2026-08-31. Product `0.13` is implemented and fully verified locally; production remains product `0.12` commit `f0b63a6` at 100% as Cloudflare version `a1488c0e-171c-426a-b2cf-b6091e4944a3`. Home Assistant App `0.2.0` repository commit `43c56ea` remains published with the shared product logo and passing arm64 CI.
 
 ## Completed checkpoint
 
+- Product `0.13` keeps the strict CWA＋ECMWF／ECMWF-only similarity rank unchanged and adds a separate public `timeWindowObservations` read to `/matches`. It returns every same-spot complete, ready, CC0-versioned, moderation-visible video whose `Asia/Taipei` capture clock time falls inclusively within the selected whole hour ±2 hours, newest first, with no forecast-coverage requirement or result limit. Find renders these videos in a separate playable horizontal rail below the similar-history cards; changing spot or time clears both rails under the existing exact-query ownership guard. Product, API, and architecture docs are synchronized. `pnpm verify` passed lint, typecheck, 185 tests across 34 files, migration history/schema drift, production build, two rendered-site tests, and four Chromium tests including the unranked time-window rail, stale spot switching, exact swell pairing, and WCAG A/AA analysis. No schema or migration changed, and production was not deployed.
 - Product `0.12` closes the offset-timestamp integrity bug: upload creation, capture-time completion, and `/matches` target input are canonicalized to UTC `Z` values before persistence or query binding. Historical forecast eligibility now compares Unix instants, so a `+08:00` capture cannot admit a forecast issued later in real time merely because its raw string sorts earlier.
 - Find results now belong to an exact `spotId + targetTime` query key and monotonically increasing request ID. A control change immediately hides the previous result, aborts the obsolete request, ignores any stale success/failure that still arrives, and keeps loading, error, and empty states mutually consistent.
 - Product `0.12` preserves the exact unordered swell assignment selected for every provider and candidate from domain through API. The comparison table keeps target primary/secondary as its row labels while the candidate cell explicitly identifies the provider's original primary/secondary label, including crossed primary-to-secondary matches and unmatched components; the browser never recomputes the assignment. Score formula, fixed swell budget, coverage, and provider weights are unchanged.
@@ -233,4 +234,4 @@ The compact find/comparison/upload batches, revised `我的` layout, private pla
 
 ## Next task
 
-Objective: refresh the Home Assistant App store on the Pi, update and restart `Surf Video Share CWA Ingestor` to `0.2.0`, then observe one new immutable v2 CWA run and read-only verify exact per-spot tide provenance without overwriting historical snapshots.
+Objective: after explicit owner authorization, deploy the reviewed product `0.13` change with the guarded workflow, then smoke `/matches.timeWindowObservations` and the playable ±2-hour rail without exposing signed playback URLs or changing D1 data.

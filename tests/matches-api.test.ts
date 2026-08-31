@@ -64,6 +64,8 @@ describe("public matches response", () => {
     const now = current.getTime();
     const capturedAt = new Date(now - 24 * 60 * 60_000).toISOString();
     let historicalSql = "";
+    let timeWindowSql = "";
+    let timeWindowBindings: unknown[] = [];
     const ecmwfTarget = {
       ...emptyForecastMetrics,
       id: "forecast_ecmwf_target",
@@ -127,7 +129,13 @@ describe("public matches response", () => {
     const db = {
       prepare: (sql: string) => {
         const statement = {
-          bind: () => statement,
+          bind: (...values: unknown[]) => {
+            if (sql.includes("time(v.captured_at")) {
+              timeWindowSql = sql;
+              timeWindowBindings = values;
+            }
+            return statement;
+          },
           first: async () => sql.includes("FROM spots WHERE")
             ? {
                 id: "spot_double-lions",
@@ -152,6 +160,9 @@ describe("public matches response", () => {
             if (sql.includes("FROM forecast_snapshots fs")) {
               return { results: [ecmwfTarget, cwaTarget] };
             }
+            if (sql.includes("time(v.captured_at")) {
+              return { results: [observationRow("video_nearby", capturedAt)] };
+            }
             if (sql.includes("FROM videos v")) return { results: observations };
             return { results: [] };
           },
@@ -170,6 +181,11 @@ describe("public matches response", () => {
     expect(body.targetTime).toBe(targetTime);
     expect(historicalSql).toContain("CAST(strftime('%s', fs.issued_at) AS INTEGER)");
     expect(historicalSql).toContain("CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)");
+    expect(timeWindowSql).toContain("time(?, '+8 hours', '-2 hours')");
+    expect(timeWindowSql).toContain("time(?, '+8 hours', '+2 hours')");
+    expect(timeWindowSql).not.toContain("LIMIT");
+    expect(timeWindowBindings).toEqual(["spot_double-lions", targetTime, targetTime]);
+    expect(body.timeWindowObservations.map((observation) => observation.id)).toEqual(["video_nearby"]);
     expect(body.ranking).toBe("equal-provider-composite-historical-forecast");
     expect(body.matches).toHaveLength(1);
     expect(body.matches[0]).toMatchObject({

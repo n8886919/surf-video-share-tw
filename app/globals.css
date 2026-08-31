@@ -78,6 +78,15 @@ select:focus, input:focus { border-color: var(--sea); box-shadow: 0 0 0 3px rgba
 .combined-metric-header, .combined-metric-row { display: grid; grid-template-columns: 48px minmax(0,1fr) minmax(0,1fr); gap: 5px; }
 .combined-metric-header { padding: 0 4px 4px; color: var(--soft); font-size: 7px; font-weight: 800; }
 .combined-metric-row { min-height: 34px; padding: 6px 4px; border-top: 1px solid #edf2f0; align-items: center; }.combined-metric-row strong { font-size: 8px; }.combined-metric-row span { min-width: 0; overflow: hidden; color: var(--soft); font-size: 7px; line-height: 1.35; overflow-wrap: anywhere; }
+.time-window-observation-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.time-window-observation-section .section-heading { margin-bottom: 10px; }
+.time-window-observation-section h3 { margin: 0; font-size: 14px; }
+.time-window-observation-area { min-width: 0; }
+.time-window-observation-strip { min-width: 0; display: flex; gap: 9px; overflow-x: auto; overscroll-behavior-inline: contain; scroll-snap-type: inline mandatory; scrollbar-width: none; }
+.time-window-observation-strip::-webkit-scrollbar { display: none; }
+.time-window-observation-card { width: 190px; flex: 0 0 min(190px,62vw); position: relative; overflow: hidden; border: 0; border-radius: 14px; padding: 0; display: block; scroll-snap-align: start; color: white; background: transparent; }
+.time-window-observation-card .candidate-thumbnail { height: 112px; }
+.time-window-empty { min-height: 72px; border: 1px dashed #c8d9d5; border-radius: 13px; display: grid; place-items: center; color: var(--soft); background: rgba(255,255,255,.55); font-size: 10px; }
 .playback-modal-backdrop { position: fixed; z-index: 40; inset: 0; padding: 16px; display: flex; align-items: center; justify-content: center; background: rgba(3,25,30,.72); backdrop-filter: blur(4px); }
 .playback-modal { width: min(100%,620px); overflow: hidden; border-radius: 20px; background: #061f25; box-shadow: 0 24px 80px rgba(0,0,0,.38); }
 .playback-modal-heading { min-height: 58px; padding: 11px 13px 11px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: white; }

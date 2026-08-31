@@ -90,6 +90,10 @@ function forecast(
 function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
   const url = new URL(requestUrl);
   const item = observation(`video_${spotId}`, spotId, spotName);
+  const timeWindowOnlyItem = {
+    ...observation(`video_time_window_${spotId}`, spotId, spotName),
+    capturedAt: "2026-08-29T23:00:00.000Z",
+  };
   const primary = { height: 1.2, direction: 40, period: 11 };
   const secondary = { height: 0.8, direction: 120, period: 8 };
   return {
@@ -97,6 +101,7 @@ function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
     targetTime: url.searchParams.get("targetTime"),
     forecasts: [],
     observations: [item],
+    timeWindowObservations: [item, timeWindowOnlyItem],
     matches: [{
       score: 0.91,
       availableWeight: 1,
@@ -156,12 +161,22 @@ test("switching spots hides the previous result until the new query resolves", a
   await mockPublicApi(page, "spot_double-lions");
   await page.goto("/");
 
-  await expect(page.getByRole("button", { name: /播放 烏石港/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /播放 烏石港.*相似度/ })).toBeVisible();
   await page.getByRole("button", { name: "雙獅", exact: true }).click();
 
-  await expect(page.getByRole("button", { name: /播放 烏石港/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /播放 烏石港.*相似度/ })).toHaveCount(0);
   await expect(page.getByText("比對中", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /播放 雙獅/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /播放 雙獅.*相似度/ })).toBeVisible();
+});
+
+test("shows every same-spot video in the selected two-hour window without requiring a match", async ({ page }) => {
+  await mockPublicApi(page);
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "所選時間前後 2 小時" })).toBeVisible();
+  const timeWindowRail = page.getByRole("region", { name: "所選時間前後兩小時的實拍" });
+  await expect(timeWindowRail.getByRole("button")).toHaveCount(2);
+  await expect(page.locator(".candidate-play-button")).toHaveCount(1);
 });
 
 test("shows the exact swapped swell assignment used by matching", async ({ page }) => {

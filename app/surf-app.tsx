@@ -833,6 +833,28 @@ function CombinedMatchList({ matches }: { matches: CombinedMatch[] }) {
   );
 }
 
+function TimeWindowObservationList({ observations }: { observations: Observation[] }) {
+  const [activeObservation, setActiveObservation] = useState<Observation | null>(null);
+  return (
+    <section className="time-window-observation-area" aria-label="所選時間前後兩小時的實拍">
+      <div className="time-window-observation-strip">
+        {observations.map((observation) => <button
+          type="button"
+          className="time-window-observation-card"
+          key={observation.id}
+          aria-label={`播放 ${observation.spot?.name || "浪點"} ${formatTime(observation.capturedAt)} 實拍`}
+          onClick={() => setActiveObservation(observation)}
+        >
+          <CandidateThumbnail observation={observation}/>
+          <span className="candidate-thumbnail-date">{formatTime(observation.capturedAt)}</span>
+          <span className="candidate-play-icon" aria-hidden="true">▶</span>
+        </button>)}
+      </div>
+      {activeObservation && <PlaybackModal observation={activeObservation} onClose={() => setActiveObservation(null)}/>}
+    </section>
+  );
+}
+
 export function SurfApp({ loginStatus, initialHelpOpen = false }: { loginStatus?: LoginStatus; initialHelpOpen?: boolean }) {
   const [view, setView] = useState<View>(loginStatus ? "mine" : "find");
   const [spots, setSpots] = useState<Spot[]>([]);
@@ -1107,10 +1129,14 @@ function FindView({ spots }: { spots: Spot[] }) {
   const [dayOffset, setDayOffset] = useState(() => firstSelectableForecastHour(0) == null ? 1 : 0);
   const [hour, setHour] = useState(() => firstSelectableForecastHour(0) ?? 8);
   const [spotId, setSpotId] = useState("");
-  const [queryState, setQueryState] = useState<FindQueryState<CombinedMatch[]>>({
+  const emptyResults = useMemo(() => ({ matches: [], timeWindowObservations: [] }), []);
+  const [queryState, setQueryState] = useState<FindQueryState<{
+    matches: CombinedMatch[];
+    timeWindowObservations: Observation[];
+  }>>({
     requestId: 0,
     queryKey: null,
-    results: [],
+    results: emptyResults,
     loading: false,
     error: null,
   });
@@ -1124,7 +1150,8 @@ function FindView({ spots }: { spots: Spot[] }) {
   const requestPath = selectedSpotId
     ? `/matches?spotId=${encodeURIComponent(selectedSpotId)}&targetTime=${encodeURIComponent(targetTime)}`
     : null;
-  const { results: matches, loading, error } = visibleFindQuery(queryState, requestPath, []);
+  const { results, loading, error } = visibleFindQuery(queryState, requestPath, emptyResults);
+  const { matches, timeWindowObservations } = results;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
@@ -1140,7 +1167,7 @@ function FindView({ spots }: { spots: Spot[] }) {
       type: "start",
       requestId,
       queryKey: requestPath,
-      emptyResults: [],
+      emptyResults,
     }));
     const timer = window.setTimeout(() => {
       void api<PublicMatchesResponse>(requestPath, { signal: controller.signal })
@@ -1148,7 +1175,10 @@ function FindView({ spots }: { spots: Spot[] }) {
           type: "success",
           requestId,
           queryKey: requestPath,
-          results: result.matches,
+          results: {
+            matches: result.matches,
+            timeWindowObservations: result.timeWindowObservations,
+          },
         })))
         .catch((caught) => {
           if (caught instanceof DOMException && caught.name === "AbortError") return;
@@ -1161,7 +1191,7 @@ function FindView({ spots }: { spots: Spot[] }) {
         });
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [requestPath]);
+  }, [emptyResults, requestPath]);
 
   const dayCells = Array.from({ length: FORECAST_DAY_OFFSET_MAX + 1 }, (_, offset) => {
     const target = taipeiForecastTarget(offset, 12, now);
@@ -1182,6 +1212,12 @@ function FindView({ spots }: { spots: Spot[] }) {
       {matches.length
         ? <CombinedMatchList matches={matches}/>
         : !loading && !error && <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 ECMWF 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 ECMWF 歷史預報的實拍；第 4–5 天會使用 ECMWF-only 相似度排序。"}</p></div>}
+      <div className="time-window-observation-section">
+        <div className="section-heading"><h3>所選時間前後 2 小時</h3><small>{loading ? "查詢中" : `${timeWindowObservations.length} 段`}</small></div>
+        {timeWindowObservations.length
+          ? <TimeWindowObservationList observations={timeWindowObservations}/>
+          : !loading && !error && <div className="time-window-empty">這個時段還沒有實拍。</div>}
+      </div>
     </section>
   </div>;
 }
