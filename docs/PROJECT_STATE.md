@@ -2,9 +2,9 @@
 
 Updated: 2026-08-31
 
-Product `0.15` release code commit `831eeb8` and deployment-handoff commit `772d557` are pushed to `main`. The final guarded Workers Build is deployed at 100% as Cloudflare version `8cab4613-4018-4bfd-ae19-d2bc8468cc32`; remote migration `0011_cuddly_lilandra.sql` is applied.
+Product `0.16` release commit `61985cb` is pushed to `main`. Its guarded Workers Build deployed at 100% as Cloudflare version `64de237b-3d05-494d-a346-b01428359aa0`; remote migration `0012_add_nearest_tide_spots.sql` is applied.
 
-Product `0.16` is a verified release candidate in the working tree. It has not yet been committed or deployed; production and the installed Home Assistant App remain on the versions described below.
+Home Assistant CWA Ingestor App `0.3.0` commit `d0ce63b` is pushed to its repository `main`, and its GitHub verification/Docker build passed. The repository publication is complete; this workspace has no Home Assistant Supervisor connection with which to inspect or force-update the separately installed App instance.
 
 ## Completed checkpoint
 
@@ -19,17 +19,17 @@ Product `0.16` is a verified release candidate in the working tree. It has not y
 - CI runs lint, typecheck, unit/integration tests, migration-drift checks, production build, rendered-site tests, and browser/accessibility tests.
 - Product `0.16` implements the upload UX task: the two introductory lines are removed, the short `7天內,10-60秒的浪況或衝浪影片` copy owns the info icon, and `顯示公開名稱` opens enabled when the user has a `display_id`.
 
-## Product 0.16 release candidate
+## Product 0.16 release
 
-- The working tree expands the active set from eight to eighteen spots. It adds 中角灣、福隆、環保、北濱、磯崎、九棚、佳樂水、松柏港、翡翠灣、萬里 and updates 南灣 to the owner-supplied 2026-08-31 coordinate.
+- The release expands the active set from eight to eighteen spots. It adds 中角灣、福隆、環保、北濱、磯崎、九棚、佳樂水、松柏港、翡翠灣、萬里 and updates 南灣 to the owner-supplied 2026-08-31 coordinate.
 - Data-only migration `0012_add_nearest_tide_spots.sql` upserts the ten additions and updated 南灣 into production D1 without changing existing video or forecast rows.
 - CWA ingestion contract v3 maps every active spot to the geographically nearest location in the official F-A0021-001 PDF. The farthest current pairing is 九棚 → `10013330` at about 4.41 km, so no current mapping was flagged as excessively distant.
 - The Worker temporarily accepts legacy v1/v2 batches under their original mappings, while v3 requires the new exact spot/LocationId mapping. Contract fingerprints are `d4dc3b42665cb89621c2c68090622ab51b1a1dc20c25fbbe1224ee53206914af` for the JSON Schema and `c5d3c97ea5f0f391bd808ff6fba3983ea0e59e47248a5800ad4592fe26e7cd16` for the mapping.
 - CWA raw provenance remains immutable; `ForecastResponse.tide.sourceLocationId` exposes the selected LocationId and both owner and comparison UI display it.
 - The Find result restores one fixed left-side `目標預報` card. Horizontally scrolling historical-video cards show only the candidate-time metrics and swell pairing, so target metrics are not repeated on every card.
 - Public `/spots` and the external uptime workflow now pin the same ordered eighteen slugs.
-- The separately maintained Home Assistant CWA Ingestor release candidate is App `0.3.0`. It emits contract v3 for all eighteen spots, retains persisted v1/v2 retry compatibility, and updates its aarch64 Docker label gate.
-- This checkpoint is local only. Production remains on Product `0.15`, migration 0012 is not remote-applied, and the installed Home Assistant App remains on `0.2.0`.
+- The separately maintained Home Assistant CWA Ingestor App `0.3.0` emits contract v3 for all eighteen spots, retains persisted v1/v2 retry compatibility, and updates its aarch64 Docker label gate.
+- The Worker, migration, and App repository were released in that compatibility-safe order: backward-compatible Worker first, then App `0.3.0` publication.
 
 ## Verification
 
@@ -46,24 +46,24 @@ The Product `0.15` change set has passed these local gates:
 
 The Open-Meteo mapping was also checked against current official Marine API responses for `meteofrance_wave`, `ecmwf_wam`, `ncep_gfswave016`, and `dwd_gwam`. Missing component fields remain null rather than being inferred from another model.
 
-The Product `0.16` release candidate passed `pnpm verify`: lint, typecheck, 35 test files / 208 tests, migration drift, production build, 2 rendered-site tests, and 5 Chromium/accessibility tests. The release-only Product-version and eighteen-spot uptime checks also passed after the unified gate. Local migration 0012 applied successfully, and a read-only D1 query confirmed exactly 18 active spots with the expected coordinates.
+The Product `0.16` release passed `pnpm verify`: lint, typecheck, 35 test files / 208 tests, migration drift, production build, 2 rendered-site tests, and 5 Chromium/accessibility tests. The release-only Product-version and eighteen-spot uptime checks also passed after the unified gate. Local migration 0012 applied successfully, and a read-only D1 query confirmed exactly 18 active spots with the expected coordinates.
 
-The Home Assistant App `0.3.0` release candidate passed `npm run verify`: typecheck, 9 test files / 25 tests, and build. Its v3 JSON Schema and tide-mapping fingerprints match this repository exactly.
+The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 test files / 25 tests, and build. Its v3 JSON Schema and tide-mapping fingerprints match this repository exactly. GitHub CI repeated the verification and aarch64 Docker inspection successfully after publication.
 
 ## Deployment state and cautions
 
-- GitHub CI run `33405296113` passed for release commit `831eeb8`, and run `33406300442` passed for handoff commit `772d557`. The first guarded Workers Build applied migration 0011; the final build published version `8cab4613-4018-4bfd-ae19-d2bc8468cc32` at 100% with no pending migration and retained query-string redaction.
+- Product `0.16` GitHub verify run `33410486708` and Workers Build check `99549017220` passed for commit `61985cb`. The build applied migration 0012 and published version `64de237b-3d05-494d-a346-b01428359aa0` at 100%.
 - Post-deploy preflight found every required binding and secret name, no pending migration, the retired Worker CWA key absent, and query-string redaction enabled.
-- Public smoke passed health, readiness, eight ordered spots, Product `0.15` assets, MFWAM client markers, and a valid `/matches` request. The response exposes CWA as active and existing ECMWF data as collect-only.
+- Public smoke passed `/health`, the exact ordered eighteen-spot `/spots` response, a valid `/matches` request, and a headless Chromium render of the eighteen spot selectors and Product `0.16` help dialog. The current public query returned no matches, so its conditional comparison cards were verified by the release Playwright fixture rather than fabricated production data.
 - A read-only D1 check confirmed the new snapshot columns. The pre-Cron baseline is 50 CWA rows across two spots and 9,672 legacy ECMWF rows across eight spots; the audit wrote zero rows.
-- The `Surf Video Share CWA Ingestor` payload/HMAC contract is unchanged and needs no App update for Product 0.15. The Worker adds `snapshotKind=forecast` and null model-only fields while accepting the existing v1/v2 payload.
+- The production Worker accepts contract v3 while temporarily retaining v1/v2 retry compatibility. App `0.3.0` is the first release that emits v3 for all eighteen spots.
 - Existing test videos will not be rewritten or backfilled. New rows accumulate through normal scheduled collection only.
 - No temporary production trigger was added. The exact schedules remain `5 * * * *` and `20 */6 * * *`; the first normal multi-model run after deployment is due at 2026-09-01 02:20 Asia/Taipei.
 - Until that run completes, production has no MFWAM/GFS/GWAM rows, so similarity matches that require MFWAM may remain empty. The first run must be observed model by model; a collect-only success must not hide a complete MFWAM failure.
-- Product `0.16`, migration `0012_add_nearest_tide_spots.sql`, and Home Assistant App `0.3.0` are not deployed yet. Deploy the backward-compatible Worker and migration first; update the App only after production accepts v3.
+- Home Assistant App `0.3.0` GitHub verify run `33410745618` passed for commit `d0ce63b`, and the App Store repository now publishes the release. Whether the installed Home Assistant host has auto-updated cannot be observed from this workspace because the App intentionally exposes no inbound management surface and no Supervisor connection is configured here.
 - Open-Meteo may omit fields or model runs. Storage and UI tolerate nulls, and each model keeps its own provenance and failure result.
 - MFWAM retains the matching horizon; collect-only models intentionally use a short horizon so storage growth remains bounded until a model is promoted.
 
 ## Next task
 
-Commit and push the verified Product `0.16` release candidate, observe the guarded Worker deployment applying migration 0012, run production preflight/smoke, then publish Home Assistant App `0.3.0` and confirm its first natural v3 ingestion.
+On the Home Assistant host, refresh the App Store and update the installed CWA Ingestor to `0.3.0` if automatic updates are disabled, then confirm the first natural contract-v3 ingestion across all eighteen spots without creating a temporary trigger or historical backfill.
