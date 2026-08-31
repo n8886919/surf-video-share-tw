@@ -2,7 +2,7 @@
 
 Updated: 2026-08-31
 
-Product `0.15` is implemented in the working tree and has not been deployed. Production remains on the previously reviewed `0.14` release until the database migration and runtime change are deployed together.
+Product `0.15` commit `831eeb8` is deployed at 100% as Cloudflare version `fdd3d180-0655-42f8-a607-5626dcccf3c1`. Remote migration `0011_cuddly_lilandra.sql` is applied.
 
 ## Completed checkpoint
 
@@ -15,6 +15,7 @@ Product `0.15` is implemented in the working tree and has not been deployed. Pro
 - `docs/MATCHING.md` is the detailed matching specification. Its source fingerprint and generated provider-role table are guarded by tests against `packages/domain/src/matching.ts` and `packages/domain/src/forecast-sources.ts`.
 - README, Roadmap, architecture, product, data-source, data-model, API, operations, principles, ADR, and project-state documentation now describe the five independent sources rather than the obsolete two-spot / ECMWF-matching design.
 - CI runs lint, typecheck, unit/integration tests, migration-drift checks, production build, rendered-site tests, and browser/accessibility tests.
+- `docs/ROADMAP.md` now records a pending upload UX task to remove the two introductory lines, replace the duration/time copy with `7天內,10-60秒的浪況或衝浪影片` plus an info icon, and default `顯示公開名稱` to enabled whenever the upload flow opens. This item is documented only and is not yet implemented.
 
 ## Verification
 
@@ -33,12 +34,17 @@ The Open-Meteo mapping was also checked against current official Marine API resp
 
 ## Deployment state and cautions
 
-- Remote D1 migration 0011 and the Product `0.15` worker/assets are not deployed yet.
+- GitHub CI run `33405296113` passed for exact commit `831eeb8`. The guarded Workers Build applied migration 0011, published version `fdd3d180-0655-42f8-a607-5626dcccf3c1` at 100%, and retained query-string redaction.
+- Post-deploy preflight found every required binding and secret name, no pending migration, the retired Worker CWA key absent, and query-string redaction enabled.
+- Public smoke passed health, readiness, eight ordered spots, Product `0.15` assets, MFWAM client markers, and a valid `/matches` request. The response exposes CWA as active and existing ECMWF data as collect-only.
+- A read-only D1 check confirmed the new snapshot columns. The pre-Cron baseline is 50 CWA rows across two spots and 9,672 legacy ECMWF rows across eight spots; the audit wrote zero rows.
+- The `Surf Video Share CWA Ingestor` payload/HMAC contract is unchanged and needs no App update for Product 0.15. The Worker adds `snapshotKind=forecast` and null model-only fields while accepting the existing v1/v2 payload.
 - Existing test videos will not be rewritten or backfilled. New rows accumulate through normal scheduled collection only.
-- The first production Cron after deployment must be observed model by model. A collect-only success must not hide a complete MFWAM failure.
+- No temporary production trigger was added. The exact schedules remain `5 * * * *` and `20 */6 * * *`; the first normal multi-model run after deployment is due at 2026-09-01 02:20 Asia/Taipei.
+- Until that run completes, production has no MFWAM/GFS/GWAM rows, so similarity matches that require MFWAM may remain empty. The first run must be observed model by model; a collect-only success must not hide a complete MFWAM failure.
 - Open-Meteo may omit fields or model runs. Storage and UI tolerate nulls, and each model keeps its own provenance and failure result.
 - MFWAM retains the matching horizon; collect-only models intentionally use a short horizon so storage growth remains bounded until a model is promoted.
 
 ## Next task
 
-Run the guarded Product `0.15` production deployment: apply remote migration 0011, deploy the reviewed worker and assets, then observe one normal forecast Cron and verify independent source roles and snapshot kinds in D1 without backfilling existing videos.
+After the 2026-09-01 02:20 Asia/Taipei normal forecast Cron, inspect its structured result and run a read-only D1 audit proving MFWAM active rows plus independent ECMWF/GFS/GWAM collect-only rows and both snapshot kinds, then smoke one public match without backfilling existing videos.
