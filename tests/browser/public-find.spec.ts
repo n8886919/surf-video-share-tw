@@ -90,9 +90,13 @@ function forecast(
 function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
   const url = new URL(requestUrl);
   const item = observation(`video_${spotId}`, spotId, spotName);
-  const timeWindowOnlyItem = {
-    ...observation(`video_time_window_${spotId}`, spotId, spotName),
-    capturedAt: "2026-08-29T23:00:00.000Z",
+  const recentItem = {
+    ...observation(`video_recent_${spotId}`, spotId, spotName),
+    capturedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+  };
+  const recentOnlyItem = {
+    ...observation(`video_recent_only_${spotId}`, spotId, spotName),
+    capturedAt: new Date(Date.now() - 90 * 60_000).toISOString(),
   };
   const primary = { height: 1.2, direction: 40, period: 11 };
   const secondary = { height: 0.8, direction: 120, period: 8 };
@@ -101,7 +105,7 @@ function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
     targetTime: url.searchParams.get("targetTime"),
     forecasts: [],
     observations: [item],
-    timeWindowObservations: [item, timeWindowOnlyItem],
+    timeWindowObservations: [recentItem, recentOnlyItem],
     matches: [{
       score: 0.91,
       availableWeight: 1,
@@ -169,12 +173,12 @@ test("switching spots hides the previous result until the new query resolves", a
   await expect(page.getByRole("button", { name: /播放 雙獅.*相似度/ })).toBeVisible();
 });
 
-test("shows every same-spot video in the selected two-hour window without requiring a match", async ({ page }) => {
+test("shows every same-spot public video captured in the last two hours without requiring a match", async ({ page }) => {
   await mockPublicApi(page);
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "所選時間前後 2 小時" })).toBeVisible();
-  const timeWindowRail = page.getByRole("region", { name: "所選時間前後兩小時的實拍" });
+  await expect(page.getByRole("heading", { name: "即時影片（近 2 小時）" })).toBeVisible();
+  const timeWindowRail = page.getByRole("region", { name: "近兩小時的即時影片" });
   await expect(timeWindowRail.getByRole("button")).toHaveCount(2);
   await expect(page.locator(".candidate-play-button")).toHaveCount(1);
 });

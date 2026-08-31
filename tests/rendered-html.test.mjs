@@ -91,7 +91,8 @@ test("renders the product title and language", async () => {
   assert.doesNotMatch(clientBundle, /新影片預設顯示公開名稱/);
   assert.doesNotMatch(clientBundle, /目前 id:/);
   assert.match(clientBundle, /相似歷史實拍/);
-  assert.match(clientBundle, /所選時間前後 2 小時/);
+  assert.match(clientBundle, /即時影片（近 2 小時）/);
+  assert.doesNotMatch(clientBundle, /所選時間前後 2 小時/);
   assert.match(clientBundle, /timeWindowObservations/);
   assert.doesNotMatch(clientBundle, /所選預報/);
   assert.match(clientBundle, /CWA 與 ECMWF 綜合相似實拍/);

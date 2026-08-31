@@ -57,6 +57,7 @@ const RATE_LIMIT_RETRY_SECONDS = 60;
 const PLAYBACK_TRACKING_TOKEN_SECONDS = 15 * 60;
 const SHARE_LINK_SECONDS = 24 * 60 * 60;
 const SHARE_MONTHLY_ANONYMOUS_PLAY_LIMIT = 100;
+const RECENT_OBSERVATION_WINDOW_MS = 2 * 60 * 60_000;
 type AnonymousWriteScope = "line-login" | "problem-report" | "video-report";
 
 const REQUIRED_MATCH_SOURCES = [
@@ -1143,8 +1144,11 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     return context.json({ error: "TARGET_OUT_OF_RANGE", message: "請選擇台北時間今天起五天內的 05:00–19:00 整點，且不可早於現在" }, 422);
   }
   const now = new Date().toISOString();
+  const recentObservationCutoff = new Date(
+    new Date(now).getTime() - RECENT_OBSERVATION_WINDOW_MS,
+  ).toISOString();
 
-  const [forecastResult, videoResult, historyResult, timeWindowVideoResult] = await Promise.all([
+  const [forecastResult, videoResult, historyResult, recentVideoResult] = await Promise.all([
     context.env.DB.prepare(
       `SELECT * FROM (
          SELECT fs.*,
@@ -1194,10 +1198,9 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
        WHERE v.spot_id = ? AND v.metadata_status = 'complete'
          AND v.public_at IS NOT NULL AND v.status = 'ready'
          AND v.terms_version IS NOT NULL AND v.moderation_status = 'visible'
-         AND time(v.captured_at, '+8 hours') BETWEEN
-           time(?, '+8 hours', '-2 hours') AND time(?, '+8 hours', '+2 hours')
-       ORDER BY v.captured_at DESC`,
-    ).bind(spot.id, targetTime, targetTime).all<ObservationRow>(),
+         AND julianday(v.captured_at) BETWEEN julianday(?) AND julianday(?)
+       ORDER BY julianday(v.captured_at) DESC, v.id`,
+    ).bind(spot.id, recentObservationCutoff, now).all<ObservationRow>(),
   ]);
 
   const observationById = new Map(videoResult.results.map((row) => [row.id, row]));
@@ -1278,7 +1281,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     targetTime,
     forecasts: forecastResult.results.map(serializeForecast),
     observations: videoResult.results.map((row) => serializeObservation(row)),
-    timeWindowObservations: timeWindowVideoResult.results.map((row) => serializeObservation(row)),
+    timeWindowObservations: recentVideoResult.results.map((row) => serializeObservation(row)),
     matches,
     ranking: requiredSources.length === 2
       ? "equal-provider-composite-historical-forecast"

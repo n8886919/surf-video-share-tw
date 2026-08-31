@@ -833,10 +833,10 @@ function CombinedMatchList({ matches }: { matches: CombinedMatch[] }) {
   );
 }
 
-function TimeWindowObservationList({ observations }: { observations: Observation[] }) {
+function RecentObservationList({ observations }: { observations: Observation[] }) {
   const [activeObservation, setActiveObservation] = useState<Observation | null>(null);
   return (
-    <section className="time-window-observation-area" aria-label="所選時間前後兩小時的實拍">
+    <section className="time-window-observation-area" aria-label="近兩小時的即時影片">
       <div className="time-window-observation-strip">
         {observations.map((observation) => <button
           type="button"
@@ -1213,10 +1213,10 @@ function FindView({ spots }: { spots: Spot[] }) {
         ? <CombinedMatchList matches={matches}/>
         : !loading && !error && <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 ECMWF 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 ECMWF 歷史預報的實拍；第 4–5 天會使用 ECMWF-only 相似度排序。"}</p></div>}
       <div className="time-window-observation-section">
-        <div className="section-heading"><h3>所選時間前後 2 小時</h3><small>{loading ? "查詢中" : `${timeWindowObservations.length} 段`}</small></div>
+        <div className="section-heading"><h3>即時影片（近 2 小時）</h3><small>{loading ? "查詢中" : `${timeWindowObservations.length} 段`}</small></div>
         {timeWindowObservations.length
-          ? <TimeWindowObservationList observations={timeWindowObservations}/>
-          : !loading && !error && <div className="time-window-empty">這個時段還沒有實拍。</div>}
+          ? <RecentObservationList observations={timeWindowObservations}/>
+          : !loading && !error && <div className="time-window-empty">近兩小時還沒有實拍。</div>}
       </div>
     </section>
   </div>;

@@ -130,7 +130,7 @@ describe("public matches response", () => {
       prepare: (sql: string) => {
         const statement = {
           bind: (...values: unknown[]) => {
-            if (sql.includes("time(v.captured_at")) {
+            if (sql.includes("julianday(v.captured_at) BETWEEN")) {
               timeWindowSql = sql;
               timeWindowBindings = values;
             }
@@ -160,7 +160,7 @@ describe("public matches response", () => {
             if (sql.includes("FROM forecast_snapshots fs")) {
               return { results: [ecmwfTarget, cwaTarget] };
             }
-            if (sql.includes("time(v.captured_at")) {
+            if (sql.includes("julianday(v.captured_at) BETWEEN")) {
               return { results: [observationRow("video_nearby", capturedAt)] };
             }
             if (sql.includes("FROM videos v")) return { results: observations };
@@ -181,10 +181,15 @@ describe("public matches response", () => {
     expect(body.targetTime).toBe(targetTime);
     expect(historicalSql).toContain("CAST(strftime('%s', fs.issued_at) AS INTEGER)");
     expect(historicalSql).toContain("CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)");
-    expect(timeWindowSql).toContain("time(?, '+8 hours', '-2 hours')");
-    expect(timeWindowSql).toContain("time(?, '+8 hours', '+2 hours')");
+    expect(timeWindowSql).toContain("julianday(v.captured_at) BETWEEN julianday(?) AND julianday(?)");
+    expect(timeWindowSql).not.toContain("time(v.captured_at");
     expect(timeWindowSql).not.toContain("LIMIT");
-    expect(timeWindowBindings).toEqual(["spot_double-lions", targetTime, targetTime]);
+    expect(timeWindowBindings[0]).toBe("spot_double-lions");
+    expect(timeWindowBindings).not.toContain(targetTime);
+    const recentCutoff = Date.parse(timeWindowBindings[1] as string);
+    const requestNow = Date.parse(timeWindowBindings[2] as string);
+    expect(requestNow - recentCutoff).toBe(2 * 60 * 60_000);
+    expect(requestNow).toBeGreaterThanOrEqual(current.getTime());
     expect(body.timeWindowObservations.map((observation) => observation.id)).toEqual(["video_nearby"]);
     expect(body.ranking).toBe("equal-provider-composite-historical-forecast");
     expect(body.matches).toHaveLength(1);
