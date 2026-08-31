@@ -88,7 +88,7 @@ function forecast(
     secondarySwell: { ...secondary, peakPeriod: null },
     tertiarySwell: { height: null, direction: null, period: null, peakPeriod: null },
     windWave: { height: 0.3, direction: 20, period: 4, peakPeriod: null },
-    tide: { height: 0.5, slope: 0.1, state: "rising" },
+    tide: { height: 0.5, slope: 0.1, state: "rising", sourceLocationId: null },
     wind: { speed: 4, direction: 10, gust: 6 },
   };
 }
@@ -111,6 +111,12 @@ function ownerForecast(
     sourceDisplayName,
     matchingRole,
     snapshotKind: "historical_forecast",
+    tide: {
+      height: 0.5,
+      slope: 0.1,
+      state: "rising",
+      sourceLocationId: provider === "cwa" ? "O00400" : null,
+    },
   };
 }
 
@@ -214,6 +220,9 @@ test("shows the exact swapped swell assignment used by matching", async ({ page 
   await mockPublicApi(page);
   await page.goto("/");
 
+  await expect(page.getByText("目標預報", { exact: true })).toHaveCount(1);
+  await expect(page.locator(".target-forecast-card")).toContainText("1.2m · 40° · 11.0s");
+  await expect(page.locator(".candidate-forecast-card .combined-metric-header")).not.toContainText("目標");
   const primaryRow = page.locator('[data-swell-pairing="primary:secondary"]');
   const secondaryRow = page.locator('[data-swell-pairing="secondary:primary"]');
   await expect(primaryRow).toContainText("主湧浪");
@@ -258,6 +267,11 @@ test("owner video shows active sources first and every collect-only model", asyn
   });
 
   await page.goto("/");
+  await page.getByRole("button", { name: "上傳", exact: true }).click();
+  await expect(page.getByText("7天內,10-60秒的浪況或衝浪影片", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "顯示公開名稱" })).toBeChecked();
+  await expect(page.getByText("上傳你也希望在找浪時看到的影片", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("可從相簿選擇，或使用裝置相機錄影", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "我的", exact: true }).click();
   await page.getByRole("button", { name: "更多資訊", exact: true }).click();
 
@@ -268,6 +282,7 @@ test("owner video shows active sources first and every collect-only model", asyn
   const rows = page.locator(".owner-forecast-row");
   await expect(rows).toHaveCount(5);
   await expect(rows.nth(0)).toContainText("CWA");
+  await expect(rows.nth(0)).toContainText("O00400");
   await expect(rows.nth(1)).toContainText("Météo-France MFWAM");
   await expect(rows.nth(2)).toContainText("ECMWF WAM 9 km");
   await expect(rows.nth(3)).toContainText("NOAA GFS Wave 0.16°");

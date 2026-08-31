@@ -324,7 +324,7 @@ function HistoricalForecastTable({ forecasts }: { forecasts: Forecast[] }) {
         <span>{compactForecastGroup(forecast.tertiarySwell)}</span>
         <span>{compactForecastGroup(forecast.windWave)}</span>
         <span>{forecast.wind.speed == null ? "—" : `${forecast.wind.speed.toFixed(1)}m/s`} / {formatDirection(forecast.wind.direction)} / {forecast.wind.gust == null ? "—" : `${forecast.wind.gust.toFixed(1)}m/s`}</span>
-        <span>{forecast.tide.height == null ? "—" : `${forecast.tide.height.toFixed(1)}m`} / {formatTideState(forecast.tide.state)} / {forecast.tide.slope == null ? "—" : `${forecast.tide.slope.toFixed(1)}m/h`}</span>
+        <span>{forecast.tide.height == null ? "—" : `${forecast.tide.height.toFixed(1)}m`} / {formatTideState(forecast.tide.state)} / {forecast.tide.slope == null ? "—" : `${forecast.tide.slope.toFixed(1)}m/h`}{forecast.tide.sourceLocationId ? ` · ${forecast.tide.sourceLocationId}` : ""}</span>
       </div>)}
     </div>
   </div>;
@@ -652,11 +652,29 @@ function forecastComparisonRows(
     ...swellRows,
     { label: "風浪", targetValue: compactForecastMetricGroup(target.windWave), candidateValue: compactForecastMetricGroup(candidate.windWave) },
     { label: "風", targetValue: `${compactMetric(target.wind.speed, "m/s")} · ${formatDirection(target.wind.direction)} · 陣風 ${compactMetric(target.wind.gust, "m/s")}`, candidateValue: `${compactMetric(candidate.wind.speed, "m/s")} · ${formatDirection(candidate.wind.direction)} · 陣風 ${compactMetric(candidate.wind.gust, "m/s")}` },
-    { label: "潮位", targetValue: `${compactMetric(target.tide.height, "m")} · ${formatTideState(target.tide.state)} · ${compactMetric(target.tide.slope, "m/h")}`, candidateValue: `${compactMetric(candidate.tide.height, "m")} · ${formatTideState(candidate.tide.state)} · ${compactMetric(candidate.tide.slope, "m/h")}` },
+    { label: "潮位", targetValue: `${compactMetric(target.tide.height, "m")} · ${formatTideState(target.tide.state)} · ${compactMetric(target.tide.slope, "m/h")}${target.tide.sourceLocationId ? ` · ${target.tide.sourceLocationId}` : ""}`, candidateValue: `${compactMetric(candidate.tide.height, "m")} · ${formatTideState(candidate.tide.state)} · ${compactMetric(candidate.tide.slope, "m/h")}${candidate.tide.sourceLocationId ? ` · ${candidate.tide.sourceLocationId}` : ""}` },
   ];
 }
 
-function CombinedForecastDetails({ match }: { match: CombinedMatch }) {
+function TargetForecastDetails({ sources }: { sources: CombinedMatch["sources"] }) {
+  return <div className="combined-forecast-details">
+    {sources.map((source) => {
+      const rows = forecastComparisonRows(
+        source.targetForecast,
+        source.candidateForecast,
+        source.swellPairing,
+      );
+      return <section key={`${source.provider}:${source.model}`} className="combined-source-comparison">
+        <div className="combined-source-heading"><strong>{source.targetForecast.sourceDisplayName}</strong></div>
+        {rows.map((row) => <div className="combined-target-metric-row" key={row.label}>
+          <strong>{row.label}</strong><span>{row.targetValue}</span>
+        </div>)}
+      </section>;
+    })}
+  </div>;
+}
+
+function CandidateForecastDetails({ match }: { match: CombinedMatch }) {
   return <div className="combined-forecast-details">
     {match.sources.map((source) => {
       const rows = forecastComparisonRows(
@@ -665,10 +683,10 @@ function CombinedForecastDetails({ match }: { match: CombinedMatch }) {
         source.swellPairing,
       );
       return <section key={`${source.provider}:${source.model}`} className="combined-source-comparison">
-        <div className="combined-source-heading"><strong>{source.targetForecast.sourceDisplayName}</strong><small>來源相似度 {Math.round(source.score * 100)}%</small></div>
-        <div className="combined-metric-header"><span>特徵</span><span>目標</span><span>實拍當時（配對）</span></div>
+        <div className="combined-source-heading"><strong>{source.candidateForecast.sourceDisplayName}</strong><small>來源相似度 {Math.round(source.score * 100)}%</small></div>
+        <div className="combined-metric-header"><span>特徵</span><span>實拍當時（配對）</span></div>
         {rows.map((row) => <div className="combined-metric-row" data-swell-pairing={row.pairing} key={row.label}>
-          <strong>{row.label}</strong><span>{row.targetValue}</span><span>{row.candidateValue}</span>
+          <strong>{row.label}</strong><span>{row.candidateValue}</span>
         </div>)}
       </section>;
     })}
@@ -817,23 +835,30 @@ function PlaybackModal({ observation, onClose }: { observation: Observation; onC
 
 function CombinedMatchList({ matches }: { matches: CombinedMatch[] }) {
   const [activeObservation, setActiveObservation] = useState<Observation | null>(null);
+  const targetSources = matches[0]?.sources ?? [];
   return (
     <section className="combined-match-area">
-      <div className="candidate-forecast-strip" aria-label="CWA 與 MFWAM 綜合相似實拍">
-        {matches.map((match) => <article className="candidate-forecast-card" key={match.observation.id}>
-          <button
-            type="button"
-            className="candidate-play-button"
-            aria-label={`播放 ${match.observation.spot?.name || "浪點"} ${formatTime(match.observation.capturedAt)} 實拍，相似度 ${Math.round(match.score * 100)}%`}
-            onClick={() => setActiveObservation(match.observation)}
-          >
-            <CandidateThumbnail observation={match.observation}/>
-            <span className="candidate-thumbnail-date">{formatTime(match.observation.capturedAt)}</span>
-            <span className="candidate-thumbnail-score">相似度 {Math.round(match.score * 100)}%</span>
-            <span className="candidate-play-icon" aria-hidden="true">▶</span>
-          </button>
-          <CombinedForecastDetails match={match}/>
-        </article>)}
+      <div className="forecast-comparison">
+        <article className="target-forecast-card" aria-label="目標預報">
+          <div className="target-forecast-visual"><strong>目標預報</strong><span>比較基準</span></div>
+          <TargetForecastDetails sources={targetSources}/>
+        </article>
+        <div className="candidate-forecast-strip" aria-label="CWA 與 MFWAM 綜合相似實拍">
+          {matches.map((match) => <article className="candidate-forecast-card" key={match.observation.id}>
+            <button
+              type="button"
+              className="candidate-play-button"
+              aria-label={`播放 ${match.observation.spot?.name || "浪點"} ${formatTime(match.observation.capturedAt)} 實拍，相似度 ${Math.round(match.score * 100)}%`}
+              onClick={() => setActiveObservation(match.observation)}
+            >
+              <CandidateThumbnail observation={match.observation}/>
+              <span className="candidate-thumbnail-date">{formatTime(match.observation.capturedAt)}</span>
+              <span className="candidate-thumbnail-score">相似度 {Math.round(match.score * 100)}%</span>
+              <span className="candidate-play-icon" aria-hidden="true">▶</span>
+            </button>
+            <CandidateForecastDetails match={match}/>
+          </article>)}
+        </div>
       </div>
       {activeObservation && <PlaybackModal observation={activeObservation} onClose={() => setActiveObservation(null)}/>}
     </section>
@@ -1237,7 +1262,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   const [spotHint, setSpotHint] = useState(initialSpot ? "上次使用的浪點，請確認" : "預設浪點，請確認");
   const [file, setFile] = useState<File | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
-  const [showUploader, setShowUploader] = useState(false);
+  const [showUploader, setShowUploader] = useState(() => Boolean(me.displayId));
   const [uploadGuideOpen, setUploadGuideOpen] = useState(false);
   const [rightsHelpOpen, setRightsHelpOpen] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -1316,18 +1341,17 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
       <section className="upload-source-card" aria-labelledby="upload-source-title">
         <div className="upload-source-heading">
           <h1 id="upload-source-title">上傳影片</h1>
-          <p>10–60 秒，拍攝時間 05:00–19:59</p>
-        </div>
-        <div className="upload-confidence-prompt">
-          <span>上傳你也希望在找浪時看到的影片</span>
-          <button
-            className="upload-confidence-help"
-            type="button"
-            aria-label="了解上傳影片如何成為浪況參考"
-            aria-expanded={uploadGuideOpen}
-            aria-controls="upload-confidence-guide"
-            onClick={() => setUploadGuideOpen((open) => !open)}
-          >?</button>
+          <div className="upload-duration-help">
+            <p>7天內,10-60秒的浪況或衝浪影片</p>
+            <button
+              className="upload-confidence-help"
+              type="button"
+              aria-label="了解上傳影片如何成為浪況參考"
+              aria-expanded={uploadGuideOpen}
+              aria-controls="upload-confidence-guide"
+              onClick={() => setUploadGuideOpen((open) => !open)}
+            ><Icon name="help"/></button>
+          </div>
         </div>
         {uploadGuideOpen && <p className="upload-confidence-guide" id="upload-confidence-guide">
           系統會以影片的拍攝時間與浪點，比對 CWA 與 MFWAM 浪況。若一般預報流程稍後提供該時段的近期歷史預報，會優先使用它；其他模型只保存與顯示，不影響相似度。之後有人搜尋到相似預報時，這段實拍就可能成為他的浪況參考。
@@ -1338,7 +1362,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
         </div>
         {file && duration != null
           ? <div className="selected-video-summary"><strong>{file.name}</strong><small>{duration.toFixed(1)} 秒 · {(file.size / 1_000_000).toFixed(1)} MB</small></div>
-          : <p className="upload-source-help">可從相簿選擇，或使用裝置相機錄影</p>}
+          : null}
       </section>
       <div className="two-fields"><label><span>浪點</span><select required value={spotId} onChange={(event) => { setSpotId(event.target.value); setSpotHint("已手動選擇；上傳後不可變更"); }}>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select><small className="field-hint">{spotHint}</small></label><label><span>拍攝時間</span><input type="datetime-local" min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} value={capturedAt} onChange={(event) => { setCapturedAt(event.target.value); setCaptureTimeHint("已手動調整，送出前請確認"); }}/><small className="field-hint">{captureTimeHint}</small></label></div>
       <p className="pending-help">浪點上傳後不可補選或變更；拍攝時間可在 7 天內補齊，補齊前影片不公開。</p>

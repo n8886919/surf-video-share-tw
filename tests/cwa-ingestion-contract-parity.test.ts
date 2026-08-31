@@ -6,6 +6,7 @@ import {
   CWA_TIDE_LOCATION_BY_SPOT_ID,
   acceptedCwaForecastIngestionBatchSchema,
   cwaForecastIngestionBatchSchema,
+  cwaForecastIngestionV2BatchSchema,
 } from "../packages/api-contract/src";
 
 function snapshot() {
@@ -32,7 +33,7 @@ function snapshot() {
       },
       tide: {
         dataset: "F-A0021-001" as const,
-        locationId: "O00400" as const,
+        locationId: "10002040" as const,
         datum: "AboveLocalMSL" as const,
         units: "m" as const,
         interpolation: "half-cosine-between-adjacent-extrema" as const,
@@ -41,8 +42,19 @@ function snapshot() {
   };
 }
 
+function legacySnapshot() {
+  const current = snapshot();
+  return {
+    ...current,
+    provenance: {
+      ...current.provenance,
+      tide: { ...current.provenance.tide, locationId: "O00400" as const },
+    },
+  };
+}
+
 describe("Home Assistant CWA ingestion contract parity", () => {
-  it("pins the complete v2 structural contract and tide mapping fingerprints", () => {
+  it("pins the complete v3 structural contract and tide mapping fingerprints", () => {
     const fingerprint = createHash("sha256")
       .update(JSON.stringify(z.toJSONSchema(cwaForecastIngestionBatchSchema)))
       .digest("hex");
@@ -50,20 +62,20 @@ describe("Home Assistant CWA ingestion contract parity", () => {
       .update(JSON.stringify(CWA_TIDE_LOCATION_BY_SPOT_ID))
       .digest("hex");
     expect(CWA_FORECAST_INGESTION_CONTRACT).toEqual({
-      version: "cwa-forecast-ingestion-v2",
+      version: "cwa-forecast-ingestion-v3",
       jsonSchemaSha256: fingerprint,
       tideMappingSha256: tideMappingFingerprint,
     });
   });
 
   it("pins refinements that JSON Schema cannot represent", () => {
-    expect(cwaForecastIngestionBatchSchema.safeParse({ version: 2, snapshots: [snapshot()] }).success).toBe(true);
+    expect(cwaForecastIngestionBatchSchema.safeParse({ version: 3, snapshots: [snapshot()] }).success).toBe(true);
     expect(cwaForecastIngestionBatchSchema.safeParse({
-      version: 2,
+      version: 3,
       snapshots: [{ ...snapshot(), leadHours: 4 }],
     }).success).toBe(false);
     expect(cwaForecastIngestionBatchSchema.safeParse({
-      version: 2,
+      version: 3,
       snapshots: [{ ...snapshot(), waveHeight: null, waveDirection: null, wavePeriod: null }],
     }).success).toBe(false);
   });
@@ -71,7 +83,14 @@ describe("Home Assistant CWA ingestion contract parity", () => {
   it("keeps accepting a persisted v1 batch during the coordinated rollout", () => {
     expect(acceptedCwaForecastIngestionBatchSchema.safeParse({
       version: 1,
-      snapshots: [snapshot()],
+      snapshots: [legacySnapshot()],
+    }).success).toBe(true);
+  });
+
+  it("keeps accepting a persisted v2 batch during the coordinated rollout", () => {
+    expect(cwaForecastIngestionV2BatchSchema.safeParse({
+      version: 2,
+      snapshots: [legacySnapshot()],
     }).success).toBe(true);
   });
 });

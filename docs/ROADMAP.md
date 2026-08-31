@@ -2,7 +2,7 @@
 
 ## Milestone A — product vertical slice
 
-Complete: public spot/time matching, eight active Taiwan spots, immutable-spot 10–60 second upload, seven-day capture-time completion, public Stream lifecycle, three-tab mobile UI, versioned CC0 notice, owner feedback, reporting, and administrator delisting.
+Complete: public spot/time matching, eighteen active Taiwan spots, immutable-spot 10–60 second upload, seven-day capture-time completion, public Stream lifecycle, three-tab mobile UI, versioned CC0 notice, owner feedback, reporting, and administrator delisting.
 
 ## Milestone B — independent forecast history
 

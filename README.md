@@ -46,7 +46,7 @@ pnpm db:generate
 pnpm db:migrate:local
 ```
 
-`data/spots.csv` seeds development. 首波正式啟用烏石港、雙獅、無尾、蜜月灣、金樽、北東河、漁光島與南灣；其他 checklist 項目保持停用。浪點啟用狀態不代表歷史預報已被回填，各來源仍保存獨立快照，最新 production 覆蓋與 rollout 狀態以 [Current project state](docs/PROJECT_STATE.md) 為準。
+`data/spots.csv` seeds development. 正式啟用烏石港、雙獅、無尾、蜜月灣、金樽、北東河、漁光島、南灣、中角灣、福隆、環保、北濱、磯崎、九棚、佳樂水、松柏港、翡翠灣與萬里；其他 checklist 項目保持停用。浪點啟用狀態不代表歷史預報已被回填，各來源仍保存獨立快照，最新 production 覆蓋與 rollout 狀態以 [Current project state](docs/PROJECT_STATE.md) 為準。
 
 ## Cloudflare and LINE setup
 

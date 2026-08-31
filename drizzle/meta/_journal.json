@@ -85,6 +85,13 @@
       "when": 1788185454127,
       "tag": "0011_cuddly_lilandra",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1788186000000,
+      "tag": "0012_add_nearest_tide_spots",
+      "breakpoints": true
     }
   ]
 }

@@ -35,7 +35,7 @@ This document records the product philosophy that must survive handoffs. `docs/P
 完整可重現的權重、距離、coverage、無序湧浪配對與來源合成公式見 [Matching algorithm](MATCHING.md)；任何公式變更仍須先符合本節不可退讓的時間與來源誠信。
 
 - Matching 維持無標籤、可解釋的同浪點距離排序，不使用觀看數、主觀反應或黑盒模型調權。主／次湧浪是可能交換標籤的無順序浪系；共享固定湧浪權重並依目標浪高平方分配。方向是圓形資料，使用非線性 cosine distance，而不是把角度當一般直線數值。
-- 潮汐只接受逐浪點驗證的 CWA F-A0021-001 LocationId 與 `AboveLocalMSL` provenance。缺值保持 `null`，不能套用其他海岸的地點、把未知當零，或用後來取得的潮汐預報回填舊影片。
+- 潮汐使用浪點 owner-supplied coordinates 對應最近的 CWA F-A0021-001 LocationId，並固定保存該 LocationId 與 `AboveLocalMSL` provenance；若最近點仍明顯過遠，必須提出人工確認。缺值保持 `null`，不能把未知當零，或用後來取得的潮汐預報回填舊影片。
 
 - 所有預報快照都保存來源、模型、run、`issued_at`、`valid_at`、`lead_hours`、網格與 `snapshot_kind`。未來 target 只可使用 `forecast`，因此拍攝後取得的資料永遠不能被當成「當時可見的未來預報」。
 - 使用者只選浪點、`Asia/Taipei` 日曆日偏移 0–4 與當日 05:00–19:00 的整點，不可選分鐘或已經過去的時間。影片實際拍攝時間可保留分鐘與秒，但台北時間的小時必須介於 05–19。系統使用查詢當下最新可得、有效時間接近目標的 `forecast`。歷史影片若一般 live forecast 流程的 bounded `past_hours` 稍後自然帶回該時段，優先使用明確標示的 `historical_forecast` 作為較接近實況的模型估計；否則退回拍攝當時最新可得的 `forecast`。不主動呼叫舊 Historical Forecast mode、不任意回補，也不使用 reanalysis／hindcast 冒充 forecast。

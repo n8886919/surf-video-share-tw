@@ -3,9 +3,10 @@ shalun,Shalun,,North,,,,,false
 baishawan,Baishawan,,North,,,,,false
 restaurants,Restaurants,,North,,,,,false
 jinshan,Jinshan,,North,,,,,false
-green-bay,Green Bay,,North,,,,,false
-wanli,Wanli,,North,,,,,false
-fulong,Fulong,,North,,,,,false
+zhongjiao-bay,中角灣,中角灣,North,25.239770,121.633917,User-supplied coordinates,User supplied in product request on 2026-08-31,true
+green-bay,Green Bay,翡翠灣,North,25.1883162,121.6652802,User-supplied coordinates,User supplied in product request on 2026-08-31,true
+wanli,Wanli,萬里,North,25.181926,121.6875599,User-supplied coordinates,User supplied in product request on 2026-08-31,true
+fulong,Fulong,福隆,North,25.01950696642004,121.94721228977903,User-supplied coordinates,User supplied in product request on 2026-08-31,true
 daxi,Daxi,蜜月灣,Northeast,24.9333608,121.885568,User-supplied coordinates,User supplied in product request on 2026-08-30,true
 gengfang,Gengfang,,Northeast,,,,,false
 double-lions,Double Lions,雙獅,Northeast,24.8887597,121.8495724,https://maps.app.goo.gl/CJTEVfSH7yFGnHKPA,User-supplied Google Maps place marker,true
@@ -16,11 +17,11 @@ chou-shui,Chou Shui,,Northeast,,,,,false
 zhuan,Zhu'an,,Northeast,,,,,false
 qing-shui,Qing Shui,,Northeast,,,,,false
 suao-wuwei-harbor,Su'ao - Wuwei Harbor,無尾,Northeast,24.6114709,121.867805,User-supplied coordinates,User supplied in product request on 2026-08-30,true
-environmental-park,Environmental Park,,East,,,,,false
-hualien-beibin,Hualien Beibin,,East,,,,,false
+environmental-park,Environmental Park,環保,East,24.00893745298168,121.64634373339165,User-supplied coordinates,User supplied in product request on 2026-08-31,true
+hualien-beibin,Hualien Beibin,北濱,East,23.976851157405616,121.62119607489474,User-supplied coordinates,User supplied in product request on 2026-08-31,true
 double-bridge,Double Bridge,,East,,,,,false
 gongs,Gongs,,East,,,,,false
-jiqi,Jiqi,,East,,,,,false
+jiqi,Jiqi,磯崎,East,23.707389208134664,121.54972184939969,User-supplied coordinates,User supplied in product request on 2026-08-31,true
 baxian-dong,Baxian Dong,,East,,,,,false
 yiwan,Yiwan,,East,,,,,false
 chenggong,Chenggong,,East,,,,,false
@@ -29,14 +30,14 @@ donghe,Donghe,北東河,East,22.976243201721132,121.31300650318626,User-supplied
 jinzun,Jinzun,金樽,East,22.9558919,121.2942829,User-supplied coordinates,User supplied in product request on 2026-08-30,true
 dulan,Dulan,,East,,,,,false
 taitung,Taitung,,East,,,,,false
-jiupeng,Jiupeng,,South,,,,,false
-jialeshui,Jialeshui,,South,,,,,false
-nanwan,Nanwan,南灣,South,21.95878467673781,120.76046672044414,User-supplied coordinates,User supplied in product request on 2026-08-30,true
+jiupeng,Jiupeng,九棚,South,22.10902017243464,120.89123362409177,User-supplied coordinates,User supplied in product request on 2026-08-31,true
+jialeshui,Jialeshui,佳樂水,South,21.98728982582793,120.84633938560528,User-supplied coordinates,User supplied in product request on 2026-08-31,true
+nanwan,Nanwan,南灣,South,21.958931664298785,120.76328410357425,User-supplied coordinates,User supplied in product request on 2026-08-31,true
 sheliao,Sheliao,,South,,,,,false
 qijin,Qijin,,West,,,,,false
 yuguangdao,Yuguangdao,漁光島,West,22.980289143624113,120.15516081806676,User-supplied coordinates,User supplied in product request on 2026-08-30,true
 sicao-bridge,Sicao Bridge,,West,,,,,false
 shanshui,Shanshui,,West,,,,,false
-songbai-harbor,Songbai Harbor,,West,,,,,false
+songbai-harbor,Songbai Harbor,松柏港,West,24.431933375413898,120.61715426605767,User-supplied coordinates,User supplied in product request on 2026-08-31,true
 waipu-fishing-harbor,Waipu Fishing Harbor,,West,,,,,false
 zhunan,Zhunan,,West,,,,,false

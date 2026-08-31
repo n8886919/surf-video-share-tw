@@ -68,6 +68,7 @@ describe("owner video history response", () => {
       swell_height: 0.8,
       swell_direction: 90,
       swell_period: 8,
+      raw_payload: null,
     };
     const cwaHistory = {
       ...history,
@@ -76,6 +77,9 @@ describe("owner video history response", () => {
       model: "cwa-wave-f-a0020-001",
       snapshot_kind: "forecast",
       issued_at: "2026-08-25T00:00:00.000Z",
+      raw_payload: JSON.stringify({
+        tide: { dataset: "F-A0021-001", locationId: "10002040" },
+      }),
     };
     const ecmwfHistory = {
       ...history,
@@ -134,6 +138,7 @@ describe("owner video history response", () => {
           id: "forecast_cwa",
           sourceDisplayName: "CWA",
           matchingRole: "active",
+          tide: { sourceLocationId: "10002040" },
         },
         {
           id: "forecast_history",

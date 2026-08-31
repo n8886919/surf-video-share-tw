@@ -2,6 +2,26 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(new URL("../.github/workflows/uptime.yml", import.meta.url), "utf8");
+const activeSpotSlugs = [
+  "wushi-harbor-north",
+  "double-lions",
+  "suao-wuwei-harbor",
+  "daxi",
+  "jinzun",
+  "donghe",
+  "yuguangdao",
+  "nanwan",
+  "zhongjiao-bay",
+  "fulong",
+  "environmental-park",
+  "hualien-beibin",
+  "jiqi",
+  "jiupeng",
+  "jialeshui",
+  "songbai-harbor",
+  "green-bay",
+  "wanli",
+] as const;
 
 describe("production uptime workflow", () => {
   it("keeps an empty GitHub history parseable instead of appending a stray brace", () => {
@@ -15,5 +35,14 @@ describe("production uptime workflow", () => {
     expect(workflow).toContain('--arg text "${message}" --arg run_url "${run_url}"');
     expect(workflow).toContain('text: ($text + "\\n" + $run_url)');
     expect(workflow).not.toContain('${message}\\n${run_url}');
+  });
+
+  it("checks all eighteen active spots in the public API order", () => {
+    const orderedSlugBlock = activeSpotSlugs
+      .map((slug) => '              "' + slug + '"')
+      .join(",\n");
+    expect(workflow).toContain(orderedSlugBlock);
+    expect(workflow).toContain("十八個浪點");
+    expect(workflow).not.toContain("健康、就緒、八個浪點");
   });
 });

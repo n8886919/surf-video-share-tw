@@ -91,6 +91,7 @@ test("renders the product title and language", async () => {
   assert.doesNotMatch(clientBundle, /新影片預設顯示公開名稱/);
   assert.doesNotMatch(clientBundle, /目前 id:/);
   assert.match(clientBundle, /相似歷史實拍/);
+  assert.match(clientBundle, /目標預報/);
   assert.match(clientBundle, /即時影片（近 2 小時）/);
   assert.doesNotMatch(clientBundle, /所選時間前後 2 小時/);
   assert.match(clientBundle, /timeWindowObservations/);
@@ -104,7 +105,8 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /僅蒐集，不影響相似度/);
   assert.doesNotMatch(clientBundle, /test-spot-/);
   assert.doesNotMatch(clientBundle, /測試 [1-6]/);
-  assert.match(clientBundle, /拍攝時間 05:00–19:59/);
+  assert.match(clientBundle, /7天內,10-60秒的浪況或衝浪影片/);
+  assert.doesNotMatch(clientBundle, /10–60 秒，拍攝時間 05:00–19:59/);
   assert.match(clientBundle, /左右拖曳可滑動，長按按鈕可拖曳排序/);
   assert.match(clientBundle, /setPointerCapture/);
   assert.match(clientBundle, /scrollLeft/);
@@ -118,7 +120,8 @@ test("renders the product title and language", async () => {
   assert.match(clientCss, /transform:scale\(1\.1\)/);
   assert.match(clientBundle, /錄影/);
   assert.match(clientBundle, /environment/);
-  assert.match(clientBundle, /上傳你也希望在找浪時看到的影片/);
+  assert.doesNotMatch(clientBundle, /上傳你也希望在找浪時看到的影片/);
+  assert.doesNotMatch(clientBundle, /可從相簿選擇，或使用裝置相機錄影/);
   assert.match(clientBundle, /這段實拍就可能成為他的浪況參考/);
   assert.match(clientBundle, /了解上傳影片如何成為浪況參考/);
   assert.match(clientBundle, /aria-expanded/);

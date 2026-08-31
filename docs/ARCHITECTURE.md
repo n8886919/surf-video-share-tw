@@ -6,7 +6,7 @@ The detailed score formula, weights, coverage, unordered swell assignment, sourc
 
 ## Read path
 
-The public client selects one of the eight active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result.
+The public client selects one of the eighteen active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result.
 
 For a future target, the API reads only `snapshot_kind = forecast`, requires `issued_at <= queryNow`, limits `valid_at` distance to four hours, and chooses the newest provider/model run. Matching source features are never merged:
 
@@ -51,7 +51,7 @@ Rows whose `valid_at` is earlier than retrieval are labelled `historical_forecas
 
 Open-Meteo model fields are normalized without cross-model assumptions. MFWAM and GFS expose partitioned swell components; GFS may expose a third component. DWD GWAM's `swell_wave_*` is stored as total swell rather than primary swell. ECMWF currently contributes total wave fields. Peak periods are retained when supplied. The upstream model-run timestamp is unavailable, so `issued_at` is service retrieval time and `model_run_at` remains null; a normalized response hash makes identical retries idempotent.
 
-CWA computation remains in the outbound-only Home Assistant adapter because the official archive exceeds Workers Free CPU. It reads active coordinates from an HMAC-authenticated endpoint, streams the bounded F-A0020-001 ZIP, keeps three-hourly 0–72-hour rows, adds only allowlisted F-A0021-001 tide provenance, and submits at most five rows per request. The Worker revalidates provider/model/spot/time/tide provenance, recomputes stable IDs, and writes with `INSERT OR IGNORE`.
+CWA computation remains in the outbound-only Home Assistant adapter because the official archive exceeds Workers Free CPU. It reads active coordinates from an HMAC-authenticated endpoint, streams the bounded F-A0020-001 ZIP, keeps three-hourly 0–72-hour rows, selects each spot's reviewed nearest F-A0021-001 location, and submits at most five rows per request with the LocationId in provenance. The Worker revalidates provider/model/spot/time/the nearest tide allowlist, recomputes stable IDs, and writes with `INSERT OR IGNORE`.
 
 Every provider/model/run/valid row is immutable. D1 never averages models or overwrites an older snapshot when a provider changes.
 

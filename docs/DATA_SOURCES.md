@@ -7,7 +7,7 @@ Last checked against official documentation and small live responses: 2026-08-31
 | Provider / model | Native coverage and update | Retained fields observed for Taiwan | Product role |
 |---|---|---|---|
 | CWA `cwa-wave-f-a0020-001` | 0–72 h, retained every 3 h | total wave height/direction/period | active match |
-| CWA `F-A0021-001` | approved per-spot locations | tide height/slope/state with exact LocationId and datum provenance | enriches the CWA active row |
+| CWA `F-A0021-001` | nearest official location to each owner-supplied spot coordinate | tide height/slope/state with exact LocationId and datum provenance | enriches the CWA active row |
 | Open-Meteo `meteofrance_wave` (MFWAM 0.08°) | global, native 3-hourly, 10-day forecast, updated every 12 h | total wave, wind wave, primary and secondary swell; peak fields retained if later supplied | active match |
 | Open-Meteo `ecmwf_wam` (WAM HRES 9 km) | global, hourly, 15-day forecast, updated every 6 h | total wave plus total-wave peak period; component arrays were null in the checked response | collect-only |
 | Open-Meteo `ncep_gfswave016` (GFS Wave 0.16°) | Taiwan is inside 52.5°N–15°S; hourly, 16-day forecast, updated every 6 h | total wave, wind wave, primary, secondary, and tertiary swell | collect-only |
@@ -36,14 +36,28 @@ The service does not switch to Open-Meteo Historical Forecast mode, Single Runs,
 
 ## CWA boundary
 
-The outbound-only Home Assistant App owns the expensive official CWA archive parsing. The CWA key stays in App options and never reaches Cloudflare. The Worker accepts only fixed HMAC-authenticated batches, validates active spots and time relationships, recomputes IDs, and rejects tide provenance that does not match the reviewed allowlist:
+The outbound-only Home Assistant App owns the expensive official CWA archive parsing. The CWA key stays in App options and never reaches Cloudflare. Contract v3 uses the geographically nearest location listed by the official F-A0021-001 specification for every active owner-supplied coordinate. The Worker accepts only fixed HMAC-authenticated batches, validates active spots and time relationships, recomputes IDs, and rejects tide provenance that does not match this reviewed nearest-location allowlist:
 
-- `O00400`: 烏石港、雙獅
-- `10002030`: 無尾
-- `O01200`: 蜜月灣
-- `O01300`: 金樽、北東河
-- `B02400`: 漁光島
-- `O00700`: 南灣
+| LocationId | Active spot | Approximate distance |
+|---|---|---:|
+| `10002040` | 烏石港 | 0.75 km |
+| `O00400` | 雙獅 | 1.04 km |
+| `10002030` | 無尾 | 2.11 km |
+| `I02200` | 蜜月灣 | 3.68 km |
+| `I00900` | 金樽、北東河 | 0.31 km、3.28 km |
+| `I00500` | 漁光島 | 1.09 km |
+| `O00700` | 南灣 | 0.24 km |
+| `O00100` | 中角灣 | 0.37 km |
+| `I03800` | 福隆 | 0.42 km |
+| `I06100` | 環保 | 1.31 km |
+| `10015010` | 北濱 | 0.48 km |
+| `A00200` | 磯崎 | 0.76 km |
+| `10013330` | 九棚 | 4.41 km |
+| `O01000` | 佳樂水 | 0.26 km |
+| `10005020` | 松柏港 | 2.72 km |
+| `A01500` | 翡翠灣、萬里 | 1.90 km、0.68 km |
+
+Distances use a great-circle calculation against the coordinates published in the official CWA PDF. The farthest current pairing is 九棚 at about 4.41 km, so no active spot currently needs a far-distance exception. The selected LocationId is persisted in immutable raw provenance and exposed in `ForecastResponse.tide.sourceLocationId`.
 
 CWA `Sent` is `issued_at`; `model_run_at` is derived from valid time minus lead. F-A0021-001 `AboveLocalMSL` centimetres are converted to metres, and interpolation provenance remains immutable.
 
@@ -59,4 +73,4 @@ Provider attribution and licence requirements must be rechecked before public la
 
 ## Spot coordinates
 
-The eight active coordinates in `data/spots.csv` come from owner-supplied points and are not provider grid assertions. Provider responses preserve their independently selected sea-grid coordinates.
+The eighteen active coordinates in `data/spots.csv` come from owner-supplied points and are not provider grid assertions. Provider responses preserve their independently selected sea-grid coordinates.

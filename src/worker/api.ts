@@ -499,6 +499,7 @@ interface ForecastRow {
   wind_speed: number | null;
   wind_direction: number | null;
   wind_gust: number | null;
+  raw_payload: string | null;
 }
 
 interface HistoricalForecastRow extends ForecastRow {
@@ -636,6 +637,21 @@ function forecastMetricGroup(
   };
 }
 
+function tideSourceLocationId(rawPayload: string | null): string | null {
+  if (!rawPayload) return null;
+  try {
+    const parsed: unknown = JSON.parse(rawPayload);
+    if (typeof parsed !== "object" || parsed === null || !("tide" in parsed)) return null;
+    const tide = parsed.tide;
+    if (typeof tide !== "object" || tide === null || !("locationId" in tide)) return null;
+    return typeof tide.locationId === "string" && /^[A-Z0-9]{6,8}$/u.test(tide.locationId)
+      ? tide.locationId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function serializeForecast(row: ForecastRow): ForecastResponse {
   const source = findForecastSource(row.provider, row.model);
   return {
@@ -686,7 +702,12 @@ function serializeForecast(row: ForecastRow): ForecastResponse {
       row.wind_wave_period,
       row.wind_wave_peak_period,
     ),
-    tide: { height: row.tide_height, slope: row.tide_slope, state: row.tide_state },
+    tide: {
+      height: row.tide_height,
+      slope: row.tide_slope,
+      state: row.tide_state,
+      sourceLocationId: tideSourceLocationId(row.raw_payload),
+    },
     wind: { speed: row.wind_speed, direction: row.wind_direction, gust: row.wind_gust },
   };
 }
@@ -936,7 +957,17 @@ api.get("/spots", async (context) => {
        WHEN 'donghe' THEN 5
        WHEN 'yuguangdao' THEN 6
        WHEN 'nanwan' THEN 7
-       ELSE 8 END, name_en`,
+       WHEN 'zhongjiao-bay' THEN 8
+       WHEN 'fulong' THEN 9
+       WHEN 'environmental-park' THEN 10
+       WHEN 'hualien-beibin' THEN 11
+       WHEN 'jiqi' THEN 12
+       WHEN 'jiupeng' THEN 13
+       WHEN 'jialeshui' THEN 14
+       WHEN 'songbai-harbor' THEN 15
+       WHEN 'green-bay' THEN 16
+       WHEN 'wanli' THEN 17
+       ELSE 18 END, name_en`,
   ).all<SpotRow>();
   return context.json({
     spots: result.results.map((spot) => ({

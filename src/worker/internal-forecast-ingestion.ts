@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
   acceptedCwaForecastIngestionBatchSchema,
   CWA_TIDE_LOCATION_BY_SPOT_ID,
+  CWA_TIDE_LOCATION_BY_SPOT_ID_V2,
   type AcceptedCwaForecastIngestionSnapshot,
 } from "../../packages/api-contract/src";
 import type { AppEnv } from "./db";
@@ -180,26 +181,34 @@ function hasValidTimeRelationship(snapshot: AcceptedCwaForecastIngestionSnapshot
 
 function hasValidTideMapping(
   snapshot: AcceptedCwaForecastIngestionSnapshot,
-  contractVersion: 1 | 2,
+  contractVersion: 1 | 2 | 3,
 ): boolean {
   if (snapshot.provenance.tide === null || contractVersion === 1) return true;
-  const expected = CWA_TIDE_LOCATION_BY_SPOT_ID[
-    snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID
-  ];
+  const expected = contractVersion === 2
+    ? CWA_TIDE_LOCATION_BY_SPOT_ID_V2[
+      snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID_V2
+    ]
+    : CWA_TIDE_LOCATION_BY_SPOT_ID[
+      snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID
+    ];
   return expected !== undefined && snapshot.provenance.tide.locationId === expected;
 }
 
 async function normalizedSnapshot(
   snapshot: AcceptedCwaForecastIngestionSnapshot,
-  contractVersion: 1 | 2,
+  contractVersion: 1 | 2 | 3,
   receivedAt: string,
 ): Promise<ForecastSnapshotInput> {
   const issuedAt = new Date(snapshot.issuedAt).toISOString();
   const modelRunAt = new Date(snapshot.modelRunAt).toISOString();
   const validAt = new Date(snapshot.validAt).toISOString();
-  const expectedTideLocation = CWA_TIDE_LOCATION_BY_SPOT_ID[
-    snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID
-  ];
+  const expectedTideLocation = contractVersion === 2
+    ? CWA_TIDE_LOCATION_BY_SPOT_ID_V2[
+      snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID_V2
+    ]
+    : CWA_TIDE_LOCATION_BY_SPOT_ID[
+      snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID
+    ];
   const retainVerifiedTide = snapshot.provenance.tide !== null && (
     contractVersion === 1
       ? LEGACY_CWA_TIDE_SPOT_IDS.has(snapshot.spotId)

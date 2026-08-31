@@ -172,7 +172,7 @@ describe("internal forecast ingestion API", () => {
     ["spot_donghe", "O01300"],
     ["spot_yuguangdao", "B02400"],
     ["spot_nanwan", "O00700"],
-  ])("retains v2 tide provenance for %s at %s", async (spotId, locationId) => {
+  ])("continues accepting legacy v2 tide provenance for %s at %s", async (spotId, locationId) => {
     const db = new FakeD1({ id: spotId, slug: spotId.slice(5), latitude: 24, longitude: 121 });
     const snapshot = validSnapshot();
     snapshot.spotId = spotId;
@@ -180,6 +180,38 @@ describe("internal forecast ingestion API", () => {
     const response = await post({ version: 2, snapshots: [snapshot] }, env(db));
     expect(response.status).toBe(200);
     expect(db.lastValues).toHaveLength(43);
+    expect(db.lastValues?.slice(33, 36)).toEqual([0.2, -0.31, "falling"]);
+    expect(JSON.parse(String(db.lastValues?.[41]))).toMatchObject({
+      tide: { dataset: "F-A0021-001", locationId },
+    });
+  });
+
+  it.each([
+    ["spot_wushi-harbor-north", "10002040"],
+    ["spot_double-lions", "O00400"],
+    ["spot_suao-wuwei-harbor", "10002030"],
+    ["spot_daxi", "I02200"],
+    ["spot_jinzun", "I00900"],
+    ["spot_donghe", "I00900"],
+    ["spot_yuguangdao", "I00500"],
+    ["spot_nanwan", "O00700"],
+    ["spot_zhongjiao-bay", "O00100"],
+    ["spot_fulong", "I03800"],
+    ["spot_environmental-park", "I06100"],
+    ["spot_hualien-beibin", "10015010"],
+    ["spot_jiqi", "A00200"],
+    ["spot_jiupeng", "10013330"],
+    ["spot_jialeshui", "O01000"],
+    ["spot_songbai-harbor", "10005020"],
+    ["spot_green-bay", "A01500"],
+    ["spot_wanli", "A01500"],
+  ])("retains nearest-location v3 tide provenance for %s at %s", async (spotId, locationId) => {
+    const db = new FakeD1({ id: spotId, slug: spotId.slice(5), latitude: 24, longitude: 121 });
+    const snapshot = validSnapshot();
+    snapshot.spotId = spotId;
+    snapshot.provenance.tide.locationId = locationId;
+    const response = await post({ version: 3, snapshots: [snapshot] }, env(db));
+    expect(response.status).toBe(200);
     expect(db.lastValues?.slice(33, 36)).toEqual([0.2, -0.31, "falling"]);
     expect(JSON.parse(String(db.lastValues?.[41]))).toMatchObject({
       tide: { dataset: "F-A0021-001", locationId },
