@@ -2,7 +2,7 @@
 
 Updated: 2026-09-01
 
-Product `0.18` release commit `f773498` is pushed to `main`. The reviewed OAuth deployment published Cloudflare version `875c4033-f5e3-4c44-acfd-2dae1c36863b`; no migration was pending.
+Product `0.19` release commit `e3b6418` is pushed to `main`. The reviewed OAuth deployment published Cloudflare version `01716fc0-2639-4a54-9eef-b89e99d6ccd1`; no migration was pending.
 
 Home Assistant CWA Ingestor App `0.3.1` commits `c38ef7d` and `bead698` are pushed to its repository `main`. The release replaces escaped JSON logs with single-line `Asia/Taipei` summaries, adds an explicit ingestion-start event, condenses validation errors, and preserves stable event codes plus secret redaction. Local `npm run verify` passed 9 test files / 28 tests, typecheck, and build. GitHub Verify run `33420833497` also passed dependency audit and an aarch64 Docker build whose version label is derived from and checked against the published `0.3.1` manifest. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
 
@@ -18,6 +18,14 @@ Home Assistant CWA Ingestor App `0.3.1` commits `c38ef7d` and `bead698` are push
 - README, Roadmap, architecture, product, data-source, data-model, API, operations, principles, ADR, and project-state documentation now describe the five independent sources rather than the obsolete two-spot / ECMWF-matching design.
 - CI runs lint, typecheck, unit/integration tests, migration-drift checks, production build, rendered-site tests, and browser/accessibility tests.
 - Product `0.16` implements the upload UX task: the two introductory lines are removed, the short `7天內,10-60秒的浪況或衝浪影片` copy owns the info icon, and `顯示公開名稱` opens enabled when the user has a `display_id`.
+
+## Product 0.19 matching column alignment release
+
+- The fixed forecast column is now 96–102 px with its horizontal source-section padding reduced from 10 px to 4 px; existing 11 px source, 8 px label, and 7 px metric font sizes are unchanged.
+- MFWAM's source heading is explicitly rendered as a no-wrap `Météo-France` line followed by a forced `MFWAM` line. Compact values such as `0.7m · 76° · 6.3s` remain on one line.
+- Target and candidate source headings share a 27 px minimum height, and every metric row has an exact 34 px height. Browser geometry assertions verify all six representative target/candidate rows align within 0.5 px and that the required strings fit without reducing font size.
+- `pnpm verify` passed lint, typecheck, 36 test files / 212 tests, migration drift, production build, 2 rendered-site tests, and 5 Chromium/accessibility tests. Production preflight found every required secret and binding, no pending migration, and query-string redaction enabled.
+- Post-deploy health and readiness returned `ok`; the deployment script restored and read back query-string redaction.
 
 ## Product 0.18 matching UI release
 
