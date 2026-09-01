@@ -2,7 +2,7 @@
 
 Updated: 2026-09-01
 
-Product `0.17` release commit `66e209c` is pushed to `main`. Its guarded Workers Build deployed at 100% as Cloudflare version `8b0f0830-4b43-4bec-b8f5-88c4a5f2a289`; no migration was pending.
+Product `0.18` release commit `f773498` is pushed to `main`. The reviewed OAuth deployment published Cloudflare version `875c4033-f5e3-4c44-acfd-2dae1c36863b`; no migration was pending.
 
 Home Assistant CWA Ingestor App `0.3.1` commits `c38ef7d` and `bead698` are pushed to its repository `main`. The release replaces escaped JSON logs with single-line `Asia/Taipei` summaries, adds an explicit ingestion-start event, condenses validation errors, and preserves stable event codes plus secret redaction. Local `npm run verify` passed 9 test files / 28 tests, typecheck, and build. GitHub Verify run `33420833497` also passed dependency audit and an aarch64 Docker build whose version label is derived from and checked against the published `0.3.1` manifest. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
 
@@ -18,6 +18,16 @@ Home Assistant CWA Ingestor App `0.3.1` commits `c38ef7d` and `bead698` are push
 - README, Roadmap, architecture, product, data-source, data-model, API, operations, principles, ADR, and project-state documentation now describe the five independent sources rather than the obsolete two-spot / ECMWF-matching design.
 - CI runs lint, typecheck, unit/integration tests, migration-drift checks, production build, rendered-site tests, and browser/accessibility tests.
 - Product `0.16` implements the upload UX task: the two introductory lines are removed, the short `7天內,10-60秒的浪況或衝浪影片` copy owns the info icon, and `顯示公開名稱` opens enabled when the user has a `display_id`.
+
+## Product 0.18 matching UI release
+
+- The fixed forecast card is half its previous width and starts with the selected Taipei date (`M/D 周X`) plus `預報資料`.
+- Public comparison rows now follow the source data actually available: CWA shows total wave and tide; MFWAM shows total wave, primary/secondary swell, and wind wave. Empty CWA swell/wind rows and empty MFWAM wind/tide rows are absent instead of rendering placeholders.
+- Candidate source headers no longer repeat `CWA` or `MFWAM`; each uses `相似度` plus the source percentage. The redundant feature header and public CWA tide LocationId are removed.
+- CWA never had swell components in the normalized ingestion row, so unordered primary/secondary swell assignment was not applied to CWA and the matching algorithm did not require a scoring change. MFWAM's real partitioned swell matching remains unchanged.
+- The release also includes the already reviewed compact external heartbeat message and the first-user validation strategy checkpoint from the previous session.
+- `pnpm verify` passed lint, typecheck, 36 test files / 212 tests, migration drift, production build, 2 rendered-site tests, and 5 Chromium/accessibility tests. Production preflight found all required secrets and bindings, no pending migration, and query-string redaction enabled.
+- Post-deploy health and readiness returned `ok`; the public spots response still contained all eighteen active spots and the homepage rendered the canonical brand and purpose.
 
 ## Product 0.17 operations release
 
