@@ -2,9 +2,9 @@
 
 Updated: 2026-09-01
 
-Product `0.19` release commit `e3b6418` is pushed to `main`. The reviewed OAuth deployment published Cloudflare version `01716fc0-2639-4a54-9eef-b89e99d6ccd1`; no migration was pending.
+Product `0.20` release commit `23d0829` is pushed to `main`. The reviewed OAuth deployment applied migration `0013_activate_waipu.sql` and published Cloudflare version `85a7ec49-64ad-49af-9326-410138954c8f`; the subsequent successful release Workers Build published version `9c77280c-e758-4ce8-9a02-15edd381e977` at 100%.
 
-Home Assistant CWA Ingestor App `0.3.1` commits `c38ef7d` and `bead698` are pushed to its repository `main`. The release replaces escaped JSON logs with single-line `Asia/Taipei` summaries, adds an explicit ingestion-start event, condenses validation errors, and preserves stable event codes plus secret redaction. Local `npm run verify` passed 9 test files / 28 tests, typecheck, and build. GitHub Verify run `33420833497` also passed dependency audit and an aarch64 Docker build whose version label is derived from and checked against the published `0.3.1` manifest. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
+Home Assistant CWA Ingestor App `0.4.0` commit `5be64af` is pushed to its repository `main`. New batches use contract v4 with 外埔 mapped to official F-A0021-001 LocationId `I04100`; persisted v1/v2/v3 batches remain valid for retry. Local `npm run verify` passed 9 test files / 29 tests, typecheck, and build. GitHub Verify run `33476354451` also passed. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
 
 ## Completed checkpoint
 
@@ -18,6 +18,14 @@ Home Assistant CWA Ingestor App `0.3.1` commits `c38ef7d` and `bead698` are push
 - README, Roadmap, architecture, product, data-source, data-model, API, operations, principles, ADR, and project-state documentation now describe the five independent sources rather than the obsolete two-spot / ECMWF-matching design.
 - CI runs lint, typecheck, unit/integration tests, migration-drift checks, production build, rendered-site tests, and browser/accessibility tests.
 - Product `0.16` implements the upload UX task: the two introductory lines are removed, the short `7天內,10-60秒的浪況或衝浪影片` copy owns the info icon, and `顯示公開名稱` opens enabled when the user has a `display_id`.
+
+## Product 0.20 Waipu release
+
+- The active set expands from eighteen to nineteen spots by activating the existing `waipu-fishing-harbor` checklist row as 外埔 at owner-supplied coordinates `24.6506129,120.7655767`. Public `/spots`, the selector, uploads, matching, GPS suggestion, and external uptime all use the same server-owned spot row and ordered slug.
+- The official CWA F-A0021-001 specification lists 漁港外埔 as LocationId `I04100` at `24.651,120.771`, about 0.55 km from the owner-supplied point. CWA ingestion contract v4 pins this mapping and its live Zod JSON Schema with synchronized SHA-256 fingerprints in both repositories.
+- The Worker accepts new v4 batches while retaining v1/v2/v3 schemas and their exact legacy mappings for persisted retry compatibility. Home Assistant App `0.4.0` requests seventeen approved tide locations and emits v4 batches for all nineteen spots.
+- `pnpm verify` passed lint, typecheck, 36 test files / 214 tests, migration drift, production build, 2 rendered-site tests, and 5 Chromium/accessibility tests. Local migration 0013 applied successfully. Main CI run `33476340688`, Workers Build check `99756291471`, and Ingestor Verify run `33476354451` all passed.
+- Post-build production preflight found every required secret and binding, no pending migration, the retired Worker CWA key absent, and query-string redaction enabled. Public smoke returned health/readiness `ok`, exactly nineteen ordered spots with the exact 外埔 name and coordinates, and HTTP 200 for a valid 外埔 match query; headless Chromium rendered Product `0.20` and one 外埔 selector.
 
 ## Product 0.19 matching column alignment release
 
@@ -102,4 +110,4 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 
 ## Next task
 
-On the Home Assistant host, refresh the App Store and update the installed CWA Ingestor to `0.3.1`. Confirm the readable startup/attempt logs and one natural contract-v3 ingestion across all eighteen spots without creating a temporary trigger or historical backfill. This closes the current data-platform expansion; after recording the result, the next task must move to recruiting and observing the first 5–10 non-developer pilot users rather than adding infrastructure or secondary features.
+On the Home Assistant host, refresh the App Store and update the installed CWA Ingestor to `0.4.0`. Confirm one natural contract-v4 ingestion across all nineteen spots, including 外埔 → `I04100`, without creating a temporary trigger or historical backfill. After recording that result, move to recruiting and observing the first 5–10 non-developer pilot users rather than adding infrastructure or secondary features.
