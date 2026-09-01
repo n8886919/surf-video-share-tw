@@ -99,6 +99,13 @@
       "when": 1788200000000,
       "tag": "0013_activate_waipu",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1788245112123,
+      "tag": "0014_pale_the_spike",
+      "breakpoints": true
     }
   ]
 }

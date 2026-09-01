@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import {
   acceptedCwaForecastIngestionBatchSchema,
+  cwaForecastIngestionCompletionSchema,
   CWA_TIDE_LOCATION_BY_SPOT_ID,
   CWA_TIDE_LOCATION_BY_SPOT_ID_V3,
   CWA_TIDE_LOCATION_BY_SPOT_ID_V2,
@@ -9,6 +10,7 @@ import {
 import type { AppEnv } from "./db";
 import { insertForecastSnapshots, stableForecastId } from "./forecast/store";
 import type { ForecastSnapshotInput } from "./forecast/types";
+import { sendLineNotification } from "./ops-observability";
 
 const SIGNATURE_VERSION = "1";
 const SIGNATURE_WINDOW_SECONDS = 5 * 60;
@@ -16,6 +18,7 @@ const MAX_BODY_BYTES = 128 * 1024;
 const MAX_CWA_PUBLICATION_LAG_MS = 12 * 60 * 60_000;
 const CWA_PROVIDER = "cwa";
 const CWA_MODEL = "cwa-wave-f-a0020-001";
+const NOTIFICATION_CLAIM_TIMEOUT_MS = 5 * 60_000;
 const LEGACY_CWA_TIDE_SPOT_IDS = new Set(["spot_wushi-harbor-north", "spot_double-lions"]);
 
 const signatureHeaders = {
@@ -180,6 +183,131 @@ function hasValidTimeRelationship(snapshot: AcceptedCwaForecastIngestionSnapshot
       || [snapshot.tideHeight, snapshot.tideSlope, snapshot.tideState].every((value) => value === null));
 }
 
+function hasValidRunRelationship(issuedAt: string, modelRunAt: string): boolean {
+  const issued = new Date(issuedAt).getTime();
+  const modelRun = new Date(modelRunAt).getTime();
+  return issued >= modelRun - 60 * 60_000 && issued <= modelRun + MAX_CWA_PUBLICATION_LAG_MS;
+}
+
+function formatTaipeiTime(value: string): string {
+  return new Date(new Date(value).getTime() + 8 * 60 * 60_000)
+    .toISOString()
+    .slice(0, 16)
+    .replace("T", " ");
+}
+
+interface CwaRunCompletenessRow {
+  active_spot_count: number;
+  ingested_spot_count: number;
+  snapshot_count: number;
+}
+
+interface NotificationClaimRow {
+  status: "sending" | "failed" | "sent";
+  claimed_at: string;
+}
+
+async function completeCwaRunNotification(
+  env: AppEnv,
+  input: { provider: string; model: string; issuedAt: string; modelRunAt: string },
+  fetchImpl: typeof fetch = fetch,
+): Promise<"sent" | "duplicate" | "in-progress" | "incomplete" | "unconfigured"> {
+  const completeness = await env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM spots
+        WHERE active = 1 AND latitude IS NOT NULL AND longitude IS NOT NULL) AS active_spot_count,
+       COUNT(DISTINCT spot_id) AS ingested_spot_count,
+       COUNT(*) AS snapshot_count
+     FROM forecast_snapshots
+     WHERE provider = ? AND model = ? AND model_run_at = ?`,
+  ).bind(input.provider, input.model, input.modelRunAt).first<CwaRunCompletenessRow>();
+  if (
+    !completeness
+    || completeness.active_spot_count < 1
+    || completeness.ingested_spot_count !== completeness.active_spot_count
+    || completeness.snapshot_count < completeness.active_spot_count
+  ) return "incomplete";
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const notificationKey = `${input.provider}:${input.model}:${input.modelRunAt}`;
+  const inserted = await env.DB.prepare(
+    `INSERT OR IGNORE INTO forecast_ingestion_notifications (
+       notification_key, provider, model, issued_at, model_run_at, status, attempts,
+       claimed_at, sent_at, last_error, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, 'sending', 1, ?, NULL, NULL, ?, ?)`,
+  ).bind(
+    notificationKey,
+    input.provider,
+    input.model,
+    input.issuedAt,
+    input.modelRunAt,
+    nowIso,
+    nowIso,
+    nowIso,
+  ).run();
+
+  if ((inserted.meta.changes ?? 0) === 0) {
+    const existing = await env.DB.prepare(
+      `SELECT status, claimed_at FROM forecast_ingestion_notifications WHERE notification_key = ?`,
+    ).bind(notificationKey).first<NotificationClaimRow>();
+    if (existing?.status === "sent") return "duplicate";
+    const staleBefore = new Date(now.getTime() - NOTIFICATION_CLAIM_TIMEOUT_MS).toISOString();
+    const reclaimed = await env.DB.prepare(
+      `UPDATE forecast_ingestion_notifications
+       SET status = 'sending', attempts = attempts + 1, claimed_at = ?, last_error = NULL, updated_at = ?
+       WHERE notification_key = ? AND status != 'sent'
+         AND (status = 'failed' OR claimed_at <= ?)`,
+    ).bind(nowIso, nowIso, notificationKey, staleBefore).run();
+    if ((reclaimed.meta.changes ?? 0) === 0) return "in-progress";
+  }
+
+  const message = [
+    "✅ CWA 最新批次已完整入庫",
+    `模式時間：${formatTaipeiTime(input.modelRunAt)}`,
+    `發布時間：${formatTaipeiTime(input.issuedAt)}`,
+    `浪點：${completeness.ingested_spot_count}`,
+    `資料列：${completeness.snapshot_count}`,
+  ].join("\n");
+
+  try {
+    const delivery = await sendLineNotification(env, message, fetchImpl);
+    if (delivery === "unconfigured") {
+      await env.DB.prepare(
+        `UPDATE forecast_ingestion_notifications
+         SET status = 'failed', last_error = 'line_unconfigured', updated_at = ?
+         WHERE notification_key = ? AND status = 'sending'`,
+      ).bind(new Date().toISOString(), notificationKey).run();
+      return "unconfigured";
+    }
+    const sentAt = new Date().toISOString();
+    await env.DB.prepare(
+      `UPDATE forecast_ingestion_notifications
+       SET status = 'sent', sent_at = ?, last_error = NULL, updated_at = ?
+       WHERE notification_key = ? AND status = 'sending'`,
+    ).bind(sentAt, sentAt, notificationKey).run();
+    console.log(JSON.stringify({
+      event: "cwa_ingestion_notification_sent",
+      issuedAt: input.issuedAt,
+      modelRunAt: input.modelRunAt,
+      spots: completeness.ingested_spot_count,
+      snapshots: completeness.snapshot_count,
+    }));
+    return "sent";
+  } catch (error) {
+    await env.DB.prepare(
+      `UPDATE forecast_ingestion_notifications
+       SET status = 'failed', last_error = ?, updated_at = ?
+       WHERE notification_key = ? AND status = 'sending'`,
+    ).bind(
+      error instanceof Error ? error.name.slice(0, 100) : "UnknownError",
+      new Date().toISOString(),
+      notificationKey,
+    ).run();
+    throw error;
+  }
+}
+
 function hasValidTideMapping(
   snapshot: AcceptedCwaForecastIngestionSnapshot,
   contractVersion: 1 | 2 | 3 | 4,
@@ -326,4 +454,44 @@ internalForecastIngestionApi.post("/cwa", async (context) => {
   ));
   const result = await insertForecastSnapshots(context.env.DB, snapshots);
   return context.json(result);
+});
+
+internalForecastIngestionApi.post("/cwa/complete", async (context) => {
+  const authenticated = await authenticateIngestionRequest(context.req.raw, context.env);
+  if (isAuthFailure(authenticated)) {
+    return context.json({ error: authenticated.error }, authenticated.status);
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(authenticated.body));
+  } catch {
+    return context.json({ error: "INVALID_INGESTION_BODY" }, 400);
+  }
+  const parsed = cwaForecastIngestionCompletionSchema.safeParse(payload);
+  if (!parsed.success || !hasValidRunRelationship(parsed.data.issuedAt, parsed.data.modelRunAt)) {
+    return context.json({ error: "INVALID_INGESTION_BODY" }, 422);
+  }
+  try {
+    const result = await completeCwaRunNotification(context.env, {
+      ...parsed.data,
+      issuedAt: new Date(parsed.data.issuedAt).toISOString(),
+      modelRunAt: new Date(parsed.data.modelRunAt).toISOString(),
+    });
+    if (result === "incomplete") {
+      return context.json({ error: "CWA_INGESTION_INCOMPLETE" }, 409);
+    }
+    if (result === "in-progress") {
+      return context.json({ error: "CWA_NOTIFICATION_IN_PROGRESS" }, 409);
+    }
+    if (result === "unconfigured") {
+      return context.json({ error: "CWA_NOTIFICATION_UNAVAILABLE" }, 503);
+    }
+    return context.json({ notification: result });
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "cwa_ingestion_notification_failed",
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    }));
+    return context.json({ error: "CWA_NOTIFICATION_FAILED" }, 502);
+  }
 });

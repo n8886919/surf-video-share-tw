@@ -68,6 +68,7 @@ test("renders the product title and language", async () => {
   const clientBundle = await readClientBundle(/^surf-app-.*\.js$/, "surf app");
   assert.ok(clientBundle.includes(projectPurpose), "client bundle should contain the exact PROJECT_PURPOSE");
   assert.match(clientBundle, /彼日浪影/);
+  assert.match(clientBundle, /測試版/);
   assert.match(clientBundle, /問題回報/);
   assert.match(clientBundle, /分享連結/);
   assert.match(clientBundle, /連結 24 小時有效/);

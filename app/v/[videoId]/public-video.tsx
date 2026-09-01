@@ -182,7 +182,7 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
     <header className="public-video-header"><Link href="/">
       {/* This checked-in brand asset does not benefit from runtime optimization. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand-logo.png" alt="" width="36" height="36"/>彼日浪影
+      <img src="/brand-logo.png" alt="" width="36" height="36"/>彼日浪影<span className="brand-beta">測試版</span>
     </Link></header>
     <article className="public-video-card">
       <div className="public-video-player" style={playerStyle}>

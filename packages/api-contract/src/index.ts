@@ -438,11 +438,20 @@ export const acceptedCwaForecastIngestionBatchSchema = z.union([
   cwaForecastIngestionBatchSchema,
 ]);
 
+export const cwaForecastIngestionCompletionSchema = z.object({
+  version: z.literal(1),
+  provider: z.literal("cwa"),
+  model: z.literal("cwa-wave-f-a0020-001"),
+  issuedAt: z.string().datetime({ offset: true }),
+  modelRunAt: z.string().datetime({ offset: true }),
+}).strict();
+
 export type ForecastIngestionSpot = z.infer<typeof forecastIngestionSpotSchema>;
 export type CwaForecastIngestionSnapshot = z.infer<typeof cwaForecastIngestionSnapshotSchema>;
 export type CwaForecastIngestionBatch = z.infer<typeof cwaForecastIngestionBatchSchema>;
 export type AcceptedCwaForecastIngestionBatch = z.infer<typeof acceptedCwaForecastIngestionBatchSchema>;
 export type AcceptedCwaForecastIngestionSnapshot = AcceptedCwaForecastIngestionBatch["snapshots"][number];
+export type CwaForecastIngestionCompletion = z.infer<typeof cwaForecastIngestionCompletionSchema>;
 
 export type UploadRequestInput = z.infer<typeof uploadRequestSchema>;
 export type ProblemReportInput = z.infer<typeof problemReportSchema>;

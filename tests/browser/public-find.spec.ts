@@ -232,6 +232,15 @@ async function mockPublicApi(page: Page, delayedSpotId?: string) {
   });
 }
 
+test("shows the beta label beside the top-left brand", async ({ page }) => {
+  await mockPublicApi(page);
+  await page.goto("/");
+
+  const brand = page.locator(".brand");
+  await expect(brand.getByText("彼日浪影", { exact: true })).toBeVisible();
+  await expect(brand.getByText("測試版", { exact: true })).toBeVisible();
+});
+
 test("switching spots hides the previous result until the new query resolves", async ({ page }) => {
   await mockPublicApi(page, "spot_double-lions");
   await page.goto("/");

@@ -318,3 +318,29 @@ export const opsAnalysisRuns = sqliteTable(
     index("ops_analysis_runs_created_at_idx").on(table.createdAt),
   ],
 );
+
+export const forecastIngestionNotifications = sqliteTable(
+  "forecast_ingestion_notifications",
+  {
+    notificationKey: text("notification_key").primaryKey(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    issuedAt: text("issued_at").notNull(),
+    modelRunAt: text("model_run_at").notNull(),
+    status: text("status").notNull(),
+    attempts: integer("attempts").notNull().default(1),
+    claimedAt: text("claimed_at").notNull(),
+    sentAt: text("sent_at"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("forecast_ingestion_notifications_source_run_idx").on(
+      table.provider,
+      table.model,
+      table.modelRunAt,
+    ),
+    index("forecast_ingestion_notifications_status_idx").on(table.status, table.updatedAt),
+  ],
+);

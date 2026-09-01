@@ -286,6 +286,24 @@ const schemaStatements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS ops_analysis_runs_window_idx
     ON ops_analysis_runs (window_start, window_end)`,
   `CREATE INDEX IF NOT EXISTS ops_analysis_runs_created_at_idx ON ops_analysis_runs (created_at)`,
+  `CREATE TABLE IF NOT EXISTS forecast_ingestion_notifications (
+    notification_key TEXT PRIMARY KEY NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    model_run_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER DEFAULT 1 NOT NULL,
+    claimed_at TEXT NOT NULL,
+    sent_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS forecast_ingestion_notifications_source_run_idx
+    ON forecast_ingestion_notifications (provider, model, model_run_at)`,
+  `CREATE INDEX IF NOT EXISTS forecast_ingestion_notifications_status_idx
+    ON forecast_ingestion_notifications (status, updated_at)`,
 ] as const;
 
 function parseSeedCsv(): Array<{

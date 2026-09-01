@@ -177,6 +177,7 @@ function Brand() {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand-logo.png" alt="" width="38" height="38" className="brand-logo" />
       <span>彼日浪影</span>
+      <span className="brand-beta">測試版</span>
     </div>
   );
 }

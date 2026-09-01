@@ -36,4 +36,6 @@ Videos do not copy every provider row or retain multiple timeseries. Owner and m
 
 `ops_events` stores only curated operational event codes, severity, source, bounded route/error metadata, optional request ID, a sanitized summary, and timestamps. It never stores request bodies, cookies, authorization headers, provider credentials, raw client addresses, LINE subjects, or raw Cloudflare log payloads. `ops_incidents` deduplicates actionable fingerprints and records notification/recovery lifecycle. `ops_analysis_runs` stores one bounded structured result per hourly UTC window. Event retention is seven days and analysis retention is thirty days; raw Workers Logs remain the evidence source rather than being copied into D1.
 
+`forecast_ingestion_notifications` stores only provider/model/run identifiers and the claim/delivery lifecycle for owner CWA completion messages. Its unique provider/model/model-run key prevents an App restart or immutable-run replay from intentionally sending the same success message twice; failed or abandoned claims remain retryable without resubmitting forecast rows.
+
 All instants are UTC ISO strings. Product validation compares exact elapsed time; display uses `Asia/Taipei`.

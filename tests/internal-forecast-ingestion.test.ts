@@ -6,6 +6,7 @@ import { canonicalForecastIngestionRequest } from "../src/worker/internal-foreca
 
 const secret = "forecast-ingestion-test-secret-32-bytes";
 const path = "/api/v1/internal/forecast-ingestion/cwa";
+const completionPath = "/api/v1/internal/forecast-ingestion/cwa/complete";
 const spotsPath = "/api/v1/internal/forecast-ingestion/spots";
 
 function validSnapshot() {
@@ -99,13 +100,81 @@ function env(db = new FakeD1(), configuredSecret: string | null = secret) {
   } as AppEnv;
 }
 
-async function post(payload: unknown, appEnv: AppEnv, signedPath = path) {
+async function post(payload: unknown, appEnv: AppEnv, signedPath = path, requestPath = path) {
   const body = typeof payload === "string" ? payload : JSON.stringify(payload);
-  return api.fetch(new Request(`https://worker.example${path}`, {
+  return api.fetch(new Request(`https://worker.example${requestPath}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...signedHeaders("POST", signedPath, body) },
     body,
   }), appEnv);
+}
+
+function validCompletion() {
+  return {
+    version: 1,
+    provider: "cwa",
+    model: "cwa-wave-f-a0020-001",
+    issuedAt: "2026-08-30T06:25:15.000Z",
+    modelRunAt: "2026-08-30T00:00:00.000Z",
+  };
+}
+
+class CompletionD1 {
+  notification: { status: "sending" | "failed" | "sent"; claimedAt: string } | null = null;
+
+  constructor(readonly completeness = {
+    active_spot_count: 19,
+    ingested_spot_count: 19,
+    snapshot_count: 475,
+  }) {}
+
+  prepare(sql: string) {
+    return {
+      bind: (...values: unknown[]) => ({
+        first: async () => {
+          if (sql.includes("FROM forecast_snapshots")) return this.completeness;
+          if (sql.includes("SELECT status, claimed_at")) {
+            return this.notification ? {
+              status: this.notification.status,
+              claimed_at: this.notification.claimedAt,
+            } : null;
+          }
+          throw new Error(`unexpected first query: ${sql}`);
+        },
+        run: async () => {
+          if (sql.includes("INSERT OR IGNORE INTO forecast_ingestion_notifications")) {
+            if (this.notification) return { meta: { changes: 0 } };
+            this.notification = { status: "sending", claimedAt: String(values[5]) };
+            return { meta: { changes: 1 } };
+          }
+          if (!this.notification) throw new Error("notification row missing");
+          if (sql.includes("SET status = 'sending'")) {
+            if (this.notification.status === "sent") return { meta: { changes: 0 } };
+            this.notification = { status: "sending", claimedAt: String(values[0]) };
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes("SET status = 'sent'")) {
+            this.notification.status = "sent";
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes("SET status = 'failed'")) {
+            this.notification.status = "failed";
+            return { meta: { changes: 1 } };
+          }
+          throw new Error(`unexpected run query: ${sql}`);
+        },
+      }),
+    };
+  }
+}
+
+function completionEnv(db: CompletionD1) {
+  return {
+    DB: db as unknown as D1Database,
+    FORECAST_INGESTION_SECRET: secret,
+    LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: "channel-token",
+    OPS_LINE_USER_ID: `U${"a".repeat(32)}`,
+  } as AppEnv;
 }
 
 describe("internal forecast ingestion API", () => {
@@ -144,6 +213,61 @@ describe("internal forecast ingestion API", () => {
       snapshots: [{ ...validSnapshot(), issuedAt: "2026-08-30T06:25:15.000Z" }],
     }, env());
     expect(response.status).toBe(200);
+  });
+
+  it("sends one dedicated LINE notification only after a complete CWA run", async () => {
+    const db = new CompletionD1();
+    const lineFetch = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", lineFetch);
+    try {
+      const first = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
+      expect(first.status).toBe(200);
+      await expect(first.json()).resolves.toEqual({ notification: "sent" });
+      const second = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
+      await expect(second.json()).resolves.toEqual({ notification: "duplicate" });
+      expect(lineFetch).toHaveBeenCalledTimes(1);
+      const request = lineFetch.mock.calls[0]?.[1] as RequestInit;
+      const lineBody = JSON.parse(String(request.body)) as { messages: Array<{ text: string }> };
+      expect(lineBody.messages[0]?.text).toContain("CWA 最新批次已完整入庫");
+      expect(lineBody.messages[0]?.text).toContain("浪點：19");
+      expect(lineBody.messages[0]?.text).toContain("資料列：475");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects a CWA completion before LINE when any active spot is missing", async () => {
+    const db = new CompletionD1({
+      active_spot_count: 19,
+      ingested_spot_count: 18,
+      snapshot_count: 450,
+    });
+    const lineFetch = vi.fn();
+    vi.stubGlobal("fetch", lineFetch);
+    try {
+      const response = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({ error: "CWA_INGESTION_INCOMPLETE" });
+      expect(lineFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps a failed LINE delivery retryable", async () => {
+    const db = new CompletionD1();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 500 })));
+    try {
+      const failed = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
+      expect(failed.status).toBe(502);
+      expect(db.notification?.status).toBe("failed");
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 200 })));
+      const retried = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
+      await expect(retried.json()).resolves.toEqual({ notification: "sent" });
+      expect(db.notification?.status).toBe("sent");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps legacy v1 behavior by dropping fixed O00400 tide outside the two launch spots", async () => {
