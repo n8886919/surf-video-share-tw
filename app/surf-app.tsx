@@ -645,6 +645,13 @@ function formatForecastCardDate(iso: string): string {
   return `${value("month")}/${value("day")} ${value("weekday").replace(/^週/, "周")}`;
 }
 
+function ForecastSourceName({ forecast }: { forecast: Forecast }) {
+  if (forecast.provider === "open-meteo" && forecast.model === "meteofrance_wave") {
+    return <strong className="forecast-source-name"><span>Météo-France</span><span>MFWAM</span></strong>;
+  }
+  return <strong className="forecast-source-name"><span>{forecast.sourceDisplayName}</span></strong>;
+}
+
 function forecastComparisonRows(
   target: Forecast,
   candidate: Forecast,
@@ -689,7 +696,7 @@ function TargetForecastDetails({ sources }: { sources: CombinedMatch["sources"] 
         source.swellPairing,
       );
       return <section key={`${source.provider}:${source.model}`} className="combined-source-comparison">
-        <div className="combined-source-heading"><strong>{source.targetForecast.sourceDisplayName}</strong></div>
+        <div className="combined-source-heading"><ForecastSourceName forecast={source.targetForecast}/></div>
         {rows.map((row) => <div className="combined-target-metric-row" key={row.label}>
           <strong>{row.label}</strong><span>{row.targetValue}</span>
         </div>)}

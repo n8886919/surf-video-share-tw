@@ -131,6 +131,7 @@ function cwaForecast(id: string) {
     model: "cwa-wave-f-a0020-001",
     sourceDisplayName: "CWA",
     swellSemantics: "none",
+    totalWave: { height: 0.7, direction: 76, period: 6.3, peakPeriod: null },
     primarySwell: { height: null, direction: null, period: null, peakPeriod: null },
     secondarySwell: { height: null, direction: null, period: null, peakPeriod: null },
     windWave: { height: null, direction: null, period: null, peakPeriod: null },
@@ -266,6 +267,7 @@ test("shows only each matching source's available fields", async ({ page }) => {
   await expect(targetSources.nth(0)).toContainText("CWA");
   await expect(targetSources.nth(0).locator(".combined-target-metric-row")).toHaveCount(2);
   await expect(targetSources.nth(0)).toContainText("總浪");
+  await expect(targetSources.nth(0)).toContainText("0.7m · 76° · 6.3s");
   await expect(targetSources.nth(0)).toContainText("潮位");
   await expect(targetSources.nth(0)).not.toContainText("主湧浪");
   await expect(targetSources.nth(0)).not.toContainText("次湧浪");
@@ -275,6 +277,30 @@ test("shows only each matching source's available fields", async ({ page }) => {
   await expect(targetSources.nth(1).locator(".combined-target-metric-row")).toHaveCount(4);
   await expect(targetSources.nth(1)).not.toContainText("潮位");
   await expect(targetSources.nth(1)).not.toContainText("陣風");
+  const mfwamNameLines = targetSources.nth(1).locator(".forecast-source-name span");
+  await expect(mfwamNameLines).toHaveText(["Météo-France", "MFWAM"]);
+
+  const noWrapLayout = await page.locator(".target-forecast-card").evaluate((card) => {
+    const nameLines = card.querySelectorAll<HTMLElement>(".forecast-source-name span");
+    const sourceLine = nameLines[1];
+    const metricLine = Array.from(card.querySelectorAll<HTMLElement>(".combined-target-metric-row span"))
+      .find((element) => element.textContent === "0.7m · 76° · 6.3s");
+    if (!sourceLine || !metricLine || nameLines.length < 3) throw new Error("Expected fixed forecast layout elements");
+    return {
+      sourceFits: sourceLine.scrollWidth <= sourceLine.clientWidth,
+      metricFits: metricLine.scrollWidth <= metricLine.clientWidth,
+      sourceFontSize: getComputedStyle(sourceLine.parentElement!).fontSize,
+      metricFontSize: getComputedStyle(metricLine).fontSize,
+      mfwamStartsBelow: nameLines[2]!.getBoundingClientRect().top > nameLines[1]!.getBoundingClientRect().top,
+    };
+  });
+  expect(noWrapLayout).toEqual({
+    sourceFits: true,
+    metricFits: true,
+    sourceFontSize: "11px",
+    metricFontSize: "7px",
+    mfwamStartsBelow: true,
+  });
 
   const candidateSources = page.locator(".candidate-forecast-card .combined-source-comparison");
   await expect(candidateSources).toHaveCount(2);
@@ -282,6 +308,23 @@ test("shows only each matching source's available fields", async ({ page }) => {
   await expect(candidateSources.locator(".combined-source-heading small")).toHaveText(["82%", "100%"]);
   await expect(page.locator(".candidate-forecast-card")).not.toContainText("CWA");
   await expect(page.locator(".candidate-forecast-card")).not.toContainText("MFWAM");
+  const rowAlignment = await page.evaluate(() => {
+    const targetRows = Array.from(document.querySelectorAll<HTMLElement>(".target-forecast-card .combined-target-metric-row"));
+    const candidateRows = Array.from(document.querySelectorAll<HTMLElement>(".candidate-forecast-card .combined-metric-row"));
+    return targetRows.map((row, index) => {
+      const targetBox = row.getBoundingClientRect();
+      const candidateBox = candidateRows[index]?.getBoundingClientRect();
+      return {
+        topDifference: candidateBox ? Math.abs(targetBox.top - candidateBox.top) : 999,
+        heightDifference: candidateBox ? Math.abs(targetBox.height - candidateBox.height) : 999,
+      };
+    });
+  });
+  expect(rowAlignment).toHaveLength(6);
+  for (const row of rowAlignment) {
+    expect(row.topDifference).toBeLessThanOrEqual(0.5);
+    expect(row.heightDifference).toBeLessThanOrEqual(0.5);
+  }
   const primaryRow = page.locator('[data-swell-pairing="primary:secondary"]');
   const secondaryRow = page.locator('[data-swell-pairing="secondary:primary"]');
   await expect(primaryRow).toContainText("主湧浪");
