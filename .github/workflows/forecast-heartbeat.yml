@@ -1,0 +1,98 @@
+name: Production forecast heartbeat
+
+on:
+  schedule:
+    - cron: "35 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-forecast-heartbeat
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Verify fresh production forecast
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      issued_at: ${{ steps.forecast.outputs.issued_at }}
+    env:
+      BASE_URL: https://surf-video-share-tw.nolanasd123.workers.dev
+    steps:
+      - id: forecast
+        name: Verify the latest MFWAM run through the public API
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          spots="$(curl --fail --silent --show-error --max-time 20 \
+            "${BASE_URL}/api/v1/spots")"
+          spot_id="$(jq -er '.spots[] | select(.slug == "wushi-harbor-north") | .id' <<<"${spots}")"
+          target_time="$(TZ=Asia/Taipei date --date='tomorrow 08:00' '+%Y-%m-%dT%H:00:00+08:00')"
+          encoded_target="$(jq -rn --arg value "${target_time}" '$value | @uri')"
+          matches="$(curl --fail --silent --show-error --max-time 20 \
+            "${BASE_URL}/api/v1/matches?spotId=${spot_id}&targetTime=${encoded_target}")"
+          issued_at="$(jq -er \
+            '[.forecasts[] | select(.provider == "open-meteo" and .model == "meteofrance_wave")][0].issuedAt' \
+            <<<"${matches}")"
+
+          issued_epoch="$(date --date="${issued_at}" '+%s')"
+          now_epoch="$(date '+%s')"
+          age_seconds="$((now_epoch - issued_epoch))"
+          if (( age_seconds < -300 || age_seconds > 14400 )); then
+            echo "Latest MFWAM run is not fresh: ${issued_at}."
+            exit 1
+          fi
+
+          echo "issued_at=${issued_at}" >>"${GITHUB_OUTPUT}"
+          echo "Fresh MFWAM run verified at ${issued_at}."
+
+  notify:
+    name: Send owner LINE forecast heartbeat
+    if: always()
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      CHECK_RESULT: ${{ needs.check.result }}
+      ISSUED_AT: ${{ needs.check.outputs.issued_at }}
+      LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN }}
+      OPS_LINE_USER_ID: ${{ secrets.OPS_LINE_USER_ID }}
+      REPOSITORY: ${{ github.repository }}
+      RUN_ID: ${{ github.run_id }}
+      SERVER_URL: ${{ github.server_url }}
+    steps:
+      - name: Send the verified update or failure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}" || -z "${OPS_LINE_USER_ID}" ]]; then
+            echo "LINE notification secrets are not configured."
+            exit 1
+          fi
+
+          if [[ "${CHECK_RESULT}" == "success" ]]; then
+            issued_taipei="$(TZ=Asia/Taipei date --date="${ISSUED_AT}" '+%Y-%m-%d %H:%M')"
+            message="$(printf '✅ 彼日浪影氣象資料已更新\nMFWAM 最新批次：%s（台灣時間）\nProduction API 驗證成功。' "${issued_taipei}")"
+          else
+            message=$'🚨 彼日浪影氣象更新未確認\nProduction API 找不到四小時內的 MFWAM 批次，請檢查 Cloudflare Cron 與 Workers Logs。'
+          fi
+
+          run_url="${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}"
+          payload="$(jq -cn --arg to "${OPS_LINE_USER_ID}" --arg text "${message}" --arg run_url "${run_url}" \
+            '{to: $to, messages: [{type: "text", text: ($text + "\n" + $run_url)}]}')"
+          status="$(curl --silent --show-error --max-time 20 \
+            --output /tmp/line-response.json --write-out '%{http_code}' \
+            -X POST https://api.line.me/v2/bot/message/push \
+            -H "Authorization: Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json; charset=UTF-8" \
+            --data "${payload}")"
+          if [[ ! "${status}" =~ ^2 ]]; then
+            echo "LINE Messaging API rejected the forecast heartbeat with HTTP ${status}."
+            exit 1
+          fi
+          echo "LINE forecast heartbeat sent."

@@ -1,7 +1,7 @@
 export const PROJECT_PURPOSE =
   "不預測浪好不好；只用社群共享的歷史實拍，呈現指定浪點與時間的預報可能長什麼樣。";
 
-export const PROJECT_VERSION = "0.16";
+export const PROJECT_VERSION = "0.17";
 
 export const PROJECT_POSITION = [
   "彼日浪影是非營利 side project，不與既有預報產品競爭，也不製作另一套衝浪預報。",

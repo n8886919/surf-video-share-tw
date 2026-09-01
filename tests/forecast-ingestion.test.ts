@@ -7,7 +7,7 @@ import {
   parseOpenMeteoEcmwfWam,
   parseOpenMeteoMarineModel,
 } from "../src/worker/forecast/open-meteo";
-import { runForecastIngestion } from "../src/worker/forecast/ingest";
+import { runForecastIngestion, runScheduledForecastIngestion } from "../src/worker/forecast/ingest";
 import { insertForecastSnapshots } from "../src/worker/forecast/store";
 import type { AppEnv } from "../src/worker/db";
 import type { ForecastSpot } from "../src/worker/forecast/types";
@@ -155,6 +155,39 @@ describe("scheduled forecast normalization", () => {
         inserted: 3,
       })
     ));
+  });
+
+  it("sends the owner a LINE heartbeat after the scheduled Open-Meteo update", async () => {
+    const lineRequests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url === "https://api.line.me/v2/bot/message/push") {
+        lineRequests.push({ url, init });
+        return new Response(null, { status: 200 });
+      }
+      return new Response(JSON.stringify(openMeteoFixture), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await runScheduledForecastIngestion({
+      DB: ingestionDb(),
+      LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: "channel-token",
+      OPS_LINE_USER_ID: `U${"a".repeat(32)}`,
+    } as AppEnv, new Date("2026-08-25T02:20:00.000Z"), fetchImpl);
+
+    expect(lineRequests).toHaveLength(1);
+    const body = JSON.parse(String(lineRequests[0].init?.body)) as {
+      to: string;
+      messages: Array<{ type: string; text: string }>;
+    };
+    expect(body.to).toBe(`U${"a".repeat(32)}`);
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].text).toContain("✅ 彼日浪影氣象資料排程已跑完");
+    expect(body.messages[0].text).toContain("浪點：1");
+    expect(body.messages[0].text).toContain("MFWAM: complete（新增 3、重複 0）");
+    expect(body.messages[0].text).toContain("此訊息僅代表 Cloudflare 的 Open-Meteo 更新");
   });
 
   it("requests match horizon only for MFWAM and a bounded collect-only horizon", async () => {
