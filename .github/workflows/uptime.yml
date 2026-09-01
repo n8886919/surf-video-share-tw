@@ -59,7 +59,8 @@ jobs:
               "jialeshui",
               "songbai-harbor",
               "green-bay",
-              "wanli"
+              "wanli",
+              "waipu-fishing-harbor"
             ]' <<<"${spots}" >/dev/null || return 1
 
             homepage="$(curl --fail --silent --show-error --max-time 20 "${BASE_URL}/")" || return 1
@@ -124,12 +125,12 @@ jobs:
             message=$'🧪 彼日浪影 LINE 監控測試\nGitHub Actions 已成功連接 LINE Messaging API。'
           elif [[ "${CURRENT_CHECK}" != "success" ]]; then
             if [[ "${previous_check}" == "success" || "${previous_check}" == "unknown" ]]; then
-              message=$'🚨 彼日浪影外部監控失敗\n健康、就緒、十八個浪點或首頁檢查未通過。'
+              message=$'🚨 彼日浪影外部監控失敗\n健康、就緒、十九個浪點或首頁檢查未通過。'
             elif (( RUN_NUMBER % 6 == 0 )); then
               message=$'⚠️ 彼日浪影外部監控仍失敗\n故障持續中；這是約 30 分鐘一次的提醒。'
             fi
           elif [[ "${previous_check}" != "success" && "${previous_check}" != "unknown" ]]; then
-            message=$'✅ 彼日浪影外部監控恢復\n健康、就緒、十八個浪點與首頁檢查均已通過。'
+            message=$'✅ 彼日浪影外部監控恢復\n健康、就緒、十九個浪點與首頁檢查均已通過。'
           fi
 
           if [[ -z "${message}" ]]; then

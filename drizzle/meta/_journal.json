@@ -92,6 +92,13 @@
       "when": 1788186000000,
       "tag": "0012_add_nearest_tide_spots",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1788200000000,
+      "tag": "0013_activate_waipu",
+      "breakpoints": true
     }
   ]
 }

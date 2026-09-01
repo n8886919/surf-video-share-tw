@@ -205,12 +205,13 @@ describe("internal forecast ingestion API", () => {
     ["spot_songbai-harbor", "10005020"],
     ["spot_green-bay", "A01500"],
     ["spot_wanli", "A01500"],
-  ])("retains nearest-location v3 tide provenance for %s at %s", async (spotId, locationId) => {
+    ["spot_waipu-fishing-harbor", "I04100"],
+  ])("retains nearest-location v4 tide provenance for %s at %s", async (spotId, locationId) => {
     const db = new FakeD1({ id: spotId, slug: spotId.slice(5), latitude: 24, longitude: 121 });
     const snapshot = validSnapshot();
     snapshot.spotId = spotId;
     snapshot.provenance.tide.locationId = locationId;
-    const response = await post({ version: 3, snapshots: [snapshot] }, env(db));
+    const response = await post({ version: 4, snapshots: [snapshot] }, env(db));
     expect(response.status).toBe(200);
     expect(db.lastValues?.slice(33, 36)).toEqual([0.2, -0.31, "falling"]);
     expect(JSON.parse(String(db.lastValues?.[41]))).toMatchObject({

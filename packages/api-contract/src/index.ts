@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 export const CWA_FORECAST_INGESTION_CONTRACT = {
-  version: "cwa-forecast-ingestion-v3",
-  jsonSchemaSha256: "d4dc3b42665cb89621c2c68090622ab51b1a1dc20c25fbbe1224ee53206914af",
-  tideMappingSha256: "c5d3c97ea5f0f391bd808ff6fba3983ea0e59e47248a5800ad4592fe26e7cd16",
+  version: "cwa-forecast-ingestion-v4",
+  jsonSchemaSha256: "e09dbdb3ec07aa1d865cb2654181d5b7b2c6b42542cc308d0d9c936e9e5128f0",
+  tideMappingSha256: "196d6e0a139fe9d2eab525232e801ef5613a01b1c064f2e28b273e2d4177eb4e",
 } as const;
 
 export const CWA_TIDE_LOCATION_IDS_V2 = [
@@ -26,13 +26,13 @@ export const CWA_TIDE_LOCATION_BY_SPOT_ID_V2 = {
   "spot_nanwan": "O00700",
 } as const satisfies Record<string, typeof CWA_TIDE_LOCATION_IDS_V2[number]>;
 
-export const CWA_TIDE_LOCATION_IDS = [
+export const CWA_TIDE_LOCATION_IDS_V3 = [
   "10002040", "O00400", "10002030", "I02200", "I00900", "I00500",
   "O00700", "O00100", "I03800", "I06100", "10015010", "A00200",
   "10013330", "O01000", "10005020", "A01500",
 ] as const;
 
-export const CWA_TIDE_LOCATION_BY_SPOT_ID = {
+export const CWA_TIDE_LOCATION_BY_SPOT_ID_V3 = {
   "spot_wushi-harbor-north": "10002040",
   "spot_double-lions": "O00400",
   "spot_suao-wuwei-harbor": "10002030",
@@ -51,6 +51,16 @@ export const CWA_TIDE_LOCATION_BY_SPOT_ID = {
   "spot_songbai-harbor": "10005020",
   "spot_green-bay": "A01500",
   "spot_wanli": "A01500",
+} as const satisfies Record<string, typeof CWA_TIDE_LOCATION_IDS_V3[number]>;
+
+export const CWA_TIDE_LOCATION_IDS = [
+  ...CWA_TIDE_LOCATION_IDS_V3,
+  "I04100",
+] as const;
+
+export const CWA_TIDE_LOCATION_BY_SPOT_ID = {
+  ...CWA_TIDE_LOCATION_BY_SPOT_ID_V3,
+  "spot_waipu-fishing-harbor": "I04100",
 } as const satisfies Record<string, typeof CWA_TIDE_LOCATION_IDS[number]>;
 
 export interface ObservationConditionsResponse {
@@ -338,6 +348,14 @@ const cwaTideProvenanceV2Schema = z.object({
 
 const cwaTideProvenanceV3Schema = z.object({
   dataset: z.literal("F-A0021-001"),
+  locationId: z.enum(CWA_TIDE_LOCATION_IDS_V3),
+  datum: z.literal("AboveLocalMSL"),
+  units: z.literal("m"),
+  interpolation: z.literal("half-cosine-between-adjacent-extrema"),
+}).strict();
+
+const cwaTideProvenanceV4Schema = z.object({
+  dataset: z.literal("F-A0021-001"),
   locationId: z.enum(CWA_TIDE_LOCATION_IDS),
   datum: z.literal("AboveLocalMSL"),
   units: z.literal("m"),
@@ -373,10 +391,20 @@ export const cwaForecastIngestionV2SnapshotSchema = cwaForecastIngestionSnapshot
   { message: "At least one CWA wave metric is required" },
 );
 
-export const cwaForecastIngestionSnapshotSchema = cwaForecastIngestionSnapshotBaseSchema.extend({
+export const cwaForecastIngestionV3SnapshotSchema = cwaForecastIngestionSnapshotBaseSchema.extend({
   provenance: z.object({
     wave: cwaWaveProvenanceSchema,
     tide: cwaTideProvenanceV3Schema.nullable(),
+  }).strict(),
+}).strict().refine(
+  hasCwaWaveMetric,
+  { message: "At least one CWA wave metric is required" },
+);
+
+export const cwaForecastIngestionSnapshotSchema = cwaForecastIngestionSnapshotBaseSchema.extend({
+  provenance: z.object({
+    wave: cwaWaveProvenanceSchema,
+    tide: cwaTideProvenanceV4Schema.nullable(),
   }).strict(),
 }).strict().refine(
   hasCwaWaveMetric,
@@ -393,14 +421,20 @@ export const cwaForecastIngestionV2BatchSchema = z.object({
   snapshots: z.array(cwaForecastIngestionV2SnapshotSchema).min(1).max(5),
 }).strict();
 
-export const cwaForecastIngestionBatchSchema = z.object({
+export const cwaForecastIngestionV3BatchSchema = z.object({
   version: z.literal(3),
+  snapshots: z.array(cwaForecastIngestionV3SnapshotSchema).min(1).max(5),
+}).strict();
+
+export const cwaForecastIngestionBatchSchema = z.object({
+  version: z.literal(4),
   snapshots: z.array(cwaForecastIngestionSnapshotSchema).min(1).max(5),
 }).strict();
 
 export const acceptedCwaForecastIngestionBatchSchema = z.union([
   cwaForecastIngestionV1BatchSchema,
   cwaForecastIngestionV2BatchSchema,
+  cwaForecastIngestionV3BatchSchema,
   cwaForecastIngestionBatchSchema,
 ]);
 

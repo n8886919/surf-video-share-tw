@@ -967,7 +967,8 @@ api.get("/spots", async (context) => {
        WHEN 'songbai-harbor' THEN 15
        WHEN 'green-bay' THEN 16
        WHEN 'wanli' THEN 17
-       ELSE 18 END, name_en`,
+       WHEN 'waipu-fishing-harbor' THEN 18
+       ELSE 19 END, name_en`,
   ).all<SpotRow>();
   return context.json({
     spots: result.results.map((spot) => ({

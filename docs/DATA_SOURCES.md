@@ -36,7 +36,7 @@ The service does not switch to Open-Meteo Historical Forecast mode, Single Runs,
 
 ## CWA boundary
 
-The outbound-only Home Assistant App owns the expensive official CWA archive parsing. The CWA key stays in App options and never reaches Cloudflare. Contract v3 uses the geographically nearest location listed by the official F-A0021-001 specification for every active owner-supplied coordinate. The Worker accepts only fixed HMAC-authenticated batches, validates active spots and time relationships, recomputes IDs, and rejects tide provenance that does not match this reviewed nearest-location allowlist:
+The outbound-only Home Assistant App owns the expensive official CWA archive parsing. The CWA key stays in App options and never reaches Cloudflare. Contract v4 uses the geographically nearest location listed by the official F-A0021-001 specification for every active owner-supplied coordinate. The Worker accepts only fixed HMAC-authenticated batches, validates active spots and time relationships, recomputes IDs, and rejects tide provenance that does not match this reviewed nearest-location allowlist:
 
 | LocationId | Active spot | Approximate distance |
 |---|---|---:|
@@ -56,6 +56,7 @@ The outbound-only Home Assistant App owns the expensive official CWA archive par
 | `O01000` | 佳樂水 | 0.26 km |
 | `10005020` | 松柏港 | 2.72 km |
 | `A01500` | 翡翠灣、萬里 | 1.90 km、0.68 km |
+| `I04100` | 外埔 | 0.55 km |
 
 Distances use a great-circle calculation against the coordinates published in the official CWA PDF. The farthest current pairing is 九棚 at about 4.41 km, so no active spot currently needs a far-distance exception. The selected LocationId is persisted in immutable raw provenance and exposed in `ForecastResponse.tide.sourceLocationId`.
 
@@ -73,4 +74,4 @@ Provider attribution and licence requirements must be rechecked before public la
 
 ## Spot coordinates
 
-The eighteen active coordinates in `data/spots.csv` come from owner-supplied points and are not provider grid assertions. Provider responses preserve their independently selected sea-grid coordinates.
+The nineteen active coordinates in `data/spots.csv` come from owner-supplied points and are not provider grid assertions. Provider responses preserve their independently selected sea-grid coordinates.

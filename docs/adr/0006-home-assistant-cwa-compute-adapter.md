@@ -47,9 +47,11 @@ therefore rejected for this release.
 The first contract was version-locked as `cwa-forecast-ingestion-v1`, followed
 by the initial multi-location `cwa-forecast-ingestion-v2`. The nearest-location
 release advances new batches to `cwa-forecast-ingestion-v3` while the Worker
-temporarily accepts persisted v1 and v2 batches under their legacy mappings
-for a safe Worker-first rollout. Both repositories generate JSON Schema from
-their live v3 Zod batch validator and assert the same SHA-256
+temporarily accepts persisted v1 and v2 batches under their legacy mappings.
+Adding 外埔 advances new batches to `cwa-forecast-ingestion-v4` while the Worker
+also accepts persisted v3 batches for a safe Worker-first rollout. Both
+repositories generate JSON Schema from their live v4 Zod batch validator and
+assert the same SHA-256
 fingerprint, plus a separate canonical SHA-256 fingerprint for the complete
 spot-to-LocationId mapping. Separate parity assertions cover the three-hour
 lead rule and required wave metric refinement because those Zod refinements

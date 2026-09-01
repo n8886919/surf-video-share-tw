@@ -6,7 +6,7 @@ The detailed score formula, weights, coverage, unordered swell assignment, sourc
 
 ## Read path
 
-The public client selects one of the eighteen active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result.
+The public client selects one of the nineteen active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result.
 
 For a future target, the API reads only `snapshot_kind = forecast`, requires `issued_at <= queryNow`, limits `valid_at` distance to four hours, and chooses the newest provider/model run. Matching source features are never merged:
 

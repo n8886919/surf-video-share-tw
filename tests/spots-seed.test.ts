@@ -25,11 +25,11 @@ function readSpots() {
 }
 
 describe("spot seed", () => {
-  it("keeps the eighteen approved spots active with exact coordinates and provenance", () => {
+  it("keeps the nineteen approved spots active with exact coordinates and provenance", () => {
     const activeSpots = readSpots().filter((spot) => spot.active === "true");
     const bySlug = Object.fromEntries(activeSpots.map((spot) => [spot.slug, spot]));
 
-    expect(activeSpots).toHaveLength(18);
+    expect(activeSpots).toHaveLength(19);
     expect(bySlug["double-lions"]).toMatchObject({ nameZh: "雙獅", latitude: "24.8887597", longitude: "121.8495724" });
     expect(bySlug["wushi-harbor-north"]).toMatchObject({ nameZh: "烏石港", latitude: "24.8731036", longitude: "121.8411446" });
     expect(bySlug["suao-wuwei-harbor"]).toMatchObject({ nameZh: "無尾", latitude: "24.6114709", longitude: "121.867805" });
@@ -48,6 +48,7 @@ describe("spot seed", () => {
     expect(bySlug["songbai-harbor"]).toMatchObject({ nameZh: "松柏港", latitude: "24.431933375413898", longitude: "120.61715426605767" });
     expect(bySlug["green-bay"]).toMatchObject({ nameZh: "翡翠灣", latitude: "25.1883162", longitude: "121.6652802" });
     expect(bySlug.wanli).toMatchObject({ nameZh: "萬里", latitude: "25.181926", longitude: "121.6875599" });
+    expect(bySlug["waipu-fishing-harbor"]).toMatchObject({ nameZh: "外埔", latitude: "24.6506129", longitude: "120.7655767" });
     for (const spot of activeSpots.filter((spot) => !["double-lions", "wushi-harbor-north"].includes(spot.slug))) {
       expect(spot.coordinateSource).toBe("User-supplied coordinates");
     }

@@ -2,7 +2,7 @@
 
 ## Immediate priority — first-user validation
 
-Close the Product `0.16` release loop by observing one natural contract-v3 ingestion across the eighteen active spots. After that check, infrastructure and feature scope are frozen until real users validate the core find/watch/upload path.
+Close the Product `0.20` release loop by observing one natural contract-v4 ingestion across the nineteen active spots. After that check, infrastructure and feature scope are frozen until real users validate the core find/watch/upload path.
 
 Work during this phase is limited to defects or friction that block a user from selecting a spot and time, watching a comparable public video, signing in, or completing a valid upload. Do not add providers, forecast models, analytics, sharing mechanics, spot interactions, or operations automation without evidence from pilot use.
 
@@ -19,7 +19,7 @@ For ordinary isolated work in this phase, use targeted tests plus `pnpm typechec
 
 ## Milestone A — product vertical slice
 
-Complete: public spot/time matching, eighteen active Taiwan spots, immutable-spot 10–60 second upload, seven-day capture-time completion, public Stream lifecycle, three-tab mobile UI, versioned CC0 notice, owner feedback, reporting, and administrator delisting.
+Complete: public spot/time matching, nineteen active Taiwan spots, immutable-spot 10–60 second upload, seven-day capture-time completion, public Stream lifecycle, three-tab mobile UI, versioned CC0 notice, owner feedback, reporting, and administrator delisting.
 
 ## Milestone B — independent forecast history
 

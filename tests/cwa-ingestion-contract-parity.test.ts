@@ -6,6 +6,7 @@ import {
   CWA_TIDE_LOCATION_BY_SPOT_ID,
   acceptedCwaForecastIngestionBatchSchema,
   cwaForecastIngestionBatchSchema,
+  cwaForecastIngestionV3BatchSchema,
   cwaForecastIngestionV2BatchSchema,
 } from "../packages/api-contract/src";
 
@@ -54,7 +55,7 @@ function legacySnapshot() {
 }
 
 describe("Home Assistant CWA ingestion contract parity", () => {
-  it("pins the complete v3 structural contract and tide mapping fingerprints", () => {
+  it("pins the complete v4 structural contract and tide mapping fingerprints", () => {
     const fingerprint = createHash("sha256")
       .update(JSON.stringify(z.toJSONSchema(cwaForecastIngestionBatchSchema)))
       .digest("hex");
@@ -62,20 +63,20 @@ describe("Home Assistant CWA ingestion contract parity", () => {
       .update(JSON.stringify(CWA_TIDE_LOCATION_BY_SPOT_ID))
       .digest("hex");
     expect(CWA_FORECAST_INGESTION_CONTRACT).toEqual({
-      version: "cwa-forecast-ingestion-v3",
+      version: "cwa-forecast-ingestion-v4",
       jsonSchemaSha256: fingerprint,
       tideMappingSha256: tideMappingFingerprint,
     });
   });
 
   it("pins refinements that JSON Schema cannot represent", () => {
-    expect(cwaForecastIngestionBatchSchema.safeParse({ version: 3, snapshots: [snapshot()] }).success).toBe(true);
+    expect(cwaForecastIngestionBatchSchema.safeParse({ version: 4, snapshots: [snapshot()] }).success).toBe(true);
     expect(cwaForecastIngestionBatchSchema.safeParse({
-      version: 3,
+      version: 4,
       snapshots: [{ ...snapshot(), leadHours: 4 }],
     }).success).toBe(false);
     expect(cwaForecastIngestionBatchSchema.safeParse({
-      version: 3,
+      version: 4,
       snapshots: [{ ...snapshot(), waveHeight: null, waveDirection: null, wavePeriod: null }],
     }).success).toBe(false);
   });
@@ -91,6 +92,13 @@ describe("Home Assistant CWA ingestion contract parity", () => {
     expect(cwaForecastIngestionV2BatchSchema.safeParse({
       version: 2,
       snapshots: [legacySnapshot()],
+    }).success).toBe(true);
+  });
+
+  it("keeps accepting a persisted v3 batch during the coordinated rollout", () => {
+    expect(cwaForecastIngestionV3BatchSchema.safeParse({
+      version: 3,
+      snapshots: [snapshot()],
     }).success).toBe(true);
   });
 });
