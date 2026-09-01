@@ -120,6 +120,25 @@ function ownerForecast(
   };
 }
 
+function cwaForecast(id: string) {
+  return {
+    ...forecast(
+      id,
+      { height: 1.2, direction: 40, period: 11 },
+      { height: 0.8, direction: 120, period: 8 },
+    ),
+    provider: "cwa",
+    model: "cwa-wave-f-a0020-001",
+    sourceDisplayName: "CWA",
+    swellSemantics: "none",
+    primarySwell: { height: null, direction: null, period: null, peakPeriod: null },
+    secondarySwell: { height: null, direction: null, period: null, peakPeriod: null },
+    windWave: { height: null, direction: null, period: null, peakPeriod: null },
+    wind: { speed: null, direction: null, gust: null },
+    tide: { height: 0.5, slope: 0.1, state: "rising", sourceLocationId: "O00400" },
+  };
+}
+
 function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
   const url = new URL(requestUrl);
   const item = observation(`video_${spotId}`, spotId, spotName);
@@ -146,6 +165,16 @@ function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
       coverage: 1,
       observation: item,
       sources: [{
+        provider: "cwa",
+        model: "cwa-wave-f-a0020-001",
+        score: 0.82,
+        availableWeight: 2.95,
+        matchedWeight: 2.95,
+        coverage: 1,
+        swellPairing: [],
+        targetForecast: cwaForecast("cwa-target"),
+        candidateForecast: cwaForecast("cwa-candidate"),
+      }, {
         provider: "open-meteo",
         model: "meteofrance_wave",
         score: 1,
@@ -156,8 +185,16 @@ function matchesResponse(requestUrl: string, spotId: string, spotName: string) {
           { target: "primary", candidate: "secondary" },
           { target: "secondary", candidate: "primary" },
         ],
-        targetForecast: forecast("target", primary, secondary),
-        candidateForecast: forecast("candidate", secondary, primary),
+        targetForecast: {
+          ...forecast("target", primary, secondary),
+          tide: { height: null, slope: null, state: null, sourceLocationId: null },
+          wind: { speed: null, direction: null, gust: null },
+        },
+        candidateForecast: {
+          ...forecast("candidate", secondary, primary),
+          tide: { height: null, slope: null, state: null, sourceLocationId: null },
+          wind: { speed: null, direction: null, gust: null },
+        },
       }],
     }],
     ranking: "equal-cwa-mfwam-composite-historical-forecast",
@@ -216,13 +253,35 @@ test("shows every same-spot public video captured in the last two hours without 
   await expect(page.locator(".candidate-play-button")).toHaveCount(1);
 });
 
-test("shows the exact swapped swell assignment used by matching", async ({ page }) => {
+test("shows only each matching source's available fields", async ({ page }) => {
   await mockPublicApi(page);
   await page.goto("/");
 
-  await expect(page.getByText("目標預報", { exact: true })).toHaveCount(1);
+  await expect(page.locator(".target-forecast-visual strong")).toHaveText(/^\d+\/\d+ 周[日一二三四五六]$/);
+  await expect(page.getByText("預報資料", { exact: true })).toHaveCount(1);
   await expect(page.locator(".target-forecast-card")).toContainText("1.2m · 40° · 11.0s");
-  await expect(page.locator(".candidate-forecast-card .combined-metric-header")).not.toContainText("目標");
+  await expect(page.locator(".candidate-forecast-card .combined-metric-header")).toHaveCount(0);
+  const targetSources = page.locator(".target-forecast-card .combined-source-comparison");
+  await expect(targetSources).toHaveCount(2);
+  await expect(targetSources.nth(0)).toContainText("CWA");
+  await expect(targetSources.nth(0).locator(".combined-target-metric-row")).toHaveCount(2);
+  await expect(targetSources.nth(0)).toContainText("總浪");
+  await expect(targetSources.nth(0)).toContainText("潮位");
+  await expect(targetSources.nth(0)).not.toContainText("主湧浪");
+  await expect(targetSources.nth(0)).not.toContainText("次湧浪");
+  await expect(targetSources.nth(0)).not.toContainText("風浪");
+  await expect(targetSources.nth(0)).not.toContainText("風");
+  await expect(targetSources.nth(0)).not.toContainText("O00400");
+  await expect(targetSources.nth(1).locator(".combined-target-metric-row")).toHaveCount(4);
+  await expect(targetSources.nth(1)).not.toContainText("潮位");
+  await expect(targetSources.nth(1)).not.toContainText("陣風");
+
+  const candidateSources = page.locator(".candidate-forecast-card .combined-source-comparison");
+  await expect(candidateSources).toHaveCount(2);
+  await expect(candidateSources.locator(".combined-source-heading strong")).toHaveText(["相似度", "相似度"]);
+  await expect(candidateSources.locator(".combined-source-heading small")).toHaveText(["82%", "100%"]);
+  await expect(page.locator(".candidate-forecast-card")).not.toContainText("CWA");
+  await expect(page.locator(".candidate-forecast-card")).not.toContainText("MFWAM");
   const primaryRow = page.locator('[data-swell-pairing="primary:secondary"]');
   const secondaryRow = page.locator('[data-swell-pairing="secondary:primary"]');
   await expect(primaryRow).toContainText("主湧浪");

@@ -61,9 +61,6 @@ jobs:
       ISSUED_AT: ${{ needs.check.outputs.issued_at }}
       LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN }}
       OPS_LINE_USER_ID: ${{ secrets.OPS_LINE_USER_ID }}
-      REPOSITORY: ${{ github.repository }}
-      RUN_ID: ${{ github.run_id }}
-      SERVER_URL: ${{ github.server_url }}
     steps:
       - name: Send the verified update or failure
         shell: bash
@@ -77,14 +74,13 @@ jobs:
 
           if [[ "${CHECK_RESULT}" == "success" ]]; then
             issued_taipei="$(TZ=Asia/Taipei date --date="${ISSUED_AT}" '+%Y-%m-%d %H:%M')"
-            message="$(printf '✅ 彼日浪影氣象資料已更新\nMFWAM 最新批次：%s（台灣時間）\nProduction API 驗證成功。' "${issued_taipei}")"
+            message="$(printf '✅MFWAM 最新批次：%s' "${issued_taipei}")"
           else
-            message=$'🚨 彼日浪影氣象更新未確認\nProduction API 找不到四小時內的 MFWAM 批次，請檢查 Cloudflare Cron 與 Workers Logs。'
+            message='🚨MFWAM 最新批次未確認'
           fi
 
-          run_url="${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}"
-          payload="$(jq -cn --arg to "${OPS_LINE_USER_ID}" --arg text "${message}" --arg run_url "${run_url}" \
-            '{to: $to, messages: [{type: "text", text: ($text + "\n" + $run_url)}]}')"
+          payload="$(jq -cn --arg to "${OPS_LINE_USER_ID}" --arg text "${message}" \
+            '{to: $to, messages: [{type: "text", text: $text}]}')"
           status="$(curl --silent --show-error --max-time 20 \
             --output /tmp/line-response.json --write-out '%{http_code}' \
             -X POST https://api.line.me/v2/bot/message/push \

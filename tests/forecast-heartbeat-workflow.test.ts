@@ -12,14 +12,17 @@ describe("production forecast heartbeat workflow", () => {
     expect(workflow).toContain("/api/v1/matches?spotId=${spot_id}&targetTime=${encoded_target}");
     expect(workflow).toContain('.model == "meteofrance_wave"');
     expect(workflow).toContain("age_seconds > 14400");
-    expect(workflow).toContain("Production API 驗證成功");
+    expect(workflow).toContain("✅MFWAM 最新批次：%s");
+    expect(workflow).not.toContain("✅ 彼日浪影氣象資料已更新");
   });
 
   it("uses the independently configured LINE path for both success and failure", () => {
     expect(workflow).toContain("LINE_MESSAGING_CHANNEL_ACCESS_TOKEN");
     expect(workflow).toContain("OPS_LINE_USER_ID");
-    expect(workflow).toContain("✅ 彼日浪影氣象資料已更新");
-    expect(workflow).toContain("🚨 彼日浪影氣象更新未確認");
+    expect(workflow).toContain("✅MFWAM 最新批次：%s");
+    expect(workflow).toContain("🚨MFWAM 最新批次未確認");
+    expect(workflow).not.toContain("run_url");
+    expect(workflow).not.toContain("github.run_id");
     expect(workflow).toContain("https://api.line.me/v2/bot/message/push");
     expect(workflow).not.toContain("actions/checkout");
   });

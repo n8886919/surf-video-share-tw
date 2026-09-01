@@ -72,7 +72,9 @@ Before a task, read this file, `docs/PROJECT_PRINCIPLES.md`, `docs/PROJECT_STATE
 
 ## Session checkpoints
 
-- After a coherent change set, run proportional verification and update `docs/PROJECT_STATE.md` with the completed checkpoint and one exact next task.
+- During pre-user validation, an ordinary isolated change defaults to targeted tests plus `pnpm typecheck`. Run `pnpm verify` for a release candidate and for cross-cutting API, schema, authentication, security, provider, operations, or deployment changes.
+- Update `docs/PROJECT_STATE.md` after a milestone, release, material operational result, or handoff—not after every small UI or implementation change. Keep one exact next task.
+- Until the first-user validation gates in `docs/ROADMAP.md` are met, do not add providers, models, analytics, sharing mechanics, or operations automation unless observed user behavior or a blocker in the find/watch/upload path requires it.
 - Recommend opening a new session when the next task changes domain or the current session has accumulated broad context.
 - Do not recommend a new session while tests fail, required documentation is stale, or work is half-complete.
 - A new session follows `PROJECT_STATE.md`'s `Next task` unless the user overrides it.

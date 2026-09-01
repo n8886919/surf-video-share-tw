@@ -630,30 +630,54 @@ function compactForecastMetricGroup(group: Forecast["totalWave"]): string {
   return `${compactMetric(group.height, "m")} · ${formatDirection(group.direction)} · ${compactMetric(group.period, "s")}`;
 }
 
+function metricGroupHasValue(group: Forecast["totalWave"]): boolean {
+  return [group.height, group.direction, group.period].some((value) => value != null);
+}
+
+function formatForecastCardDate(iso: string): string {
+  const parts = new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+  }).formatToParts(new Date(iso));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("month")}/${value("day")} ${value("weekday").replace(/^週/, "周")}`;
+}
+
 function forecastComparisonRows(
   target: Forecast,
   candidate: Forecast,
   pairing: SwellPairing,
 ): ForecastComparisonRow[] {
   const pairingByTarget = new Map(pairing.map((item) => [item.target, item.candidate]));
-  const swellRows = (["primary", "secondary"] as const).map((targetLabel): ForecastComparisonRow => {
+  const swellRows = (["primary", "secondary"] as const).flatMap((targetLabel): ForecastComparisonRow[] => {
+    if (!metricGroupHasValue(swellGroup(target, targetLabel))) return [];
     const candidateLabel = pairingByTarget.get(targetLabel) ?? null;
-    return {
+    return [{
       label: swellName(targetLabel),
       targetValue: compactForecastMetricGroup(swellGroup(target, targetLabel)),
       candidateValue: candidateLabel
         ? `${swellName(candidateLabel)} · ${compactForecastMetricGroup(swellGroup(candidate, candidateLabel))}`
         : "未配對",
       pairing: `${targetLabel}:${candidateLabel ?? "none"}`,
-    };
+    }];
   });
-  return [
-    { label: "總浪", targetValue: compactForecastMetricGroup(target.totalWave), candidateValue: compactForecastMetricGroup(candidate.totalWave) },
-    ...swellRows,
-    { label: "風浪", targetValue: compactForecastMetricGroup(target.windWave), candidateValue: compactForecastMetricGroup(candidate.windWave) },
-    { label: "風", targetValue: `${compactMetric(target.wind.speed, "m/s")} · ${formatDirection(target.wind.direction)} · 陣風 ${compactMetric(target.wind.gust, "m/s")}`, candidateValue: `${compactMetric(candidate.wind.speed, "m/s")} · ${formatDirection(candidate.wind.direction)} · 陣風 ${compactMetric(candidate.wind.gust, "m/s")}` },
-    { label: "潮位", targetValue: `${compactMetric(target.tide.height, "m")} · ${formatTideState(target.tide.state)} · ${compactMetric(target.tide.slope, "m/h")}${target.tide.sourceLocationId ? ` · ${target.tide.sourceLocationId}` : ""}`, candidateValue: `${compactMetric(candidate.tide.height, "m")} · ${formatTideState(candidate.tide.state)} · ${compactMetric(candidate.tide.slope, "m/h")}${candidate.tide.sourceLocationId ? ` · ${candidate.tide.sourceLocationId}` : ""}` },
-  ];
+  const rows: ForecastComparisonRow[] = [];
+  if (metricGroupHasValue(target.totalWave)) {
+    rows.push({ label: "總浪", targetValue: compactForecastMetricGroup(target.totalWave), candidateValue: compactForecastMetricGroup(candidate.totalWave) });
+  }
+  rows.push(...swellRows);
+  if (metricGroupHasValue(target.windWave)) {
+    rows.push({ label: "風浪", targetValue: compactForecastMetricGroup(target.windWave), candidateValue: compactForecastMetricGroup(candidate.windWave) });
+  }
+  if ([target.wind.speed, target.wind.direction, target.wind.gust].some((value) => value != null)) {
+    rows.push({ label: "風", targetValue: `${compactMetric(target.wind.speed, "m/s")} · ${formatDirection(target.wind.direction)} · 陣風 ${compactMetric(target.wind.gust, "m/s")}`, candidateValue: `${compactMetric(candidate.wind.speed, "m/s")} · ${formatDirection(candidate.wind.direction)} · 陣風 ${compactMetric(candidate.wind.gust, "m/s")}` });
+  }
+  if ([target.tide.height, target.tide.slope, target.tide.state].some((value) => value != null)) {
+    rows.push({ label: "潮位", targetValue: `${compactMetric(target.tide.height, "m")} · ${formatTideState(target.tide.state)} · ${compactMetric(target.tide.slope, "m/h")}`, candidateValue: `${compactMetric(candidate.tide.height, "m")} · ${formatTideState(candidate.tide.state)} · ${compactMetric(candidate.tide.slope, "m/h")}` });
+  }
+  return rows;
 }
 
 function TargetForecastDetails({ sources }: { sources: CombinedMatch["sources"] }) {
@@ -683,8 +707,7 @@ function CandidateForecastDetails({ match }: { match: CombinedMatch }) {
         source.swellPairing,
       );
       return <section key={`${source.provider}:${source.model}`} className="combined-source-comparison">
-        <div className="combined-source-heading"><strong>{source.candidateForecast.sourceDisplayName}</strong><small>來源相似度 {Math.round(source.score * 100)}%</small></div>
-        <div className="combined-metric-header"><span>特徵</span><span>實拍當時（配對）</span></div>
+        <div className="combined-source-heading"><strong>相似度</strong><small>{Math.round(source.score * 100)}%</small></div>
         {rows.map((row) => <div className="combined-metric-row" data-swell-pairing={row.pairing} key={row.label}>
           <strong>{row.label}</strong><span>{row.candidateValue}</span>
         </div>)}
@@ -833,14 +856,15 @@ function PlaybackModal({ observation, onClose }: { observation: Observation; onC
   </div>;
 }
 
-function CombinedMatchList({ matches }: { matches: CombinedMatch[] }) {
+function CombinedMatchList({ matches, targetTime }: { matches: CombinedMatch[]; targetTime: string }) {
   const [activeObservation, setActiveObservation] = useState<Observation | null>(null);
   const targetSources = matches[0]?.sources ?? [];
+  const targetDate = formatForecastCardDate(targetTime);
   return (
     <section className="combined-match-area">
       <div className="forecast-comparison">
-        <article className="target-forecast-card" aria-label="目標預報">
-          <div className="target-forecast-visual"><strong>目標預報</strong><span>比較基準</span></div>
+        <article className="target-forecast-card" aria-label={`${targetDate} 預報資料`}>
+          <div className="target-forecast-visual"><strong>{targetDate}</strong><span>預報資料</span></div>
           <TargetForecastDetails sources={targetSources}/>
         </article>
         <div className="candidate-forecast-strip" aria-label="CWA 與 MFWAM 綜合相似實拍">
@@ -1242,7 +1266,7 @@ function FindView({ spots }: { spots: Spot[] }) {
     {error && <div className="error-message">{error}</div>}
     <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{loading ? "查詢中" : matches.length ? `${matches.length} 段` : "累積中"}</small></div>
       {matches.length
-        ? <CombinedMatchList matches={matches}/>
+        ? <CombinedMatchList matches={matches} targetTime={targetTime}/>
         : !loading && !error && <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 MFWAM 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 MFWAM 歷史預報的實拍；第 4–5 天會使用 MFWAM-only 相似度排序。"}</p></div>}
       <div className="time-window-observation-section">
         <div className="section-heading"><h3>即時影片（近 2 小時）</h3><small>{loading ? "查詢中" : `${timeWindowObservations.length} 段`}</small></div>

@@ -1,10 +1,10 @@
 # Project state
 
-Updated: 2026-08-31
+Updated: 2026-09-01
 
-Product `0.16` release commit `61985cb` is pushed to `main`. Its guarded Workers Build deployed at 100% as Cloudflare version `64de237b-3d05-494d-a346-b01428359aa0`; remote migration `0012_add_nearest_tide_spots.sql` is applied.
+Product `0.17` release commit `66e209c` is pushed to `main`. Its guarded Workers Build deployed at 100% as Cloudflare version `8b0f0830-4b43-4bec-b8f5-88c4a5f2a289`; no migration was pending.
 
-Home Assistant CWA Ingestor App `0.3.0` commit `d0ce63b` is pushed to its repository `main`, and its GitHub verification/Docker build passed. The repository publication is complete; this workspace has no Home Assistant Supervisor connection with which to inspect or force-update the separately installed App instance.
+Home Assistant CWA Ingestor App `0.3.1` commits `c38ef7d` and `bead698` are pushed to its repository `main`. The release replaces escaped JSON logs with single-line `Asia/Taipei` summaries, adds an explicit ingestion-start event, condenses validation errors, and preserves stable event codes plus secret redaction. Local `npm run verify` passed 9 test files / 28 tests, typecheck, and build. GitHub Verify run `33420833497` also passed dependency audit and an aarch64 Docker build whose version label is derived from and checked against the published `0.3.1` manifest. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
 
 ## Completed checkpoint
 
@@ -18,6 +18,17 @@ Home Assistant CWA Ingestor App `0.3.0` commit `d0ce63b` is pushed to its reposi
 - README, Roadmap, architecture, product, data-source, data-model, API, operations, principles, ADR, and project-state documentation now describe the five independent sources rather than the obsolete two-spot / ECMWF-matching design.
 - CI runs lint, typecheck, unit/integration tests, migration-drift checks, production build, rendered-site tests, and browser/accessibility tests.
 - Product `0.16` implements the upload UX task: the two introductory lines are removed, the short `7天內,10-60秒的浪況或衝浪影片` copy owns the info icon, and `顯示公開名稱` opens enabled when the user has a `display_id`.
+
+## Product 0.17 operations release
+
+- Every successful required MFWAM run now sends one owner-only LINE heartbeat after the six-hour Cloudflare Open-Meteo collection finishes. It lists all four model statuses plus insert and duplicate counts.
+- A degraded collect-only model produces a warning heartbeat. A required MFWAM failure still follows the existing critical incident path, while a LINE delivery failure is logged without mislabelling already stored forecasts as failed.
+- The heartbeat explicitly excludes the separately scheduled Home Assistant CWA ingestion, so it never claims that both collection systems succeeded.
+- After the 08:20 `Asia/Taipei` Worker run stored fresh MFWAM data but its direct LINE heartbeat did not arrive, the existing GitHub LINE test succeeded. The authoritative `.github/workflows/forecast-heartbeat.yml` therefore runs fifteen minutes after each collection Cron, verifies a production MFWAM `issuedAt` no more than four hours old through `/matches`, and sends verified success or failure through the independently configured GitHub LINE secrets.
+- The final `pnpm verify` passed lint, typecheck, 36 test files / 212 tests, migration drift, production build, 2 rendered-site tests, and 5 Chromium/accessibility tests.
+- Commit `66e209c` passed GitHub Verify run `33462727368` and Workers Build check `99716581531`. The build found no pending migration and published Cloudflare version `8b0f0830-4b43-4bec-b8f5-88c4a5f2a289` at 100%.
+- Manual forecast-heartbeat run `33462739719` verified production MFWAM `issuedAt` `2026-09-01T00:20:34.678Z` and completed both the production-data check and LINE-delivery jobs. Post-build health and readiness returned `ok`; every required secret and binding remains present, no migration is pending, and query-string redaction remains enabled.
+- No temporary forecast trigger or historical backfill was used. The next natural collection is 2026-09-01 14:20 `Asia/Taipei`, followed by the external verified heartbeat around 14:35.
 
 ## Product 0.16 release
 
@@ -64,6 +75,13 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 - Open-Meteo may omit fields or model runs. Storage and UI tolerate nulls, and each model keeps its own provenance and failure result.
 - MFWAM retains the matching horizon; collect-only models intentionally use a short horizon so storage growth remains bounded until a model is promoted.
 
+## Development strategy checkpoint
+
+- Product `0.17` has no real users yet. The immediate objective is evidence that the core find/watch/upload path is useful, not additional platform breadth.
+- The first-user validation gates and frozen secondary scope are recorded in `docs/ROADMAP.md`.
+- Existing secondary features remain in production unless a separate cost or reliability decision disables them; this checkpoint does not change runtime behavior.
+- Ordinary isolated changes use targeted tests plus `pnpm typecheck`. Full verification and release documentation are reserved for release candidates and cross-cutting API, schema, authentication, security, provider, operations, or deployment changes.
+
 ## Next task
 
-On the Home Assistant host, refresh the App Store and update the installed CWA Ingestor to `0.3.0` if automatic updates are disabled, then confirm the first natural contract-v3 ingestion across all eighteen spots without creating a temporary trigger or historical backfill.
+On the Home Assistant host, refresh the App Store and update the installed CWA Ingestor to `0.3.1`. Confirm the readable startup/attempt logs and one natural contract-v3 ingestion across all eighteen spots without creating a temporary trigger or historical backfill. This closes the current data-platform expansion; after recording the result, the next task must move to recruiting and observing the first 5–10 non-developer pilot users rather than adding infrastructure or secondary features.
