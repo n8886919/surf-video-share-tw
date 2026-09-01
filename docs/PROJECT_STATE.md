@@ -2,9 +2,9 @@
 
 Updated: 2026-09-01
 
-Product `0.20` release commit `23d0829` is pushed to `main`. The reviewed OAuth deployment applied migration `0013_activate_waipu.sql` and published Cloudflare version `85a7ec49-64ad-49af-9326-410138954c8f`; the subsequent successful release Workers Build published version `9c77280c-e758-4ce8-9a02-15edd381e977` at 100%.
+Product `0.21` release commit `a9e5513` is pushed to `main`. The reviewed OAuth deployment applied migration `0014_pale_the_spike.sql` and published Cloudflare version `cc79e75b-14f1-4edb-ba25-d67514eb8b56` with query-string redaction verified.
 
-Home Assistant CWA Ingestor App `0.4.0` commit `5be64af` is pushed to its repository `main`. New batches use contract v4 with 外埔 mapped to official F-A0021-001 LocationId `I04100`; persisted v1/v2/v3 batches remain valid for retry. Local `npm run verify` passed 9 test files / 29 tests, typecheck, and build. GitHub Verify run `33476354451` also passed. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
+Home Assistant CWA Ingestor App `0.5.0` commit `12359f2` is pushed to its repository `main`. It retains contract v4 and persisted v1/v2/v3 retry compatibility, expands private pending state to 128 batches, and keeps a signed completion notification pending until the Worker accepts it. Local `npm run verify` passed 9 test files / 31 tests, typecheck, and build; GitHub Verify run `33479245582` also passed. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
 
 ## Completed checkpoint
 
@@ -18,6 +18,17 @@ Home Assistant CWA Ingestor App `0.4.0` commit `5be64af` is pushed to its reposi
 - README, Roadmap, architecture, product, data-source, data-model, API, operations, principles, ADR, and project-state documentation now describe the five independent sources rather than the obsolete two-spot / ECMWF-matching design.
 - CI runs lint, typecheck, unit/integration tests, migration-drift checks, production build, rendered-site tests, and browser/accessibility tests.
 - Product `0.16` implements the upload UX task: the two introductory lines are removed, the short `7天內,10-60秒的浪況或衝浪影片` copy owns the info icon, and `顯示公開名稱` opens enabled when the user has a `display_id`.
+
+## Product 0.21 CWA notification and beta-label release
+
+- The main and public-share headers display a compact `測試版` label beside the top-left brand. Product version is `0.21` / package `0.21.0`.
+- App `0.5.0` submits a separately signed completion request only after every persisted CWA row batch succeeds. Completion-message failure remains pending and retries without downloading the ZIP or resubmitting forecast rows.
+- The Worker accepts `POST /api/v1/internal/forecast-ingestion/cwa/complete`, verifies that the exact provider/model run covers all active coordinate-bearing spots, and sends one dedicated owner LINE message with model/publication times plus spot and snapshot counts.
+- Migration `0014_pale_the_spike.sql` adds `forecast_ingestion_notifications`. A unique provider/model/model-run claim deduplicates restart/replay while failed or abandoned delivery claims remain retryable.
+- The App state limit increases from 32 to 128 batches. The verified nineteen-spot × twenty-five-lead workload requires 95 batches, so the former limit could reject a complete production run before ingestion.
+- Main `pnpm verify` passed lint, typecheck, 36 test files / 217 tests, migration drift, production build, 2 rendered-site tests, and 6 Chromium/accessibility tests. App `npm run verify` passed 9 test files / 31 tests, typecheck, and build.
+- Production health/readiness returned `ok`; rendered HTML contains `測試版`; the unsigned completion endpoint returns `401`; remote migration listing is clear; and the new notification table exists with zero rows before the installed App is upgraded. No temporary ingestion trigger or historical backfill was created.
+- App `0.5.0` is published in the GitHub App Store repository, but installing it on the Home Assistant host remains an explicit operator step because this workspace has no Supervisor connection. Therefore a real nineteen-spot CWA completion and LINE delivery have not yet been claimed.
 
 ## Product 0.20 Waipu release
 
@@ -110,4 +121,6 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 
 ## Next task
 
-On the Home Assistant host, refresh the App Store and update the installed CWA Ingestor to `0.4.0`. Confirm one natural contract-v4 ingestion across all nineteen spots, including 外埔 → `I04100`, without creating a temporary trigger or historical backfill. After recording that result, move to recruiting and observing the first 5–10 non-developer pilot users rather than adding infrastructure or secondary features.
+On the Home Assistant host, refresh the App Store and update the installed CWA Ingestor to `0.5.0`. Its startup run should immediately submit contract v4 across all nineteen spots, including 外埔 → `I04100`, then produce one dedicated `CWA 最新批次已完整入庫` LINE message. Confirm `cwa_ingestion_complete`, one `sent` notification row, and fresh public CWA `issuedAt` without creating a temporary trigger or historical backfill. After recording that result, move to recruiting and observing the first 5–10 non-developer pilot users rather than adding infrastructure or secondary features.
+
+Deferred next-stage goal: after the first-user validation gates, use observed pilot behavior and the two-phone acceptance exercise to decide whether long share URLs block sharing. Only with that evidence, add a first-party expiring short-code path that preserves the existing 24-hour lifetime, exporter quota, and long-link compatibility; do not use a third-party shortener. The implementation decision must also settle whether the public share page's logged-in 「重新分享」 action remains in addition to the two intended share surfaces documented in `docs/PRODUCT.md`.

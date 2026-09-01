@@ -48,6 +48,10 @@ Remaining launch gates:
 - Cloudflare cost alarms and D1 restore practice;
 - optional two-phone share-link acceptance and real-device camera/metadata acceptance.
 
+## Next-stage product goals
+
+After the first-user validation gates are met, use the two-phone share-link acceptance result and observed pilot behavior to decide whether long encrypted URLs are a real sharing blocker. If they are, implement a first-party short path such as `/s/<random-code>` backed by an expiring D1 alias; preserve the current 24-hour lifetime and exporter monthly quota, keep existing long links compatible, and do not send share tokens to a third-party shortener. Before implementation, resolve the current scope mismatch: the intended share surfaces are the public playback modal and 「我的」, while the public share page also has a logged-in 「重新分享」 action.
+
 ## Later experiments
 
 As data grows, improve indexed candidate retrieval before raising the current 20-video exact-scoring boundary. Compare the deterministic baseline with offline clustering or nearest-neighbor methods only after enough complete samples. Ship ML only when held-out evaluation improves useful matches without hiding provider provenance or mixing model features.
