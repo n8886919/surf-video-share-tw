@@ -8,7 +8,7 @@ async function readProjectFile(path: string): Promise<string> {
 
 describe("project purpose", () => {
   it("renders the current visible product version in help", async () => {
-    expect(PROJECT_VERSION).toBe("0.21");
+    expect(PROJECT_VERSION).toBe("0.22");
 
     const [app, packageMetadata] = await Promise.all([
       readProjectFile("app/surf-app.tsx"),

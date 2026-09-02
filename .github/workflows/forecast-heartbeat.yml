@@ -41,14 +41,30 @@ jobs:
 
           issued_epoch="$(date --date="${issued_at}" '+%s')"
           now_epoch="$(date '+%s')"
-          age_seconds="$((now_epoch - issued_epoch))"
-          if (( age_seconds < -300 || age_seconds > 14400 )); then
-            echo "Latest MFWAM run is not fresh: ${issued_at}."
+          six_hours_seconds=21600
+          ingestion_minute_offset_seconds=1200
+          ingestion_grace_seconds=900
+
+          # GitHub schedule events can start hours late. Verify the latest Cloudflare
+          # :20 UTC ingestion slot that should be complete instead of comparing the
+          # forecast with the delayed runner's wall clock.
+          expected_slot_epoch="$((
+            ((now_epoch - ingestion_minute_offset_seconds) / six_hours_seconds)
+            * six_hours_seconds
+            + ingestion_minute_offset_seconds
+          ))"
+          if (( now_epoch - expected_slot_epoch < ingestion_grace_seconds )); then
+            expected_slot_epoch="$((expected_slot_epoch - six_hours_seconds))"
+          fi
+          expected_slot_at="$(date --utc --date="@${expected_slot_epoch}" '+%Y-%m-%dT%H:%M:%SZ')"
+
+          if (( issued_epoch < expected_slot_epoch - 300 || issued_epoch > now_epoch + 300 )); then
+            echo "Latest MFWAM run ${issued_at} does not cover expected ingestion slot ${expected_slot_at}."
             exit 1
           fi
 
           echo "issued_at=${issued_at}" >>"${GITHUB_OUTPUT}"
-          echo "Fresh MFWAM run verified at ${issued_at}."
+          echo "MFWAM run ${issued_at} verified for expected ingestion slot ${expected_slot_at}."
 
   notify:
     name: Send owner LINE forecast heartbeat

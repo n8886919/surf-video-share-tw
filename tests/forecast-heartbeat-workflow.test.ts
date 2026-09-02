@@ -7,11 +7,15 @@ const workflow = readFileSync(
 );
 
 describe("production forecast heartbeat workflow", () => {
-  it("runs after each six-hour forecast Cron and verifies fresh production MFWAM data", () => {
+  it("runs after each six-hour forecast Cron and verifies the latest due MFWAM ingestion slot", () => {
     expect(workflow).toContain('cron: "35 */6 * * *"');
     expect(workflow).toContain("/api/v1/matches?spotId=${spot_id}&targetTime=${encoded_target}");
     expect(workflow).toContain('.model == "meteofrance_wave"');
-    expect(workflow).toContain("age_seconds > 14400");
+    expect(workflow).toContain("six_hours_seconds=21600");
+    expect(workflow).toContain("ingestion_minute_offset_seconds=1200");
+    expect(workflow).toContain("ingestion_grace_seconds=900");
+    expect(workflow).toContain("issued_epoch < expected_slot_epoch - 300");
+    expect(workflow).not.toContain("age_seconds > 14400");
     expect(workflow).toContain("✅MFWAM 最新批次：%s");
     expect(workflow).not.toContain("✅ 彼日浪影氣象資料已更新");
   });
