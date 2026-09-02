@@ -1,10 +1,18 @@
 # Project state
 
-Updated: 2026-09-01
+Updated: 2026-09-02
 
-Product `0.21` release commit `a9e5513` is pushed to `main`. The reviewed OAuth deployment applied migration `0014_pale_the_spike.sql` and published Cloudflare version `cc79e75b-14f1-4edb-ba25-d67514eb8b56` with query-string redaction verified.
+Product `0.22` release commit `b55f2f3` is pushed to `main`. Workers Build published Cloudflare version `a72cfc9d-609e-41b4-8c94-3d1cd4087ae2`; the deploy gate passed without a schema migration, and query-string redaction remained verified.
 
 Home Assistant CWA Ingestor App `0.5.0` commit `12359f2` is pushed to its repository `main`. It retains contract v4 and persisted v1/v2/v3 retry compatibility, expands private pending state to 128 batches, and keeps a signed completion notification pending until the Worker accepts it. Local `npm run verify` passed 9 test files / 31 tests, typecheck, and build; GitHub Verify run `33479245582` also passed. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
+
+## Product 0.22 external heartbeat scheduling resilience release
+
+- The external MFWAM heartbeat keeps its `35 */6 * * *` UTC schedule, fifteen minutes after the Cloudflare `:20` collection Cron. Four initial scheduled runs were created 2 hours 42 minutes to 5 hours 23 minutes late by GitHub, so the former four-hour wall-clock freshness rule repeatedly mislabelled healthy stored forecasts as unconfirmed.
+- The production check now derives the newest six-hour `:20` UTC ingestion slot that should already be complete and requires the selected public MFWAM `issuedAt` to cover that slot. A fifteen-minute completion grace avoids racing a newly started Cloudflare collection, and the existing five-minute clock tolerance remains.
+- The change does not move either Cron, change matching, call a provider, create a temporary trigger, backfill forecasts, or add a migration. GitHub remains an independent failure path while its best-effort scheduling can no longer manufacture a stale-data alert solely by starting late.
+- Local `pnpm verify` passed lint, typecheck, 36 test files / 217 tests, migration drift, production build, 2 rendered-site tests, and 6 Chromium/accessibility tests. GitHub Verify run `33600720430` and Workers Build passed for commit `b55f2f3`.
+- Production health and readiness returned `ok`, and headless Chromium rendered Product `0.22`. Manual forecast-heartbeat run `33601065157` passed both the production MFWAM slot check and the independent LINE-delivery job.
 
 ## Completed checkpoint
 
