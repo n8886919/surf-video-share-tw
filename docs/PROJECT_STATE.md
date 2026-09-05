@@ -1,10 +1,18 @@
 # Project state
 
-Updated: 2026-09-02
+Updated: 2026-09-05
 
-Product `0.22` release commit `b55f2f3` is pushed to `main`. Workers Build published Cloudflare version `a72cfc9d-609e-41b4-8c94-3d1cd4087ae2`; the deploy gate passed without a schema migration, and query-string redaction remained verified.
+Product `0.23` release commit `b8e9613` is pushed to `main`. Workers Build published Cloudflare version `db82d484-099e-4129-8406-fbc3756085b7`; the deploy gate passed without a schema migration, and query-string redaction remained verified.
 
 Home Assistant CWA Ingestor App `0.5.0` commit `12359f2` is pushed to its repository `main`. It retains contract v4 and persisted v1/v2/v3 retry compatibility, expands private pending state to 128 batches, and keeps a signed completion notification pending until the Worker accepts it. Local `npm run verify` passed 9 test files / 31 tests, typecheck, and build; GitHub Verify run `33479245582` also passed. This workspace has no Home Assistant Supervisor connection with which to refresh or update the separately installed App instance.
+
+## Product 0.23 native mobile spot scrolling release
+
+- Two iPhone users reported that horizontal movement in the Find spot strip felt visibly slow while the Android owner device did not reproduce it. The strip had disabled native horizontal touch panning with `touch-action: pan-y` and synchronously assigned `scrollLeft` from every React `pointermove`, bypassing iOS accelerated momentum scrolling.
+- Touch and pen input now leave the `overflow-x: auto` strip to the browser with `touch-action: manipulation`. The custom pointer path is mouse-only, preserving desktop drag scrolling, wheel scrolling, and mouse long-press ordering while intentionally removing mobile long-press ordering.
+- A browser regression check verifies the touch policy and proves a synthetic touch pointer sequence does not enter the custom `scrollLeft` path. Product documentation and the accessible strip description state the reduced mobile behavior explicitly.
+- Local `pnpm verify` passed lint, typecheck, 36 test files / 217 tests, migration drift, production build, 2 rendered-site tests, and 7 Chromium/accessibility tests. GitHub Verify run `33948361299` and Workers Build passed for commit `b8e9613`.
+- Post-deploy preflight found every required binding and secret name, no pending migration, the retired Worker CWA key absent, and query-string redaction enabled. Production health/readiness returned `ok`; an iPhone-sized headless render showed Product `0.23`, all nineteen spot buttons, `overflow-x: auto`, and computed `touch-action: manipulation`. Physical iPhone acceptance remains required because desktop browser emulation cannot verify Safari's actual scrolling physics.
 
 ## Product 0.22 external heartbeat scheduling resilience release
 
@@ -129,6 +137,6 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 
 ## Next task
 
-On the Home Assistant host, refresh the App Store and update the installed CWA Ingestor to `0.5.0`. Its startup run should immediately submit contract v4 across all nineteen spots, including 外埔 → `I04100`, then produce one dedicated `CWA 最新批次已完整入庫` LINE message. Confirm `cwa_ingestion_complete`, one `sent` notification row, and fresh public CWA `issuedAt` without creating a temporary trigger or historical backfill. After recording that result, move to recruiting and observing the first 5–10 non-developer pilot users rather than adding infrastructure or secondary features.
+Ask the two users who reported the issue to retest Product `0.23` in iPhone Safari and record device model, iOS version, whether a fast horizontal flick keeps moving with inertia, whether a vertical gesture starting on the strip still scrolls the page, and whether taps select a spot without accidental activation.
 
 Deferred next-stage goal: after the first-user validation gates, use observed pilot behavior and the two-phone acceptance exercise to decide whether long share URLs block sharing. Only with that evidence, add a first-party expiring short-code path that preserves the existing 24-hour lifetime, exporter quota, and long-link compatibility; do not use a third-party shortener. The implementation decision must also settle whether the public share page's logged-in 「重新分享」 action remains in addition to the two intended share surfaces documented in `docs/PRODUCT.md`.
