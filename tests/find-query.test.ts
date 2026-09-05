@@ -16,12 +16,12 @@ function settledState(queryKey: string, results: string[]): FindQueryState<strin
 }
 
 describe("find query result ownership", () => {
-  it("hides old results as soon as the selected query changes", () => {
+  it("hides old results without claiming a search started when the selection changes", () => {
     const state = settledState("spot-a/time-a", ["old-result"]);
 
     expect(visibleFindQuery(state, "spot-b/time-b", [])).toEqual({
       results: [],
-      loading: true,
+      loading: false,
       error: null,
     });
   });

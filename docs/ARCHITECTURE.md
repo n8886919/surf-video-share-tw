@@ -6,7 +6,7 @@ The detailed score formula, weights, coverage, unordered swell assignment, sourc
 
 ## Read path
 
-The public client selects one of the nineteen active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result.
+The public client selects one of the nineteen active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00, then explicitly presses Search below the date/time controls. Entry, control changes, and tab return do not trigger matching requests. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result. Last-query state survives tab changes within the page, but players are unmounted on leaving Find. Public observation SQL skips playback counts; only owner queries compute them.
 
 For a future target, the API reads only `snapshot_kind = forecast`, requires `issued_at <= queryNow`, limits `valid_at` distance to four hours, and chooses the newest provider/model run. Matching source features are never merged:
 
@@ -14,9 +14,9 @@ For a future target, the API reads only `snapshot_kind = forecast`, requires `is
 - offsets 3–4 require only `meteofrance_wave`, so the MFWAM source score is the final score;
 - ECMWF WAM 9 km, NOAA GFS Wave 0.16°, and DWD GWAM are collect-only and never enter the current score.
 
-The candidate query considers the latest 20 complete, ready, public, current-terms, moderation-visible videos at the same spot. For every required provider/model, a video prefers a nearby `historical_forecast`; if none exists it falls back to a nearby `forecast` whose `issued_at <= captured_at`. The selected source rows remain independent through domain scoring. Primary and secondary swell are an unordered pair, and the API returns the exact chosen assignment so the client never infers a pairing from display row order.
+The candidate query considers all complete, ready, public, current-terms, moderation-visible videos at the same spot. Historical matching reads only the exact CWA/MFWAM pairs. For every required provider/model, a video prefers a nearby `historical_forecast`; if none exists it falls back to a nearby `forecast` whose `issued_at <= captured_at`. Expression indexes bound forecast valid time in integer seconds and recent public capture time in Julian days, preserving the original time precision and ranking. The selected source rows remain independent through domain scoring. Primary and secondary swell are an unordered pair, and the API returns the exact chosen assignment so the client never infers a pairing from display row order.
 
-The result is one horizontally scrolling candidate list. Each card owns its target/candidate source comparison; there is no detached fixed forecast column. A second rail returns every same-spot public video captured between server request time and two hours earlier, inclusive. This rolling rail does not use the selected forecast target, require forecast coverage, or change ranking.
+The result uses one fixed target-forecast column beside a horizontally scrolling candidate list. Each candidate card displays its independent capture-time source metrics. A second rail returns every same-spot public video captured between server request time and two hours earlier, inclusive. This rolling rail does not use the selected forecast target, require forecast coverage, or change ranking; its snapshot updates only on an explicit Search.
 
 Authenticated owner responses select one row per provider/model with the same historical preference. They order CWA and MFWAM first, followed by collect-only ECMWF, GFS, and GWAM. The owner table exposes total wave, total swell, primary/secondary/tertiary swell, wind wave, wind, and tide fields as available, plus an explicit active or collect-only label. Missing values remain null and render as `—`.
 

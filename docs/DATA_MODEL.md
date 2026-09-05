@@ -39,3 +39,11 @@ Videos do not copy every provider row or retain multiple timeseries. Owner and m
 `forecast_ingestion_notifications` stores only provider/model/run identifiers and the claim/delivery lifecycle for owner CWA completion messages. Its unique provider/model/model-run key prevents an App restart or immutable-run replay from intentionally sending the same success message twice; failed or abandoned claims remain retryable without resubmitting forecast rows.
 
 All instants are UTC ISO strings. Product validation compares exact elapsed time; display uses `Asia/Taipei`.
+
+Migration `0015_fresh_captain_stacy.sql` adds three non-unique indexes without rewriting rows or replacing the source-run uniqueness constraint:
+
+- `forecast_spot_valid_second_idx`: spot plus `CAST(strftime('%s', valid_at) AS INTEGER)` for target and owner-history time ranges.
+- `forecast_source_valid_second_idx`: spot/provider/model plus the same expression for matching history ranges.
+- `videos_visible_spot_capture_jd_idx`: spot plus `julianday(captured_at)` plus ID, only for complete/ready/public/terms-present/visible rows, for recent-video bounds.
+
+The expressions preserve the established SQLite handling of fractional seconds and offset-bearing legacy timestamps. Query expressions must continue to match the indexed expression; see [SQLite expression indexes](https://www.sqlite.org/expridx.html). The existing text-time and unique indexes remain because other lookup, ordering and ingestion paths use them. Forecast insertion maintains two additional index entries; eligible video writes maintain one. Index storage and migration work are not free and must be included in D1 budget checks.

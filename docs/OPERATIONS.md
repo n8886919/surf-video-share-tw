@@ -58,6 +58,8 @@ The Worker name in Cloudflare must remain `surf-video-share-tw` because Workers 
 
 ### Read-only production preflight
 
+Product `0.24` includes migration `0015_fresh_captain_stacy.sql` (three additive time-expression indexes). It must run before the new Worker is published. Its two nested CAST/strftime index expressions were manually corrected after Drizzle's SQL generator split them at the function comma; schema snapshot metadata is correct, and migration execution plus schema-drift tests are required. If D1 daily quota blocks migration listing or index creation, leave the deploy gate intact and retry after quota reset (UTC midnight / 08:00 Asia/Taipei) or an explicitly approved plan change. A pushed commit or successful static homepage is not proof that migration/deployment succeeded. After release, confirm all three indexes, inspect target/history/recent query plans, and measure actual D1 `rows_read`; local plan assertions are not production savings measurements.
+
 Before requesting migration or deploy approval, create the git-ignored `.env.cloudflare-readonly` locally with one line, `CLOUDFLARE_API_TOKEN=<scoped token>`. Do not paste the token into chat, commit it, or reuse the Stream runtime token. At this stage the token needs only account-scoped Workers Scripts Read and D1 Read permissions.
 
 Run `pnpm production:preflight`. The script performs only reads: secret-name listing, latest deployment/version binding inspection, pending D1 migration listing, and the official script-settings query for `observability.redact_query_string`. Its output intentionally excludes secret values and plaintext binding values. Remove the local token file after the reviewed deployment work is complete.

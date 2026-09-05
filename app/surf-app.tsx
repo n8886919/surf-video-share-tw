@@ -129,7 +129,7 @@ export function visibleFindQuery<T>(
   emptyResults: T,
 ): Pick<FindQueryState<T>, "results" | "loading" | "error"> {
   if (currentQueryKey === null) return { results: emptyResults, loading: false, error: null };
-  if (state.queryKey !== currentQueryKey) return { results: emptyResults, loading: true, error: null };
+  if (state.queryKey !== currentQueryKey) return { results: emptyResults, loading: false, error: null };
   return { results: state.results, loading: state.loading, error: state.error };
 }
 
@@ -258,7 +258,7 @@ function ProjectHelp({ onClose }: { onClose: () => void }) {
   return <div className="help-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="project-help-title">
       <div className="help-heading"><div><h2 id="project-help-title">操作與專案說明</h2><p>{PROJECT_PURPOSE}</p><small className="project-version">版本 {PROJECT_VERSION}</small></div><button type="button" aria-label="關閉說明" onClick={onClose}>×</button></div>
-      <section><h3>怎麼使用</h3><ol><li>在找浪頁選浪點、日期與時間，查看相似條件下的歷史實拍。</li><li>上傳 10–60 秒影片並選好浪點；拍攝時間不得晚於現在，缺時間可在七天內補齊。</li><li>在「我的」管理公開名稱、自己的影片、問題回報，以及管理者的檢舉處理。</li></ol></section>
+      <section><h3>怎麼使用</h3><ol><li>在找浪頁由上至下選浪點、日期與時間，按「搜尋」查看相似條件下的歷史實拍；再次搜尋可更新影片結果。</li><li>上傳 10–60 秒影片並選好浪點；拍攝時間不得晚於現在，缺時間可在七天內補齊。</li><li>在「我的」管理公開名稱、自己的影片、問題回報，以及管理者的檢舉處理。</li></ol></section>
       <section><h3>Purpose and position</h3><ul>{PROJECT_POSITION.map((item) => <li key={item}>{item}</li>)}</ul></section>
     </section>
   </div>;
@@ -962,7 +962,7 @@ export function SurfApp({ loginStatus, initialHelpOpen = false }: { loginStatus?
   return (
     <main className="app-shell">
       <Topbar initialHelpOpen={initialHelpOpen}/>
-      {view === "find" && <FindView spots={spots}/>}
+      <FindView spots={spots} active={view === "find"}/>
       {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus}/></div>)}
       {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus}/></div>)}
       <BottomNav view={view} onChange={setView}/>
@@ -1188,7 +1188,7 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
   </div>;
 }
 
-function FindView({ spots }: { spots: Spot[] }) {
+function FindView({ spots, active }: { spots: Spot[]; active: boolean }) {
   const [now, setNow] = useState(() => new Date());
   const [dayOffset, setDayOffset] = useState(() => firstSelectableForecastHour(0) == null ? 1 : 0);
   const [hour, setHour] = useState(() => firstSelectableForecastHour(0) ?? 8);
@@ -1205,6 +1205,7 @@ function FindView({ spots }: { spots: Spot[] }) {
     error: null,
   });
   const requestIdRef = useRef(0);
+  const pendingRequestRef = useRef<AbortController | null>(null);
   const selectedSpotId = spotId || spots[0]?.id || "";
   const minimumDayOffset = firstSelectableForecastHour(0, now) == null ? 1 : 0;
   const effectiveDayOffset = Math.max(dayOffset, minimumDayOffset);
@@ -1216,25 +1217,28 @@ function FindView({ spots }: { spots: Spot[] }) {
     : null;
   const { results, loading, error } = visibleFindQuery(queryState, requestPath, emptyResults);
   const { matches, timeWindowObservations } = results;
+  const hasSearched = requestPath !== null && queryState.queryKey === requestPath;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!requestPath) return;
+  useEffect(() => () => pendingRequestRef.current?.abort(), []);
+
+  function search() {
+    if (!requestPath || pendingRequestRef.current) return;
     requestIdRef.current += 1;
     const requestId = requestIdRef.current;
     const controller = new AbortController();
+    pendingRequestRef.current = controller;
     setQueryState((current) => reduceFindQuery(current, {
       type: "start",
       requestId,
       queryKey: requestPath,
       emptyResults,
     }));
-    const timer = window.setTimeout(() => {
-      void api<PublicMatchesResponse>(requestPath, { signal: controller.signal })
+    void api<PublicMatchesResponse>(requestPath, { signal: controller.signal })
         .then((result) => setQueryState((current) => reduceFindQuery(current, {
           type: "success",
           requestId,
@@ -1252,10 +1256,11 @@ function FindView({ spots }: { spots: Spot[] }) {
             queryKey: requestPath,
             error: caught instanceof Error ? caught.message : "比對失敗",
           }));
+        })
+        .finally(() => {
+          if (pendingRequestRef.current === controller) pendingRequestRef.current = null;
         });
-    }, 300);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [emptyResults, requestPath]);
+  }
 
   const dayCells = Array.from({ length: FORECAST_DAY_OFFSET_MAX + 1 }, (_, offset) => {
     const target = taipeiForecastTarget(offset, 12, now);
@@ -1264,15 +1269,17 @@ function FindView({ spots }: { spots: Spot[] }) {
       weekday: new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", weekday: "short" }).format(target),
     };
   });
-  return <div className="screen find-screen">
+  return <div className="screen find-screen" hidden={!active}>
     <div className="search-panel">
       <FindSpotStrip spots={spots} selectedSpotId={selectedSpotId} onSelect={setSpotId}/>
       <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`${offset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "multi-source" : "mfwam-only"} ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散五日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>第 1–3 天：CWA＋MFWAM</span><span className="mfwam-only"><i/>第 4–5 天：MFWAM-only</span></div></label>
       <label className="range-field"><span>時間 <output>{String(effectiveHour).padStart(2, "0")}:00</output></span><input type="range" min={minimumHour} max={FORECAST_HOUR_MAX} step="1" value={effectiveHour} onChange={(event) => setHour(Number(event.target.value))}/></label>
+      <button className="find-search-button" type="button" disabled={!requestPath || queryState.loading} onClick={search}><Icon name="search"/>{queryState.loading ? "搜尋中…" : "搜尋"}</button>
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
     {error && <div className="error-message">{error}</div>}
-    <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{loading ? "查詢中" : matches.length ? `${matches.length} 段` : "累積中"}</small></div>
+    {!hasSearched && <p className="find-search-hint" role="status">{queryState.queryKey ? "條件已變更，請按搜尋。" : "選好浪點、日期與時間後，按搜尋查看影片。"}</p>}
+    {active && hasSearched && <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{loading ? "查詢中" : matches.length ? `${matches.length} 段` : "累積中"}</small></div>
       {matches.length
         ? <CombinedMatchList matches={matches} targetTime={targetTime}/>
         : !loading && !error && <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 MFWAM 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 MFWAM 歷史預報的實拍；第 4–5 天會使用 MFWAM-only 相似度排序。"}</p></div>}
@@ -1282,7 +1289,7 @@ function FindView({ spots }: { spots: Spot[] }) {
           ? <RecentObservationList observations={timeWindowObservations}/>
           : !loading && !error && <div className="time-window-empty">近兩小時還沒有實拍。</div>}
       </div>
-    </section>
+    </section>}
   </div>;
 }
 

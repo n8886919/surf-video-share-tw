@@ -20,8 +20,8 @@ Matching 回答的是：「同一浪點中，哪支歷史影片在影片時間�
 
 1. 驗證同一正式浪點與可選的未來目標時間。
 2. 對每個必要 provider/model 選出目標預報快照。
-3. 只取同浪點、完整、ready、公開、接受現行條款且未下架的候選影片；目前 API 以拍攝時間由新到舊限制為 20 支。
-4. 對每支影片、每個必要來源，優先選出近期 `historical_forecast`；沒有時才選拍攝當時可得的 `forecast`。
+3. 取同浪點所有完整、ready、公開、已保存條款版本且未下架的候選影片；不按拍攝新舊截斷為最近 20 支。
+4. 歷史比對 SQL 只查 CWA `cwa-wave-f-a0020-001` 與 Open-Meteo `meteofrance_wave`，在挑選每支影片的快照前排除 collect-only 模型。對每支影片、每個來源，優先選出近期 `historical_forecast`；沒有時才選拍攝當時可得的 `forecast`。
 5. 在每個來源內獨立計算 coverage、距離、分數與 swell 配對。
 6. 排除任何必要來源缺失或來源內 coverage 小於 50% 的影片。
 7. 等權合成必要來源分數並排序。
@@ -223,7 +223,9 @@ combinedMatchedWeight = Σ sourceMatchedWeight
 - Domain 計分結果保留逐欄 `components`；公開 API 回傳每個來源自己的 `score`、`availableWeight`、`matchedWeight`、`coverage`、完整 target/candidate forecast 與 `swellPairing`，但不另暴露內部 component 陣列。
 - 日偏移 0–2 的 `ranking` 是 `equal-cwa-mfwam-composite-historical-forecast`；日偏移 3–4 是 `mfwam-only-historical-forecast`。
 
-目前 API 只把同浪點最新 20 支合格公開影片送入精確計分。因此單次 domain 計算固定很小，但更舊且可能更相似的影片不會被召回。資料量增加時應先改善 indexed candidate retrieval、歷史 snapshot 關聯與相同 spot/time 查詢快取，不應直接讓所有影片進入 brute-force ranking；這是候選召回策略，不改變本文件的來源內分數定義。
+API 將同浪點所有合格公開影片送入精確計分，較舊但更相似的影片也可排在最前；`observations` 按拍攝時間降冪、id 升冪回傳，`matches` 按相似度排序，兩者都沒有 20 支上限。
+
+歷史 SQL 以 active provider/model 配對及有效時間範圍使用 `forecast_source_valid_second_idx`，ECMWF、GFS 與 GWAM 不進入歷史排名；目標預報 `forecasts` 仍保留原有來源內容，「我的影片」仍可查閱五個模型。目標及歷史的四小時條件改寫成整數秒上下界，搭配與查詢相同的 `CAST(strftime('%s', valid_at) AS INTEGER)` expression index；不把秒級規則改成毫秒級或 ISO 字串比較。快照種類、發佈時間及距離的排序保持不變。近兩小時查詢保留原本 `julianday` 條件與排序，新增相同時間表達式的公開影片部分索引。所有候選的計算與回應大小隨影片量增加；目前沒有查詢快取。
 
 ## Explicit non-inputs and limitations
 

@@ -32,6 +32,10 @@ button { cursor: pointer; }
 .page-title p { margin: 8px 0 0; color: var(--soft); font-size: 12px; }
 .mine-title { display: flex; align-items: center; justify-content: space-between; }
 .search-panel { display: grid; gap: 12px; }
+.find-search-button { width: 100%; min-height: 46px; border: 0; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--sea); color: white; font-size: 14px; font-weight: 800; }
+.find-search-button:disabled { opacity: .6; cursor: default; }
+.find-search-button:focus-visible { outline: 3px solid var(--sea-dark); outline-offset: 3px; }
+.find-search-hint { margin: 20px 0; color: var(--soft); font-size: 12px; text-align: center; }
 .spot-strip { margin: 0 -20px; padding: 3px 20px 7px; position: relative; display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; touch-action: manipulation; cursor: grab; }
 .spot-strip::-webkit-scrollbar { display: none; }
 .spot-strip.reordering { cursor: grabbing; }

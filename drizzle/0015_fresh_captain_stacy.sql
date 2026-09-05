@@ -1,0 +1,3 @@
+CREATE INDEX `forecast_spot_valid_second_idx` ON `forecast_snapshots` (`spot_id`,CAST(strftime('%s', "valid_at") AS INTEGER));--> statement-breakpoint
+CREATE INDEX `forecast_source_valid_second_idx` ON `forecast_snapshots` (`spot_id`,`provider`,`model`,CAST(strftime('%s', "valid_at") AS INTEGER));--> statement-breakpoint
+CREATE INDEX `videos_visible_spot_capture_jd_idx` ON `videos` (`spot_id`,julianday("captured_at"),`id`) WHERE "videos"."metadata_status" = 'complete' AND "videos"."public_at" IS NOT NULL AND "videos"."status" = 'ready' AND "videos"."terms_version" IS NOT NULL AND "videos"."moderation_status" = 'visible';

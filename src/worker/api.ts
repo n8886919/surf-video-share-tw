@@ -526,7 +526,7 @@ interface ReportRow {
   uploader_note: string | null;
 }
 
-const observationSelect = `
+const observationSelect = (ownerView: boolean) => `
   SELECT
     v.id, v.status, v.metadata_status, v.metadata_expires_at, v.public_at,
     v.captured_at, v.created_at, v.duration_seconds, v.show_uploader,
@@ -540,9 +540,9 @@ const observationSelect = `
     c.wind_wave_height, c.wind_wave_direction, c.wind_wave_period,
     c.wind_speed, c.wind_direction, c.wind_gust,
     c.tide_height, c.tide_slope, c.tide_state,
-    (SELECT COUNT(*) FROM video_playback_events playback
+    ${ownerView ? `(SELECT COUNT(*) FROM video_playback_events playback
       WHERE playback.video_id = v.id
-        AND playback.started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 days')) AS playback_count_90d
+        AND playback.started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 days'))` : "0"} AS playback_count_90d
   FROM videos v
   LEFT JOIN spots s ON s.id = v.spot_id
   JOIN users u ON u.id = v.user_id
@@ -748,7 +748,7 @@ function forecastConditions(row: ForecastRow): MarineConditions {
 }
 
 async function findOwnedObservation(env: AppEnv, videoId: string, userId: string) {
-  return env.DB.prepare(`${observationSelect} WHERE v.id = ? AND v.user_id = ?`)
+  return env.DB.prepare(`${observationSelect(true)} WHERE v.id = ? AND v.user_id = ?`)
     .bind(videoId, userId)
     .first<ObservationRow>();
 }
@@ -782,7 +782,9 @@ async function findOwnedHistoricalForecasts(
          OR CAST(strftime('%s', fs.issued_at) AS INTEGER)
            <= CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)
        )
-         AND ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)) <= 14400
+         AND CAST(strftime('%s', fs.valid_at) AS INTEGER)
+           BETWEEN CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER) - 14400
+               AND CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER) + 14400
      )
      SELECT * FROM ranked_history WHERE historical_rank = 1
      ORDER BY historical_video_id, provider, model`,
@@ -856,7 +858,7 @@ async function findPublicVideo(env: AppEnv, videoId: string): Promise<PublicVide
 
 async function findPublicObservation(env: AppEnv, videoId: string): Promise<ObservationRow | null> {
   return env.DB.prepare(
-    `${observationSelect}
+    `${observationSelect(false)}
      WHERE v.id = ? AND v.metadata_status = 'complete' AND v.status = 'ready'
        AND v.public_at IS NOT NULL AND v.terms_version IS NOT NULL
        AND v.moderation_status = 'visible'`,
@@ -1257,6 +1259,8 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   ).toISOString();
 
   const [forecastResult, videoResult, historyResult, recentVideoResult] = await Promise.all([
+    // Range expressions match migration 0015's indexes. Keep integer-second
+    // bounds (and the existing ranking expressions), not ISO-string comparisons.
     context.env.DB.prepare(
       `SELECT * FROM (
          SELECT fs.*,
@@ -1268,15 +1272,17 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
          ) AS source_rank
          FROM forecast_snapshots fs
          WHERE spot_id = ? AND snapshot_kind = 'forecast' AND issued_at <= ?
-           AND ABS(strftime('%s', valid_at) - strftime('%s', ?)) <= 14400
+           AND CAST(strftime('%s', valid_at) AS INTEGER)
+             BETWEEN CAST(strftime('%s', ?) AS INTEGER) - 14400
+                 AND CAST(strftime('%s', ?) AS INTEGER) + 14400
        ) WHERE source_rank = 1 LIMIT 8`,
-    ).bind(targetTime, targetTime, spot.id, now, targetTime).all<ForecastRow>(),
+    ).bind(targetTime, targetTime, spot.id, now, targetTime, targetTime).all<ForecastRow>(),
     context.env.DB.prepare(
-      `${observationSelect}
+      `${observationSelect(false)}
        WHERE v.spot_id = ? AND v.metadata_status = 'complete'
          AND v.public_at IS NOT NULL AND v.status = 'ready'
          AND v.terms_version IS NOT NULL AND v.moderation_status = 'visible'
-       ORDER BY v.captured_at DESC LIMIT 20`,
+       ORDER BY v.captured_at DESC, v.id`,
     ).bind(spot.id).all<ObservationRow>(),
     context.env.DB.prepare(
       `WITH candidate_videos AS (
@@ -1284,7 +1290,8 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
          WHERE spot_id = ? AND metadata_status = 'complete'
            AND public_at IS NOT NULL AND status = 'ready'
            AND terms_version IS NOT NULL AND moderation_status = 'visible'
-         ORDER BY captured_at DESC LIMIT 20
+       ), matching_sources(provider, model) AS (
+         VALUES ${REQUIRED_MATCH_SOURCES.map(() => "(?, ?)").join(", ")}
        ), ranked_history AS (
          SELECT fs.*, candidate_videos.id AS historical_video_id,
            ROW_NUMBER() OVER (
@@ -1295,18 +1302,26 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
                fs.id
            ) AS historical_rank
          FROM candidate_videos
+         CROSS JOIN matching_sources
          JOIN forecast_snapshots fs ON fs.spot_id = ?
+           AND fs.provider = matching_sources.provider AND fs.model = matching_sources.model
          WHERE (
            fs.snapshot_kind = 'historical_forecast'
            OR CAST(strftime('%s', fs.issued_at) AS INTEGER)
              <= CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER)
          )
-           AND ABS(strftime('%s', fs.valid_at) - strftime('%s', candidate_videos.captured_at)) <= 14400
+           AND CAST(strftime('%s', fs.valid_at) AS INTEGER)
+             BETWEEN CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER) - 14400
+                 AND CAST(strftime('%s', candidate_videos.captured_at) AS INTEGER) + 14400
        )
        SELECT * FROM ranked_history WHERE historical_rank = 1`,
-    ).bind(spot.id, spot.id).all<HistoricalForecastRow>(),
+    ).bind(
+      spot.id,
+      ...REQUIRED_MATCH_SOURCES.flatMap(({ provider, model }) => [provider, model]),
+      spot.id,
+    ).all<HistoricalForecastRow>(),
     context.env.DB.prepare(
-      `${observationSelect}
+      `${observationSelect(false)}
        WHERE v.spot_id = ? AND v.metadata_status = 'complete'
          AND v.public_at IS NOT NULL AND v.status = 'ready'
          AND v.terms_version IS NOT NULL AND v.moderation_status = 'visible'
@@ -1479,7 +1494,7 @@ api.get("/videos", async (context) => {
   await reconcileOwnerProcessingVideos(context.env, user.id);
   const [result, historicalRows] = await Promise.all([
     context.env.DB.prepare(
-      `${observationSelect} WHERE v.user_id = ?
+      `${observationSelect(true)} WHERE v.user_id = ?
        ORDER BY COALESCE(v.captured_at, v.created_at) DESC LIMIT 50`,
     ).bind(user.id).all<ObservationRow>(),
     findOwnedHistoricalForecasts(context.env, user.id),

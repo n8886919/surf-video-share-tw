@@ -278,14 +278,72 @@ test("leaves touch scrolling of the spot strip to the browser", async ({ page })
   await expect.poll(() => strip.evaluate((element) => element.scrollLeft)).toBe(0);
 });
 
+test("searches only on submit and retains the query across tabs", async ({ page }) => {
+  const searches: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/v1/matches") searches.push(request.url());
+  });
+  await mockPublicApi(page, "spot_double-lions");
+  await page.goto("/");
+  const search = page.getByRole("button", { name: "搜尋", exact: true });
+  await expect(search).toBeVisible();
+  await expect(page.getByText("近兩小時還沒有實拍。", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "雙獅", exact: true }).click();
+  const date = page.getByRole("slider", { name: "預報日期，離散五日" });
+  await date.focus();
+  await date.press("End");
+  const hour = page.locator('.range-field input[type="range"]').last();
+  await hour.focus();
+  await hour.press("End");
+  await page.waitForTimeout(450);
+  expect(searches).toHaveLength(0);
+  const dateBox = await date.boundingBox();
+  const hourBox = await hour.boundingBox();
+  const searchBox = await search.boundingBox();
+  expect(hourBox!.y).toBeGreaterThan(dateBox!.y + dateBox!.height);
+  expect(searchBox!.y).toBeGreaterThan(hourBox!.y + hourBox!.height);
+  await search.click();
+  await expect(page.getByRole("button", { name: "搜尋中…", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /播放 雙獅.*相似度/ })).toBeVisible();
+  expect(searches).toHaveLength(1);
+  expect(new URL(searches[0]).searchParams.get("spotId")).toBe("spot_double-lions");
+  await page.getByRole("button", { name: "我的", exact: true }).click();
+  await page.getByRole("button", { name: "找浪", exact: true }).click();
+  await expect(page.getByRole("button", { name: /播放 雙獅.*相似度/ })).toBeVisible();
+  await page.waitForTimeout(450);
+  expect(searches).toHaveLength(1);
+  await page.screenshot({ path: "outputs/find-explicit-search.png", fullPage: true });
+});
+
+test("a failed search can be retried explicitly", async ({ page }) => {
+  await mockPublicApi(page);
+  let requests = 0;
+  await page.route("**/api/v1/matches?**", async (route) => {
+    requests += 1;
+    if (requests === 1) return fulfillJson(route, 503, { error: "UNAVAILABLE", message: "暫時無法搜尋" });
+    return fulfillJson(route, 200, matchesResponse(route.request().url(), spots[0].id, spots[0].name));
+  });
+  await page.goto("/");
+  const search = page.getByRole("button", { name: "搜尋", exact: true });
+  await search.click();
+  await expect(page.getByText("暫時無法搜尋", { exact: true })).toBeVisible();
+  await expect(search).toBeEnabled();
+  await search.click();
+  await expect(page.getByRole("button", { name: /播放 烏石港.*相似度/ })).toBeVisible();
+  expect(requests).toBe(2);
+});
+
 test("switching spots hides the previous result until the new query resolves", async ({ page }) => {
   await mockPublicApi(page, "spot_double-lions");
   await page.goto("/");
+  await page.getByRole("button", { name: "搜尋", exact: true }).click();
 
   await expect(page.getByRole("button", { name: /播放 烏石港.*相似度/ })).toBeVisible();
   await page.getByRole("button", { name: "雙獅", exact: true }).click();
 
   await expect(page.getByRole("button", { name: /播放 烏石港.*相似度/ })).toHaveCount(0);
+  await expect(page.getByText("條件已變更，請按搜尋。", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "搜尋", exact: true }).click();
   await expect(page.getByText("比對中", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /播放 雙獅.*相似度/ })).toBeVisible();
 });
@@ -293,6 +351,7 @@ test("switching spots hides the previous result until the new query resolves", a
 test("shows every same-spot public video captured in the last two hours without requiring a match", async ({ page }) => {
   await mockPublicApi(page);
   await page.goto("/");
+  await page.getByRole("button", { name: "搜尋", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "即時影片（近 2 小時）" })).toBeVisible();
   const timeWindowRail = page.getByRole("region", { name: "近兩小時的即時影片" });
@@ -303,6 +362,7 @@ test("shows every same-spot public video captured in the last two hours without 
 test("shows only each matching source's available fields", async ({ page }) => {
   await mockPublicApi(page);
   await page.goto("/");
+  await page.getByRole("button", { name: "搜尋", exact: true }).click();
 
   await expect(page.locator(".target-forecast-visual strong")).toHaveText(/^\d+\/\d+ 周[日一二三四五六]$/);
   await expect(page.getByText("預報資料", { exact: true })).toHaveCount(1);
@@ -442,6 +502,7 @@ test("public Find has no automatically detectable WCAG A/AA violations", async (
   await mockPublicApi(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
+  await page.getByRole("button", { name: "搜尋", exact: true }).click();
   await expect(page.getByRole("heading", { name: "相似歷史實拍" })).toBeVisible();
 
   const results = await new AxeBuilder({ page })

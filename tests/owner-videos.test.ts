@@ -96,6 +96,10 @@ describe("owner video history response", () => {
     };
     const db = {
       prepare: (sql: string) => {
+        if (sql.includes("AS playback_count_90d")) {
+          expect(sql).toContain("SELECT COUNT(*) FROM video_playback_events");
+          expect(sql).toContain("'-90 days'");
+        }
         const statement = {
           bind: () => statement,
           run: async () => ({ meta: { changes: 1 } }),
@@ -103,7 +107,13 @@ describe("owner video history response", () => {
           all: async () => {
             if (sql.includes("WITH candidate_videos AS")) {
               historicalSql.push(sql);
-              return { results: [ecmwfHistory, history, cwaHistory] };
+              return { results: [
+                { ...ecmwfHistory, id: "forecast_gwam_collect_only", model: "dwd_gwam" },
+                ecmwfHistory,
+                history,
+                { ...ecmwfHistory, id: "forecast_gfs_collect_only", model: "ncep_gfswave016" },
+                cwaHistory,
+              ] };
             }
             if (sql.includes("metadata_expires_at <=") || sql.includes("status IN ('pending', 'processing')")) {
               return { results: [] };
@@ -152,6 +162,16 @@ describe("owner video history response", () => {
         {
           id: "forecast_ecmwf_collect_only",
           sourceDisplayName: "ECMWF WAM 9 km",
+          matchingRole: "collect-only",
+        },
+        {
+          id: "forecast_gfs_collect_only",
+          sourceDisplayName: "NOAA GFS Wave 0.16°",
+          matchingRole: "collect-only",
+        },
+        {
+          id: "forecast_gwam_collect_only",
+          sourceDisplayName: "DWD GWAM",
           matchingRole: "collect-only",
         },
       ],

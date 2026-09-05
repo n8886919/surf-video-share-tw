@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable(
@@ -141,6 +142,14 @@ export const forecastSnapshots = sqliteTable(
   },
   (table) => [
     index("forecast_spot_valid_at_idx").on(table.spotId, table.validAt),
+    // Match the query's integer-second semantics, including legacy ISO offsets.
+    index("forecast_spot_valid_second_idx").on(
+      table.spotId, sql`CAST(strftime('%s', ${table.validAt}) AS INTEGER)`,
+    ),
+    index("forecast_source_valid_second_idx").on(
+      table.spotId, table.provider, table.model,
+      sql`CAST(strftime('%s', ${table.validAt}) AS INTEGER)`,
+    ),
     uniqueIndex("forecast_source_run_idx").on(
       table.spotId,
       table.provider,
@@ -182,6 +191,9 @@ export const videos = sqliteTable(
   },
   (table) => [
     index("videos_spot_captured_at_idx").on(table.spotId, table.capturedAt),
+    index("videos_visible_spot_capture_jd_idx")
+      .on(table.spotId, sql`julianday(${table.capturedAt})`, table.id)
+      .where(sql`${table.metadataStatus} = 'complete' AND ${table.publicAt} IS NOT NULL AND ${table.status} = 'ready' AND ${table.termsVersion} IS NOT NULL AND ${table.moderationStatus} = 'visible'`),
     index("videos_condition_snapshot_idx").on(table.conditionSnapshotId),
     index("videos_public_spot_captured_at_idx").on(table.publicAt, table.spotId, table.capturedAt),
     index("videos_metadata_expires_at_idx").on(table.metadataExpiresAt),
