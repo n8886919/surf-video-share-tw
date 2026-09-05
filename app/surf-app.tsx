@@ -1056,7 +1056,7 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
   }
 
   function beginPress(event: ReactPointerEvent<HTMLButtonElement>, id: string) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
     clearTimer();
     suppressClick.current = false;
     drag.current = {
@@ -1159,7 +1159,7 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
   return <div
     ref={stripRef}
     className={`spot-strip ${draggingId ? "reordering" : ""}`}
-    aria-label="選擇浪點；左右拖曳可滑動，長按按鈕可拖曳排序"
+    aria-label="選擇浪點；左右滑動可選擇，使用滑鼠長按按鈕可拖曳排序"
     onContextMenu={(event) => event.preventDefault()}
   >
     {orderedChoices.map((choice) => <span

@@ -109,14 +109,15 @@ test("renders the product title and language", async () => {
   assert.doesNotMatch(clientBundle, /測試 [1-6]/);
   assert.match(clientBundle, /7天內,10-60秒的浪況或衝浪影片/);
   assert.doesNotMatch(clientBundle, /10–60 秒，拍攝時間 05:00–19:59/);
-  assert.match(clientBundle, /左右拖曳可滑動，長按按鈕可拖曳排序/);
+  assert.match(clientBundle, /左右滑動可選擇，使用滑鼠長按按鈕可拖曳排序/);
   assert.match(clientBundle, /setPointerCapture/);
   assert.match(clientBundle, /scrollLeft/);
   assert.match(clientBundle, /offsetLeft/);
   assert.doesNotMatch(clientBundle, /elementFromPoint/);
   assert.match(clientBundle, /candidate-thumbnail-date/);
   const clientCss = await readClientBundle(/^index\..*\.css$/, "app css");
-  assert.match(clientCss, /touch-action:pan-y/);
+  assert.match(clientCss, /touch-action:manipulation/);
+  assert.doesNotMatch(clientCss, /touch-action:pan-y/);
   assert.match(clientCss, /user-select:none/);
   assert.match(clientCss, /grid-template-columns:repeat\(5,1fr\)/);
   assert.match(clientCss, /transform:scale\(1\.1\)/);

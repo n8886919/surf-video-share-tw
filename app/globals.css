@@ -32,12 +32,12 @@ button { cursor: pointer; }
 .page-title p { margin: 8px 0 0; color: var(--soft); font-size: 12px; }
 .mine-title { display: flex; align-items: center; justify-content: space-between; }
 .search-panel { display: grid; gap: 12px; }
-.spot-strip { margin: 0 -20px; padding: 3px 20px 7px; position: relative; display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; touch-action: pan-y; cursor: grab; }
+.spot-strip { margin: 0 -20px; padding: 3px 20px 7px; position: relative; display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: none; touch-action: manipulation; cursor: grab; }
 .spot-strip::-webkit-scrollbar { display: none; }
 .spot-strip.reordering { cursor: grabbing; }
 .spot-choice-shell { min-width: 68px; flex: 0 0 calc((100% - 16px)/5); display: block; position: relative; }
 .spot-choice-shell.dragging { z-index: 3; }
-.spot-strip button { width: 100%; height: 50px; border: 1px solid transparent; border-radius: 10px; color: #41666c; background: #e5eeec; font-size: 12px; font-weight: 850; touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; transition: border-color .15s, box-shadow .15s, transform .15s, opacity .15s; }
+.spot-strip button { width: 100%; height: 50px; border: 1px solid transparent; border-radius: 10px; color: #41666c; background: #e5eeec; font-size: 12px; font-weight: 850; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; transition: border-color .15s, box-shadow .15s, transform .15s, opacity .15s; }
 .spot-strip button.selected { border-color: var(--sea-dark); color: #052f38; background: #ccefe7; box-shadow: 0 0 0 2px rgba(8,113,131,.14); }
 .spot-strip button[aria-disabled="true"] { color: #81918e; background: #edf0ef; }
 .spot-strip button.dragging { opacity: .9; transform: scale(1.1); box-shadow: 0 9px 22px rgba(10,57,65,.24); }

@@ -241,6 +241,43 @@ test("shows the beta label beside the top-left brand", async ({ page }) => {
   await expect(brand.getByText("測試版", { exact: true })).toBeVisible();
 });
 
+test("leaves touch scrolling of the spot strip to the browser", async ({ page }) => {
+  await mockPublicApi(page);
+  await page.goto("/");
+
+  const strip = page.locator(".spot-strip");
+  await expect(strip).toBeVisible();
+  await expect(strip).toHaveCSS("touch-action", "manipulation");
+
+  const firstSpot = strip.getByRole("button").first();
+  await firstSpot.dispatchEvent("pointerdown", {
+    pointerType: "touch",
+    pointerId: 1,
+    isPrimary: true,
+    button: 0,
+    clientX: 200,
+    clientY: 25,
+  });
+  await firstSpot.dispatchEvent("pointermove", {
+    pointerType: "touch",
+    pointerId: 1,
+    isPrimary: true,
+    button: 0,
+    clientX: 100,
+    clientY: 25,
+  });
+  await firstSpot.dispatchEvent("pointerup", {
+    pointerType: "touch",
+    pointerId: 1,
+    isPrimary: true,
+    button: 0,
+    clientX: 100,
+    clientY: 25,
+  });
+
+  await expect.poll(() => strip.evaluate((element) => element.scrollLeft)).toBe(0);
+});
+
 test("switching spots hides the previous result until the new query resolves", async ({ page }) => {
   await mockPublicApi(page, "spot_double-lions");
   await page.goto("/");
