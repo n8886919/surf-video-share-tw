@@ -1,14 +1,18 @@
 # LINE 登入失敗調查（更新：2026-09-07）
 
-## 2026-09-07：Product 0.25 診斷版（本機驗證完成，待部署）
+## 2026-09-07：Product 0.26 診斷版已部署
+
+- 最終正式版為 `0.26`／commit `5d572a4`，Cloudflare version `70dcd5d9-f0fb-419a-91da-e3e3f456684b` 於台灣時間 17:44:59 切到 100%。使用既有 Wrangler OAuth 正式部署，migration 0016 已套用、無待執行 migration／缺少 binding，query-string redaction 已恢復並讀回確認。本機 release commits 尚未 push。
+- 初版 `0.25` 上線後的整合檢查發現 Worker 入口原本未將 execution context 傳給 Hono，讓診斷走同步等待的安全 fallback。`0.26` 補上傳遞，並新增真實 built Worker 測試：診斷寫入刻意保持未完成，登入回應仍須先返回。這是診斷版整合修正，不是使用者 Android 登入問題的已證實根因。
+- 17:45 的正式無憑證 smoke 已確認 callback 303、前端顯示編號、既有 `/me` 送同編號並回 401、D1 讀回兩筆對應事件；測試 trace 為 `2e69843f1d1d486ca7db61aed168352a`。該次刻意不提供 state，也沒有真實 LINE 帳號，因此 `missing_state → unauthenticated` 是預期測試結果，不得當成使用者故障原因。公開 health/readiness 200，正式 client bundle SHA-256 與本機受測檔案一致。
 
 - 使用者補充確認 17:09 是手機操作，電腦 QR 登入在其後；因此 17:09:11 建立 session 的時間與失敗手機操作吻合，但仍沒有該次回呼明細。17:18 照片回到一般登入提示。使用者不知道 LINE 帳號密碼；手動按鈕打開帳密畫面，不能當成已解決的替代方案。
 - 使用者授權「實作並部署這個診斷版」。本版只增加 begin／callback／既有初始 `/me` 的安全事件，記下 attempt、token、verify、user、session 階段與 cookie 存在／設定布林值。不同請求的 request ID 不同；同一次 state 用獨立 HMAC 診斷命名空間產生同一 trace，不保存原 state 或認證 lookup hash。
 - 32 位小寫 hex `auth_trace` 只附加在本站原有回呼導向，不放進 LINE 授權網址，也不是登入憑證。前端驗證後在既有 `/me` 請求附上編號與 `browser/standalone/unknown`，未登入／錯誤畫面可顯示編號。不增加登入請求、不改頁面恢復行為、不清 cookie/session、不改 SameSite、不降低一次性 state／nonce／PKCE 檢查。
 - 新事件以固定白名單輸出 console，並限量 best-effort 保存獨立 D1 表，避免只依賴目前無法取得的 telemetry 權限。D1 儲存失敗不阻擋登入；事件不進 AI 或 LINE 告警。收集到 9/14 08:00 台灣時間為止；七天保留目標由既有每小時最多 500 筆清理執行，可能因故障或積壓延後。詳見 [Operations](OPERATIONS.md#temporary-line-login-diagnostics-product-025)。
-- 完整 `pnpm verify` 通過：lint、typecheck、38 檔／248 測試、migration drift、build、2 項 rendered-site 及 13 項 Chromium／無障礙測試。含真實 migrated SQLite session 建立、cookie 有／無／偽造的 `/me` 結果、重複回呼同 trace 且不二次交換 token、過期／nonce／audience 拒絕、診斷關閉／寫入失敗仍保留認證行為及敏感欄位不外洩；手機尺寸診斷編號畫面亦已檢視。這不是 Android 或 iPhone 實機 LINE 驗收；正式版本與遠端事件讀回會於完成後記錄。
+- 最終 `0.26` 完整 `pnpm verify` 通過：lint、typecheck、38 檔／248 測試、migration drift、build、3 項 built-Worker／rendered-site 及 13 項 Chromium／無障礙測試。含真實 migrated SQLite session 建立、cookie 有／無／偽造的 `/me` 結果、重複回呼同 trace 且不二次交換 token、過期／nonce／audience 拒絕、診斷關閉／寫入失敗仍保留認證行為及敏感欄位不外洩；手機尺寸診斷編號畫面亦已檢視。這不是 Android 或 iPhone 實機 LINE 驗收。
 
-下一步是在部署確認後，請使用者從原 Android 入口重試一次，提供畫面診斷編號及台灣時間。只有取得實際事件後才決定修法，並分別驗收實機 Android Chrome／桌面捷徑與 iPhone Safari／主畫面入口。以下 17:09 初查與 9/5 內容為較早快照。
+下一步是請使用者從原 Android 入口重新載入後重試一次，提供畫面診斷編號及台灣時間。只有取得實際事件後才決定修法，並分別驗收實機 Android Chrome／桌面捷徑與 iPhone Safari／主畫面入口。以下 17:09 初查與 9/5 內容為較早快照。
 
 ## 2026-09-07：Android 照片與電腦掃碼對照
 
