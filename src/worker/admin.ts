@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { moderationDecisionSchema } from "../../packages/api-contract/src";
 import type { AppEnv, UserRow } from "./db";
 import { createVideoProvider } from "./providers";
+import { journeyDay } from "./journey-diagnostics";
 
 type AdminEnv = { Bindings: AppEnv; Variables: { user: UserRow; authMode: "development" | "line" } };
 export const adminApi = new Hono<AdminEnv>();
@@ -139,7 +140,7 @@ adminApi.post("/problem-reports/:id/resolve", async c => {
 });
 
 adminApi.get("/diagnostics", async c => {
-  const since = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const since = journeyDay(new Date(Date.now() - 30 * 86_400_000));
   const result = await c.env.DB.prepare(`SELECT day, source, event, outcome, count FROM journey_daily
     WHERE day >= ? ORDER BY day DESC, source, event, outcome LIMIT 1000`).bind(since).all();
   return c.json({ days: result.results, note: "用戶端事件為盡力回報，可能遺漏；不是使用人數或帳單。每天每來源最多保存 2,000 個事件。" });

@@ -1,6 +1,13 @@
 import { z } from "zod";
 import type { AppEnv } from "./db";
 import { PROJECT_VERSION } from "../../packages/domain/src/project-purpose";
+import { PRODUCT_TIME_ZONE } from "../../packages/domain/src/time-policy";
+
+export function journeyDay(now: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: PRODUCT_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const value = (type: string) => parts.find(part => part.type === type)!.value;
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
 
 export const journeyDetailsSchema = z.object({
   stage: z.enum(["selection", "ticket", "transfer", "completion", "player", "sdk", "tracking", "search"]).optional(),
@@ -25,7 +32,7 @@ export async function recordJourney(env: AppEnv, event: string, traceId: string,
   const parsed = journeyDetailsSchema.safeParse(details);
   if (!parsed.success) return;
   const occurredAt = now.toISOString();
-  const day = new Date(now.getTime() + 8 * 60 * 60_000).toISOString().slice(0, 10);
+  const day = journeyDay(now);
   const safe = { ...parsed.data, ...(source === "server" ? { version: PROJECT_VERSION } : {}) };
   const outcome = safe.stage ? `${safe.stage}:${safe.outcome ?? "unknown"}` : safe.outcome ?? "unknown";
   console.info(JSON.stringify({ event: "journey", kind: event, traceId, source, occurredAt, ...safe }));
@@ -54,6 +61,6 @@ export async function cleanupJourneys(env: AppEnv, now: Date): Promise<void> {
       (SELECT id FROM journey_events WHERE occurred_at < ? ORDER BY occurred_at LIMIT 500)`)
       .bind(new Date(now.getTime() - 7 * 86_400_000).toISOString()),
     env.DB.prepare("DELETE FROM journey_daily WHERE day < ?")
-      .bind(new Date(now.getTime() - 30 * 86_400_000).toISOString().slice(0, 10)),
+      .bind(journeyDay(new Date(now.getTime() - 30 * 86_400_000))),
   ]);
 }
