@@ -31,6 +31,29 @@ Production readiness verifies D1 and the presence/shape of Workers AI, operation
 
 On iPhone, [LINE documents that auto login can fail](https://developers.line.biz/en/docs/line-login/how-to-handle-auto-login-failure/) in Safari Private Browsing or because of OS/browser Universal Link behavior. An expired/mismatched callback or failed token exchange therefore presents a visible retry action that starts a fresh OAuth attempt with `disable_auto_login=true`; do not weaken the one-time `state`, `nonce`, or PKCE checks to work around the failure. For acceptance, test normal Safari first with Private Browsing off, then the manual retry screen. LINE's [auto-login compatibility FAQ](https://developers.line.biz/en/faq/tags/line-login/) lists Safari, rather than other iOS browsers, for the external-browser path, so use Safari or LINE's in-app browser when validating automatic login.
 
+### Temporary LINE Login diagnostics (Product 0.25)
+
+This release addresses an observed mobile login blocker by collecting evidence without changing default auto login, manual retry, one-use state, nonce/PKCE, ten-minute attempts, seven-day sessions or `__Host-` / HttpOnly / Secure / SameSite=Lax cookies. It does not claim Android or iOS is repaired. LINE's success toast alone is not evidence that the original website window holds an authenticated session. Do not require a user who does not know their LINE password to use manual login for this diagnostic test.
+
+- `AUTH_DIAGNOSTICS_UNTIL=2026-09-14T00:00:00.000Z` stops new Worker diagnostic collection on September 14 at 08:00 Asia/Taipei. An absent, invalid or expired deadline disables it; removing the var in a reviewed deployment disables it early. The frontend may still forward an old validated trace, which the disabled collector ignores.
+- Migration `0016_wandering_blizzard.sql` adds only `auth_diagnostic_events` and two indexes; apply it before the Worker. Existing auth/session records are not rewritten or deleted by this migration. To stop diagnostics early, redeploy this reviewed Worker with the flag empty, retaining the cleanup code and additive table. A rollback to a pre-0.25 Worker also removes diagnostic cleanup, so it requires a separate retention follow-up; do not assume old code will delete these rows.
+- Each instrumented begin/callback/initial `/me` produces one fixed-shape console event and at most one best-effort D1 row. Fields are stage/outcome, numeric status, cookie presence/set booleans, coarse OS/browser, client-reported display mode, manual-mode boolean, UTC time, random request ID and a 32-hex trace. Callback traces use a separate HMAC namespace from OAuth lookup/session hashes. `/me` client traces are explicitly marked `untrusted_client`; neither those traces nor the display-mode/UA classification prove device identity or storage-container behavior.
+- No raw code, state, nonce, PKCE verifier, token, cookie, session hash, LINE subject/name, internal user ID, original user-agent, IP, full URL, upstream body or arbitrary error message enters the new events. Existing auth exception logs use a fixed label too. Preserve the deployment's query-string redaction gate for platform invocation logs. Never request a full callback URL from the user.
+- D1 writes use `waitUntil` and separate `auth-diagnostic:<kind>:<HMAC-client>` keys on `PUBLIC_WRITE_RATE_LIMITER` (three per kind/client/minute with the reviewed binding). These keys never consume `line-login:` or report counters. Missing limiter/key material, exhaustion or a D1 error skips only diagnostic storage; sanitized console output is a fallback. This is best effort, not guaranteed delivery. Normal business rate-limit rejection occurs before the login-start collector, so that rejection does not produce a begin row.
+- The existing hourly cleanup deletes at most 500 diagnostic rows older than seven days using the time index. Cleanup continues after collection stops. Seven days is the retention target, not a hard deletion deadline if Cron is delayed, D1 is unavailable or a backlog exceeds the batch size. No new Cron or paid service is added. Watch table size/quotas during the temporary window; per-client limits do not establish a global cost cap.
+- New diagnostic events are isolated from `ops_events`, Workers AI and LINE notifications. Unexpected HTTP 500s retain their existing generic operational incident path; diagnostic request IDs are separate from the API's 500 request ID, so use timestamp/stage as well for those failures.
+
+After an Android retry, ask only for the displayed diagnostic ID, Taipei time, entry point (Chrome tab/home-screen shortcut), and whether the original window or a new one showed the result. Use an authorized D1 read, not a browser/public API:
+
+```sql
+SELECT id, kind, details_json, occurred_at
+FROM auth_diagnostic_events
+WHERE trace_id = '<validated 32-character lowercase hex diagnostic ID>'
+ORDER BY occurred_at, id;
+```
+
+Interpret evidence narrowly: `session.created` followed by `attempt.missing_or_consumed` for the same server trace supports repeated callback delivery; missing/consumed alone cannot distinguish unknown state from replay. `session.created` followed by `/me` unauthenticated with `sessionCookiePresent=false` means that request did not send the cookie, not necessarily that Android isolates storage. Cookie present plus 401 means no valid session was found. A missing `/me` event can also mean client startup failed at `/spots`, the page merely resumed without reloading, or diagnostic delivery was dropped. After diagnosing, validate any proposed fix on physical Android Chrome + the existing shortcut and iPhone Safari + home-screen entry; desktop/mobile-emulation tests are not that acceptance.
+
 ### Windows workstation
 
 - Use Node.js 22 or newer. The repository pins `pnpm@11.19.0` through `packageManager`; enable the Corepack pnpm shim in a user-writable directory if `pnpm` is not on PATH.

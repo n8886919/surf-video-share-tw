@@ -26,6 +26,7 @@ export interface AppEnv {
   LINE_CHANNEL_SECRET?: string;
   LINE_CALLBACK_URL?: string;
   SESSION_SECRET?: string;
+  AUTH_DIAGNOSTICS_UNTIL?: string;
   ADMIN_USER_ID?: string;
   CWA_QUERY_STRING_REDACTION_VERIFIED?: string;
   FORECAST_INGESTION_SECRET?: string;
@@ -81,6 +82,12 @@ const schemaStatements = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS oauth_attempts_expires_at_idx ON oauth_attempts (expires_at)`,
+  `CREATE TABLE IF NOT EXISTS auth_diagnostic_events (
+    id TEXT PRIMARY KEY NOT NULL, trace_id TEXT NOT NULL, kind TEXT NOT NULL,
+    details_json TEXT NOT NULL, occurred_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS auth_diagnostic_trace_time_idx ON auth_diagnostic_events (trace_id, occurred_at)`,
+  `CREATE INDEX IF NOT EXISTS auth_diagnostic_time_idx ON auth_diagnostic_events (occurred_at)`,
   `CREATE TABLE IF NOT EXISTS spots (
     id TEXT PRIMARY KEY NOT NULL,
     slug TEXT NOT NULL,

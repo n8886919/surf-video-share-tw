@@ -1,4 +1,5 @@
 import { SurfApp, type LoginStatus } from "./surf-app";
+import { authTraceSchema } from "../packages/api-contract/src";
 
 const LOGIN_STATUSES = new Set<LoginStatus>([
   "capacity",
@@ -12,7 +13,7 @@ const LOGIN_STATUSES = new Set<LoginStatus>([
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ help?: string | string[]; login?: string | string[] }>;
+  searchParams: Promise<{ help?: string | string[]; login?: string | string[]; auth_trace?: string | string[] }>;
 }) {
   const query = await searchParams;
   const rawLogin = query.login;
@@ -21,5 +22,6 @@ export default async function Home({
     ? candidate as LoginStatus
     : undefined;
   const rawHelp = Array.isArray(query.help) ? query.help[0] : query.help;
-  return <SurfApp loginStatus={loginStatus} initialHelpOpen={rawHelp === "1"} />;
+  const trace = authTraceSchema.safeParse(query.auth_trace);
+  return <SurfApp loginStatus={loginStatus} initialHelpOpen={rawHelp === "1"} authTrace={trace.success ? trace.data : undefined} />;
 }

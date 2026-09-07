@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+// Diagnostic correlation only: never accepted as authentication or authorization.
+export const authTraceSchema = z.string().regex(/^[a-f0-9]{32}$/);
+export const authDisplayModeSchema = z.enum(["browser", "standalone", "unknown"]);
+
 export const CWA_FORECAST_INGESTION_CONTRACT = {
   version: "cwa-forecast-ingestion-v4",
   jsonSchemaSha256: "e09dbdb3ec07aa1d865cb2654181d5b7b2c6b42542cc308d0d9c936e9e5128f0",

@@ -497,6 +497,9 @@ async function retainBoundedOpsHistory(env: AppEnv, now: Date): Promise<void> {
       .bind(new Date(now.getTime() - EVENT_RETENTION_MS).toISOString()),
     env.DB.prepare("DELETE FROM ops_analysis_runs WHERE created_at < ?")
       .bind(new Date(now.getTime() - ANALYSIS_RETENTION_MS).toISOString()),
+    env.DB.prepare(`DELETE FROM auth_diagnostic_events WHERE id IN (
+      SELECT id FROM auth_diagnostic_events WHERE occurred_at < ? ORDER BY occurred_at LIMIT 500
+    )`).bind(new Date(now.getTime() - EVENT_RETENTION_MS).toISOString()),
   ]);
 }
 

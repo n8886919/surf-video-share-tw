@@ -44,6 +44,17 @@ export const oauthAttempts = sqliteTable(
   (table) => [index("oauth_attempts_expires_at_idx").on(table.expiresAt)],
 );
 
+export const authDiagnosticEvents = sqliteTable("auth_diagnostic_events", {
+  id: text("id").primaryKey(),
+  traceId: text("trace_id").notNull(),
+  kind: text("kind").notNull(),
+  detailsJson: text("details_json").notNull(),
+  occurredAt: text("occurred_at").notNull(),
+}, (table) => [
+  index("auth_diagnostic_trace_time_idx").on(table.traceId, table.occurredAt),
+  index("auth_diagnostic_time_idx").on(table.occurredAt),
+]);
+
 export const spots = sqliteTable(
   "spots",
   {

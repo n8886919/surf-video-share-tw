@@ -2,6 +2,7 @@ import { z } from "zod";
 import { MAX_REGISTERED_USERS } from "../../packages/domain/src";
 import type { AppEnv, UserRow } from "./db";
 import { getOrCreateDevUser } from "./db";
+import { withAuthDiagnostic, type AuthDiagnostic } from "./auth-diagnostics";
 
 const SESSION_COOKIE = "__Host-surf_session";
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -117,10 +118,18 @@ function redirect(path: string, cookie?: string): Response {
 
 export async function beginLineLogin(
   env: AppEnv,
-  options: { disableAutoLogin?: boolean } = {},
+  options: { disableAutoLogin?: boolean; request?: Request; waitUntil?: (promise: Promise<unknown>) => void } = {},
+): Promise<Response> {
+  return withAuthDiagnostic(env, options.request, "begin",
+    diagnostic => beginLineLoginCore(env, options, diagnostic), options.waitUntil);
+}
+
+async function beginLineLoginCore(
+  env: AppEnv, options: { disableAutoLogin?: boolean }, diagnostic?: AuthDiagnostic,
 ): Promise<Response> {
   const config = getLineConfig(env);
   if (!config) {
+    diagnostic?.step("configuration", "unconfigured");
     return Response.json(
       { error: "AUTH_NOT_CONFIGURED", message: "LINE Login 尚未完成部署設定" },
       { status: 503, headers: { "cache-control": "no-store" } },
@@ -128,6 +137,10 @@ export async function beginLineLogin(
   }
 
   const state = randomBase64Url();
+  if (diagnostic) {
+    try { await diagnostic.correlateState(state); } catch { /* Diagnostics never gate login. */ }
+    diagnostic.step("begin", "received");
+  }
   const nonce = randomBase64Url();
   const codeVerifier = randomBase64Url(48);
   const codeChallenge = await sha256Base64Url(codeVerifier);
@@ -154,6 +167,7 @@ export async function beginLineLogin(
   authorize.searchParams.set("code_challenge", codeChallenge);
   authorize.searchParams.set("code_challenge_method", "S256");
   if (options.disableAutoLogin) authorize.searchParams.set("disable_auto_login", "true");
+  diagnostic?.step("begin", "started");
 
   return new Response(null, {
     status: 302,
@@ -205,23 +219,45 @@ async function getOrCreateLineUser(
   return user;
 }
 
-export async function finishLineLogin(request: Request, env: AppEnv): Promise<Response> {
+export async function finishLineLogin(
+  request: Request, env: AppEnv, waitUntil?: (promise: Promise<unknown>) => void,
+): Promise<Response> {
+  return withAuthDiagnostic(env, request, "callback",
+    diagnostic => finishLineLoginCore(request, env, diagnostic), waitUntil);
+}
+
+async function finishLineLoginCore(request: Request, env: AppEnv, diagnostic?: AuthDiagnostic): Promise<Response> {
   const config = getLineConfig(env);
-  if (!config) return redirect("/?login=config");
+  if (!config) {
+    diagnostic?.step("configuration", "unconfigured");
+    return redirect("/?login=config");
+  }
 
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
-  if (!state) return redirect("/?login=invalid");
+  if (!state) {
+    diagnostic?.step("attempt", "missing_state");
+    return redirect("/?login=invalid");
+  }
 
+  diagnostic?.step("attempt", "received");
   const stateHash = await hmacHex(config.sessionSecret, state);
   const attempt = await takeOAuthAttempt(env, stateHash);
   if (!attempt || new Date(attempt.expires_at).getTime() <= Date.now()) {
+    diagnostic?.step("attempt", attempt ? "expired" : "missing_or_consumed");
     return redirect("/?login=expired");
   }
-  if (url.searchParams.has("error")) return redirect("/?login=cancelled");
+  diagnostic?.step("attempt", "valid");
+  if (url.searchParams.has("error")) {
+    diagnostic?.step("attempt", "cancelled");
+    return redirect("/?login=cancelled");
+  }
 
   const code = url.searchParams.get("code");
-  if (!code) return redirect("/?login=invalid");
+  if (!code) {
+    diagnostic?.step("token", "missing_code");
+    return redirect("/?login=invalid");
+  }
 
   const tokenBody = new URLSearchParams({
     grant_type: "authorization_code",
@@ -231,26 +267,38 @@ export async function finishLineLogin(request: Request, env: AppEnv): Promise<Re
     client_secret: config.channelSecret,
     code_verifier: attempt.code_verifier,
   });
+  diagnostic?.step("token", "started");
   const tokenResponse = await fetch("https://api.line.me/oauth2/v2.1/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: tokenBody,
   });
-  if (!tokenResponse.ok) return redirect("/?login=failed");
+  if (!tokenResponse.ok) {
+    diagnostic?.step("token", "http_error", tokenResponse.status);
+    return redirect("/?login=failed");
+  }
   const token = tokenResponseSchema.safeParse(await tokenResponse.json());
-  if (!token.success) return redirect("/?login=failed");
+  if (!token.success) {
+    diagnostic?.step("token", "invalid_response", tokenResponse.status);
+    return redirect("/?login=failed");
+  }
+  diagnostic?.step("token", "valid", tokenResponse.status);
 
   const verifyBody = new URLSearchParams({
     id_token: token.data.id_token,
     client_id: config.channelId,
     nonce: attempt.nonce,
   });
+  diagnostic?.step("verify", "started");
   const verifyResponse = await fetch("https://api.line.me/oauth2/v2.1/verify", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: verifyBody,
   });
-  if (!verifyResponse.ok) return redirect("/?login=failed");
+  if (!verifyResponse.ok) {
+    diagnostic?.step("verify", "http_error", verifyResponse.status);
+    return redirect("/?login=failed");
+  }
   const verified = verifiedIdTokenSchema.safeParse(await verifyResponse.json());
   if (
     !verified.success ||
@@ -258,16 +306,23 @@ export async function finishLineLogin(request: Request, env: AppEnv): Promise<Re
     verified.data.nonce !== attempt.nonce ||
     verified.data.exp * 1000 <= Date.now()
   ) {
+    diagnostic?.step("verify", verified.success ? "claims_rejected" : "invalid_response", verifyResponse.status);
     return redirect("/?login=failed");
   }
+  diagnostic?.step("verify", "valid", verifyResponse.status);
 
   let user: UserRow;
+  diagnostic?.step("user", "started");
   try {
     user = await getOrCreateLineUser(env, verified.data.sub, verified.data.name?.trim() || null);
   } catch (error) {
-    if (error instanceof RegistrationCapacityError) return redirect("/?login=capacity");
+    if (error instanceof RegistrationCapacityError) {
+      diagnostic?.step("user", "capacity");
+      return redirect("/?login=capacity");
+    }
     throw error;
   }
+  diagnostic?.step("session", "started");
   const sessionToken = randomBase64Url(48);
   const sessionHash = await hmacHex(config.sessionSecret, sessionToken);
   const now = new Date();
@@ -281,6 +336,7 @@ export async function finishLineLogin(request: Request, env: AppEnv): Promise<Re
      VALUES (?, ?, ?, ?, ?)`,
   ).bind(sessionHash, user.id, expiresAt, now.toISOString(), now.toISOString()).run();
 
+  diagnostic?.step("session", "created");
   return redirect("/", sessionCookie(sessionToken));
 }
 

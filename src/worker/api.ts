@@ -53,6 +53,7 @@ import { cleanupExpiredPendingVideos } from "./video-lifecycle";
 import { resolveVideoStatus } from "./video-status";
 import { internalForecastIngestionApi } from "./internal-forecast-ingestion";
 import { checkOpsReadiness, recordOpsEvent } from "./ops-observability";
+import { withAuthDiagnostic } from "./auth-diagnostics";
 
 type Variables = { user: UserRow; authMode: "development" | "line" };
 
@@ -940,9 +941,13 @@ api.get("/auth/line", async (context) => {
   }
   return beginLineLogin(context.env, {
     disableAutoLogin: context.req.query("manual") === "1",
+    request: context.req.raw,
+    waitUntil: promise => context.executionCtx.waitUntil(promise),
   });
 });
-api.get("/auth/line/callback", (context) => finishLineLogin(context.req.raw, context.env));
+api.get("/auth/line/callback", (context) => finishLineLogin(
+  context.req.raw, context.env, promise => context.executionCtx.waitUntil(promise),
+));
 api.post("/auth/logout", (context) => logout(context.req.raw, context.env));
 
 api.get("/spots", async (context) => {
@@ -1419,7 +1424,16 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
 
 api.use("*", async (context, next) => {
   await ensureDevelopmentDatabase(context.env);
-  const authenticated = await getAuthenticatedUser(context.req.raw, context.env);
+  const authenticated = context.req.path === "/api/v1/me" && context.req.method === "GET"
+    ? await withAuthDiagnostic(context.env, context.req.raw, "me", async diagnostic => {
+      diagnostic?.step("session", "started");
+      const result = await getAuthenticatedUser(context.req.raw, context.env);
+      const configured = isLineAuthConfigured(context.env);
+      diagnostic?.step("session", result ? "authenticated" : configured ? "unauthenticated" : "unconfigured",
+        result ? 200 : configured ? 401 : 503);
+      return result;
+    }, promise => context.executionCtx.waitUntil(promise))
+    : await getAuthenticatedUser(context.req.raw, context.env);
   if (!authenticated) {
     const configured = isLineAuthConfigured(context.env);
     return context.json(
@@ -1880,12 +1894,15 @@ api.post("/admin/problem-reports/:id/resolve", async (context) => {
 
 api.onError(async (error, context) => {
   const message = error instanceof Error ? error.message : "系統暫時無法處理請求";
-  if (message.includes("168 小時")) {
+  const isAuthRequest = context.req.path.startsWith("/api/v1/auth/") || context.req.path === "/api/v1/me";
+  if (!isAuthRequest && message.includes("168 小時")) {
     return context.json({ error: "REQUEST_FAILED", message }, 422);
   }
 
   const requestId = crypto.randomUUID();
-  const logMessage = message
+  // Auth exceptions can contain upstream JSON/token fragments. Preserve only a fixed label.
+  const errorName = isAuthRequest ? "AuthenticationError" : error instanceof Error ? error.name : "UnknownError";
+  const logMessage = isAuthRequest ? "Authentication request failed" : message
     .replace(/(bearer\s+)[^\s]+/giu, "$1[REDACTED]")
     .replace(/([?&](?:code|key|secret|sig|signature|token)=)[^&\s]+/giu, "$1[REDACTED]")
     .slice(0, 1_000);
@@ -1893,7 +1910,7 @@ api.onError(async (error, context) => {
     requestId,
     method: context.req.method,
     path: context.req.path,
-    errorName: error instanceof Error ? error.name : "UnknownError",
+    errorName,
     errorMessage: logMessage,
   });
   await recordOpsEvent(context.env, {
@@ -1903,7 +1920,7 @@ api.onError(async (error, context) => {
     fingerprint: `api.unhandled:${context.req.routePath || "unknown-route"}`,
     requestId,
     route: context.req.routePath || "unknown-route",
-    errorName: error instanceof Error ? error.name : "UnknownError",
+    errorName,
     summary: logMessage,
   });
   return context.json(

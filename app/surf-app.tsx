@@ -182,9 +182,10 @@ function Brand() {
   );
 }
 
-function LoginRequired({ setupError, loginStatus }: {
+function LoginRequired({ setupError, loginStatus, authTrace }: {
   setupError?: string | null;
   loginStatus?: LoginStatus;
+  authTrace?: string;
 }) {
   const capacityReached = loginStatus === "capacity";
   const needsManualRetry = loginStatus === "expired" || loginStatus === "failed";
@@ -217,6 +218,7 @@ function LoginRequired({ setupError, loginStatus }: {
       <Icon name="user" />
       <h2>{title}</h2>
       <p>{message}</p>
+      {authTrace && <p className="auth-diagnostic-id">診斷編號：{authTrace}</p>}
       {!setupError && !capacityReached && <a className="line-login-button" href={loginHref}>{needsManualRetry ? "改用 LINE 登入畫面" : "使用 LINE 登入"}</a>}
     </section>
   );
@@ -919,7 +921,8 @@ function RecentObservationList({ observations }: { observations: Observation[] }
   );
 }
 
-export function SurfApp({ loginStatus, initialHelpOpen = false }: { loginStatus?: LoginStatus; initialHelpOpen?: boolean }) {
+export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { loginStatus?: LoginStatus; initialHelpOpen?: boolean; authTrace?: string }) {
+  const initialAuthTrace = useRef(authTrace);
   const [view, setView] = useState<View>(loginStatus ? "mine" : "find");
   const [spots, setSpots] = useState<Spot[]>([]);
   const [me, setMe] = useState<Me | null>(null);
@@ -936,7 +939,16 @@ export function SurfApp({ loginStatus, initialHelpOpen = false }: { loginStatus?
         const spotResult = await api<{ spots: Spot[] }>("/spots");
         if (active) setSpots(spotResult.spots);
         try {
-          const meResult = await api<Me>("/me");
+          let displayMode = "unknown";
+          try {
+            const standalone = window.matchMedia("(display-mode: standalone)").matches
+              || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+            displayMode = standalone ? "standalone" : "browser";
+          } catch { /* Display-mode diagnostics must not block the existing session check. */ }
+          const meResult = await api<Me>("/me", { headers: {
+            "x-surf-display-mode": displayMode,
+            ...(initialAuthTrace.current ? { "x-surf-auth-trace": initialAuthTrace.current } : {}),
+          } });
           if (!active) return;
           setMe(meResult);
           const own = await api<{ observations: Observation[] }>("/videos");
@@ -958,13 +970,13 @@ export function SurfApp({ loginStatus, initialHelpOpen = false }: { loginStatus?
   }
 
   if (loading) return <main className="app-shell center-screen"><Brand/><p className="loading-purpose">{PROJECT_PURPOSE}</p><div className="loading-line"><span/></div></main>;
-  if (fatalError) return <main className="app-shell center-screen"><Brand/><p>{fatalError}</p></main>;
+  if (fatalError) return <main className="app-shell center-screen"><Brand/><p>{fatalError}</p>{authTrace && <p className="auth-diagnostic-id">診斷編號：{authTrace}</p>}</main>;
   return (
     <main className="app-shell">
       <Topbar initialHelpOpen={initialHelpOpen}/>
       <FindView spots={spots} active={view === "find"}/>
-      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus}/></div>)}
-      {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus}/></div>)}
+      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus} authTrace={authTrace}/></div>)}
+      {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus} authTrace={authTrace}/></div>)}
       <BottomNav view={view} onChange={setView}/>
     </main>
   );

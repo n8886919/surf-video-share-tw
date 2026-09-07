@@ -30,6 +30,8 @@ The API creates a private upload row, validates the server-owned 168-hour and 05
 
 LINE registration has a database-enforced 100-user ceiling. Raw LINE subjects never enter public DTOs. Anonymous D1-writing routes use scoped Cloudflare rate limits keyed by an HMAC pseudonym rather than a stored client address.
 
+Product `0.25` temporarily instruments login begin/callback and the existing initial session check. A separately namespaced non-credential HMAC trace connects callback outcomes with the browser's untrusted trace header; authorization never trusts this diagnostic value. Fixed allowlisted events go to structured console output and best-effort D1 storage with independent per-kind/client rate-limit keys, a collection deadline and bounded seven-day-target cleanup. They are not fed to AI or LINE alerts and cannot gate login. This release intentionally keeps all existing redirects (apart from the diagnostic query value), session/cookie security and frontend session-refresh behavior unchanged; see [Operations](OPERATIONS.md#temporary-line-login-diagnostics-product-025).
+
 ## Lifecycle path
 
 The six-hour Cron claims expired incomplete videos with a recoverable `deleting` lease, deletes provider media, then conditionally removes D1 rows. Owner-list cleanup uses the same path as a low-latency fallback.

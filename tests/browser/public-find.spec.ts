@@ -232,6 +232,62 @@ async function mockPublicApi(page: Page, delayedSpotId?: string) {
   });
 }
 
+for (const displayMode of ["browser", "standalone"] as const) {
+  test(`login diagnostics keep the existing retry and send only one initial session check (${displayMode})`, async ({ page }) => {
+    const trace = "a123456789abcdef".repeat(2);
+    const meHeaders: Array<Record<string, string>> = [];
+    const loginRequests: string[] = [];
+    page.on("request", request => {
+      const path = new URL(request.url()).pathname;
+      if (path === "/api/v1/me") meHeaders.push(request.headers());
+      if (path.startsWith("/api/v1/auth/")) loginRequests.push(path);
+    });
+    if (displayMode === "standalone") {
+      // Client-reported display mode only, not a physical mobile/container acceptance test.
+      await page.addInitScript(() => Object.defineProperty(navigator, "standalone", { value: true }));
+    }
+    await mockPublicApi(page);
+    await page.goto(`/?login=expired&auth_trace=${trace}`);
+    await expect(page.getByRole("heading", { name: "LINE 登入未完成" })).toBeVisible();
+    await expect(page.getByText(`診斷編號：${trace}`, { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "改用 LINE 登入畫面" })).toHaveAttribute("href", "/api/v1/auth/line?manual=1");
+    expect(meHeaders).toHaveLength(1);
+    expect(meHeaders[0]["x-surf-auth-trace"]).toBe(trace);
+    expect(meHeaders[0]["x-surf-display-mode"]).toBe(displayMode);
+    await page.getByRole("button", { name: "找浪", exact: true }).click();
+    await page.getByRole("button", { name: "我的", exact: true }).click();
+    await expect(page.getByText(`診斷編號：${trace}`, { exact: true })).toBeVisible();
+    expect(meHeaders).toHaveLength(1);
+    expect(loginRequests).toHaveLength(0);
+    if (displayMode === "browser") await page.screenshot({ path: "outputs/line-diagnostic-mobile.png", fullPage: true });
+  });
+}
+
+test("invalid diagnostic query values are not displayed or forwarded", async ({ page }) => {
+  const requests: Array<Record<string, string>> = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/api/v1/me") requests.push(request.headers());
+  });
+  await mockPublicApi(page);
+  await page.goto("/?login=expired&auth_trace=untrusted-not-a-diagnostic-id");
+  await expect(page.getByRole("heading", { name: "LINE 登入未完成" })).toBeVisible();
+  await expect(page.locator(".auth-diagnostic-id")).toHaveCount(0);
+  expect(requests).toHaveLength(1);
+  expect(requests[0]["x-surf-auth-trace"]).toBeUndefined();
+});
+
+test("a browser without display-mode support still checks the session", async ({ page }) => {
+  const modes: Array<string | undefined> = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/api/v1/me") modes.push(request.headers()["x-surf-display-mode"]);
+  });
+  await page.addInitScript(() => { window.matchMedia = () => { throw new Error("Unsupported"); }; });
+  await mockPublicApi(page);
+  await page.goto("/?login=expired");
+  await expect(page.getByRole("heading", { name: "LINE 登入未完成" })).toBeVisible();
+  expect(modes).toEqual(["unknown"]);
+});
+
 test("shows the beta label beside the top-left brand", async ({ page }) => {
   await mockPublicApi(page);
   await page.goto("/");

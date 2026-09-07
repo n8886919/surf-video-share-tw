@@ -1,4 +1,28 @@
-# LINE 登入失敗調查（2026-09-05）
+# LINE 登入失敗調查（更新：2026-09-07）
+
+## 2026-09-07：Product 0.25 診斷版（本機驗證完成，待部署）
+
+- 使用者補充確認 17:09 是手機操作，電腦 QR 登入在其後；因此 17:09:11 建立 session 的時間與失敗手機操作吻合，但仍沒有該次回呼明細。17:18 照片回到一般登入提示。使用者不知道 LINE 帳號密碼；手動按鈕打開帳密畫面，不能當成已解決的替代方案。
+- 使用者授權「實作並部署這個診斷版」。本版只增加 begin／callback／既有初始 `/me` 的安全事件，記下 attempt、token、verify、user、session 階段與 cookie 存在／設定布林值。不同請求的 request ID 不同；同一次 state 用獨立 HMAC 診斷命名空間產生同一 trace，不保存原 state 或認證 lookup hash。
+- 32 位小寫 hex `auth_trace` 只附加在本站原有回呼導向，不放進 LINE 授權網址，也不是登入憑證。前端驗證後在既有 `/me` 請求附上編號與 `browser/standalone/unknown`，未登入／錯誤畫面可顯示編號。不增加登入請求、不改頁面恢復行為、不清 cookie/session、不改 SameSite、不降低一次性 state／nonce／PKCE 檢查。
+- 新事件以固定白名單輸出 console，並限量 best-effort 保存獨立 D1 表，避免只依賴目前無法取得的 telemetry 權限。D1 儲存失敗不阻擋登入；事件不進 AI 或 LINE 告警。收集到 9/14 08:00 台灣時間為止；七天保留目標由既有每小時最多 500 筆清理執行，可能因故障或積壓延後。詳見 [Operations](OPERATIONS.md#temporary-line-login-diagnostics-product-025)。
+- 完整 `pnpm verify` 通過：lint、typecheck、38 檔／248 測試、migration drift、build、2 項 rendered-site 及 13 項 Chromium／無障礙測試。含真實 migrated SQLite session 建立、cookie 有／無／偽造的 `/me` 結果、重複回呼同 trace 且不二次交換 token、過期／nonce／audience 拒絕、診斷關閉／寫入失敗仍保留認證行為及敏感欄位不外洩；手機尺寸診斷編號畫面亦已檢視。這不是 Android 或 iPhone 實機 LINE 驗收；正式版本與遠端事件讀回會於完成後記錄。
+
+下一步是在部署確認後，請使用者從原 Android 入口重試一次，提供畫面診斷編號及台灣時間。只有取得實際事件後才決定修法，並分別驗收實機 Android Chrome／桌面捷徑與 iPhone Safari／主畫面入口。以下 17:09 初查與 9/5 內容為較早快照。
+
+## 2026-09-07：Android 照片與電腦掃碼對照
+
+- 使用者提供三張 17:09 的手機照片：上傳分頁「這裡需要登入」→ LINE 成功 toast 與本站載入畫面 → 我的分頁「LINE 登入未完成」。使用者確認 Android／Chrome 不能登入，但電腦 Chrome 顯示 QR code、由手機掃描後可以登入。照片沒有網址列，不能僅憑畫面認定實際瀏覽器容器；是否仍由桌面捷徑開啟、失敗網址僅 `login` 的值，以及手動重試結果待回覆。
+- 正式 D1 唯讀查詢發現管理員 session 分別於台北時間 **17:09:11.450、17:10:22.126、17:10:58.847** 建立，皆於 9/14 同時刻到期。這些時間落在此次操作附近，但資料表沒有裝置／登入模式／callback request ID，不能把任一筆擅自歸因手機或電腦。已請使用者確認手機及電腦操作時間。
+- 17:12 的健康與 readiness 檢查皆 HTTP 200／`ok: true`。`ops_events` 在 16:55–17:15 範圍沒有事件；當下查詢沒有找到過期時間介於 17:05–17:30 的剩餘 OAuth attempt。這不代表沒有回呼失敗：attempt 在驗證上游前即被一次性消耗，而 `failed`／`expired` 分支沒有記錄原因。
+- 照片三對應程式的 `login=failed` 或 `login=expired` 分支，並且前端未持有已登入使用者。單純 session cookie 沒帶回、網址未帶錯誤參數時，顯示的是照片一的標題；因此「cookie 被 Android 擋掉」不足以單獨解釋整個序列。由上傳轉到我的與載入畫面，符合帶錯誤參數重新進頁的路徑，但照片仍不能排除恢復舊頁。
+- 以現有建置產物進行純本機診斷，LINE 與 D1 全部以記憶體替身代替：首次成功 callback 回傳 303 `/` 並設 session cookie；帶 cookie 的 `/me` 回傳 200、不帶則 401；同一 callback 再送一次回傳 303 `/?login=expired`，不再交換 token。此實驗證明「成功後的 callback 重放」也可產生 expired，不證明這支手機確實重放；一次性防重放檢查不能移除。
+- 既有登入測試再次通過：2 個檔案／16 個測試。最新 auth 檔案變更仍是 8/30；Product 0.24 沒有改 auth。電腦 QR 成功與新 session 降低共用 channel／secret／D1 全面故障的可能性，但不能排除手機單次 code／state／nonce 問題。
+- Cloudflare telemetry keys 的唯讀查詢仍 HTTP 403（10000）；管理頁亦停在登入畫面。沒有擴權或變更日誌設定，沒有取得這次 callback 的實際分階段日誌。
+
+**目前優先診斷：** 先對上 17:09 session 是否來自手機，並取得 `login` 值與「改用 LINE 登入畫面」的結果。若手機那次已建立 session，優先查 callback 重複送達、回跳至不同容器，以及原頁面 `/me` 的結果；若沒有，先查 attempt／token／verify。LINE 官方仍建議自動登入失敗後以 `disable_auto_login=true` 重試，Android 與 iPhone 均適用；現有按鈕已實作，但提示只寫 iPhone 不夠清楚。[LINE 官方處理方式](https://developers.line.biz/en/docs/line-login/how-to-handle-auto-login-failure/)
+
+本輪只讀取必要的時間與狀態欄位、執行本機診斷並更新文件；沒有修改／部署 auth、清 cookie、清 session 或讀取／輸出真實 code、state、token、cookie、LINE subject。以下保留 9/5 原始調查，時間與正式版本敘述均為當時快照。
 
 ## 結論
 
