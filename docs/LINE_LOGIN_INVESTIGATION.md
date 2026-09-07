@@ -2,7 +2,7 @@
 
 ## Product 0.27：已獲授權的登入修正
 
-使用者已授權實作與部署。候選版採獨立 HttpOnly 第一方 cookie 綁定原入口；callback 只原子領取一次 LINE 驗證並保留結果，不再直接核發 session。重複回呼回確認中，原入口以同源 JSON POST 領取並確認 `/me`。一次性 session 建立另允許 60 秒內重送同一個有效 session，以容忍領取回應中斷；不延長有效期、不復活已登出 session，也不能憑 state／診斷 ID 領取。保留自動登入為主要入口，帳密模式只是選用。
+使用者已授權實作與部署；`acb76f6` 已於 2026-09-07 23:44 Taipei 發布為 `0.27`，Cloudflare version `95b7439a-8f8a-47ff-80ec-33440a9ff866` 承接 100% 流量。此版採獨立 HttpOnly 第一方 cookie 綁定原入口；callback 只原子領取一次 LINE 驗證並保留結果，不再直接核發 session。重複回呼回確認中，原入口以同源 JSON POST 領取並確認 `/me`。一次性 session 建立另允許 60 秒內重送同一個有效 session，以容忍領取回應中斷；不延長有效期、不復活已登出 session，也不能憑 state／診斷 ID 領取。保留自動登入為主要入口，帳密模式只是選用。
 
 已補上 migrated SQLite 併發／重放／過期／跨入口／交易回滾測試、實際 built Worker 的 HTTPS 雙 Chromium cookie 隔離測試（LINE 為 mock）、有界前景恢復與 UI 測試。新 schema、安全界線、成本與部署／回退說明見 [API](API.md)、[資料模型](DATA_MODEL.md) 與 [Operations](OPERATIONS.md#line-login-completion-product-027)。正式部署與完整 gate 結果以 [Project state](PROJECT_STATE.md) 最新段落為準；Android／iPhone 實機成功尚未驗收。
 

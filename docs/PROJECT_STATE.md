@@ -2,9 +2,15 @@
 
 Updated: 2026-09-07
 
-Product `0.27` is an authorized implementation/deployment candidate for the observed LINE callback race and missing original-entry session. It adds migration 0017, durable single-exchange progress, an independent HttpOnly initiating-browser proof, and same-origin one-use session creation with 60-second same-session redelivery for lost responses. Callback URLs and diagnostic IDs never authenticate a browser. The UI retains automatic LINE login, verifies the session cookie, resumes on foreground with bounded polling, and does not let owner-list failures hide login.
+Product `0.27` implementation commit `acb76f6` is deployed through the reviewed local OAuth flow. Cloudflare version `95b7439a-8f8a-47ff-80ec-33440a9ff866` has 100% traffic as of `2026-09-07T15:44:35Z` (23:44:35 Taipei). Migration 0017 applied successfully; post-deploy preflight reports no pending migration/missing bindings, all required secret names present, and query-string redaction enabled. The local release commits have not been pushed; remote `main` is not the active deployed source.
 
-The fresh full `pnpm verify` passed lint/typecheck, 40 Vitest files / 274 tests, migration drift, build, 4 built-Worker/rendered-site checks (including real HTTPS/two isolated Chromium cookie containers with mocked LINE), and 19 Chromium UI/accessibility tests. Local D1 migrations 0016/0017 also applied successfully. No `0.27` production deployment or physical-phone acceptance is claimed at this candidate checkpoint.
+This release addresses the observed LINE callback race and missing original-entry session with durable single-exchange progress, an independent HttpOnly initiating-browser proof, and same-origin one-use session creation with 60-second same-session redelivery for lost responses. Callback URLs and diagnostic IDs never authenticate a browser. The UI retains automatic LINE login, verifies the session cookie, resumes on foreground with bounded polling, and does not let owner-list failures hide login.
+
+The fresh full `pnpm verify` passed lint/typecheck, 40 Vitest files / 274 tests, migration drift, build, 4 built-Worker/rendered-site checks (including real HTTPS/two isolated Chromium cookie containers with mocked LINE), and 19 Chromium UI/accessibility tests. Local D1 migrations 0016/0017 also applied successfully. Physical-phone acceptance is still required.
+
+Post-deploy health/readiness are HTTP 200/ok. The referenced `surf-app-B5KoEOEO.js` matches the local release SHA-256 `bdcb2384bbbe8e3e53885c63d8f837b102f7d241b611196d21c4258b91fb7b9c` and contains Product `0.27`. A no-proof completion returns `none`; cross-origin completion is rejected with 403.
+
+A credential-free production browser smoke at 23:45 Taipei confirms visible `0.27`, a Secure/HttpOnly/Lax proof stored by the begin redirect, a proof-bearing original-context completion returning pending, and a separate isolated context returning none. LINE authorization was intercepted before leaving the test browser: zero real LINE requests and no session/user creation. Only the smoke's own unapproved attempt was removed through logout. Trace `8cc34bfc2e5f9640a79e89de0ad9d68b` has begin and completion events; its bounded D1 read used 3 rows and wrote zero. This validates deployed integration and isolation, not a real Android/iPhone LINE roundtrip.
 
 Refresh-only follow-up: the user reports no recovery. The same trace `5a0e0da4c72034b4eae2221266618b22` has a new `/me` event at 19:44:40.804 Taipei (`2026-09-07T11:44:40.804Z`), still Android/Chrome/standalone, no session cookie and 401; no new begin/callback is present. The read used 11 rows and wrote zero. This rules out only stale in-memory UI as a sufficient explanation; cookie rejection, lost/cancelled success response and another storage container remain unseparated. A proposed fix combines single-exchange durable callback progress with a short-lived, one-use result claim bound to an independent secret held by the initiating browser; diagnostic IDs/consumed state must never authorize that claim. No auth changes or deployment were made in this follow-up. See the 19:44 section in `docs/LINE_LOGIN_INVESTIGATION.md`.
 
@@ -204,7 +210,7 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 
 ## Next task
 
-Complete the authorized Product `0.27` release gate/deployment, then obtain physical Android Chrome/home-screen and iPhone Safari/home-screen LINE acceptance using a fresh automatic login from the original entry. Preserve desktop Chrome QR login and inspect only the new diagnostic ID on failure. Whole-day D1 usage remains a separate observation.
+Obtain physical Android Chrome/home-screen and iPhone Safari/home-screen LINE acceptance on deployed Product `0.27`, using a fresh automatic login from the original entry. Preserve desktop Chrome QR login and inspect only the new diagnostic ID on failure. Whole-day D1 usage remains a separate observation.
 
 Pending acceptance: the two users' physical iPhone Safari scrolling retest for Product `0.23` remains outstanding.
 
