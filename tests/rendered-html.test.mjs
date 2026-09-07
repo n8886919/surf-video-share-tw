@@ -34,7 +34,7 @@ test("the real Worker forwards waitUntil so diagnostic storage cannot hold the a
     ]);
     assert.equal(response.status, 303);
     assert.match(response.headers.get("location"), /^\/\?login=invalid&auth_trace=[a-f0-9]{32}$/);
-    assert.equal(pending.length, 1, "Worker execution context must reach Hono");
+    assert.equal(pending.length, 2, "Worker retains the callback work and independent diagnostic storage");
     assert.equal(response.headers.get("referrer-policy"), "strict-origin");
   } finally {
     clearTimeout(timeout);
@@ -191,7 +191,8 @@ test("renders the product title and language", async () => {
   assert.doesNotMatch(clientBundle, /左側固定為所選時段/);
   assert.doesNotMatch(clientBundle, /已選實拍/);
   assert.match(clientBundle, /目前先開放 100 位使用者/);
-  assert.match(clientBundle, /LINE 自動登入可能未完成/);
+  assert.match(clientBundle, /正在完成 LINE 登入/);
+  assert.match(clientBundle, /請回到原本開始登入的 Chrome、Safari 或桌面捷徑/);
   assert.match(clientBundle, /\/api\/v1\/auth\/line\?manual=1/);
 
   const helpResponse = await worker.fetch(

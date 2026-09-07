@@ -1,5 +1,48 @@
 # LINE 登入失敗調查（更新：2026-09-07）
 
+## Product 0.27：已獲授權的登入修正
+
+使用者已授權實作與部署。候選版採獨立 HttpOnly 第一方 cookie 綁定原入口；callback 只原子領取一次 LINE 驗證並保留結果，不再直接核發 session。重複回呼回確認中，原入口以同源 JSON POST 領取並確認 `/me`。一次性 session 建立另允許 60 秒內重送同一個有效 session，以容忍領取回應中斷；不延長有效期、不復活已登出 session，也不能憑 state／診斷 ID 領取。保留自動登入為主要入口，帳密模式只是選用。
+
+已補上 migrated SQLite 併發／重放／過期／跨入口／交易回滾測試、實際 built Worker 的 HTTPS 雙 Chromium cookie 隔離測試（LINE 為 mock）、有界前景恢復與 UI 測試。新 schema、安全界線、成本與部署／回退說明見 [API](API.md)、[資料模型](DATA_MODEL.md) 與 [Operations](OPERATIONS.md#line-login-completion-product-027)。正式部署與完整 gate 結果以 [Project state](PROJECT_STATE.md) 最新段落為準；Android／iPhone 實機成功尚未驗收。
+
+以下段落是當時的證據與舊版程式觀察，不代表 `0.27` 仍用 DELETE attempt／callback 設 cookie 或強制帳密重試。
+
+## 2026-09-07 19:44：重新整理仍沒有 session cookie
+
+使用者回覆在原失敗頁重新整理後仍未登入。再次只讀 trace `5a0e0da4c72034b4eae2221266618b22`，多出 **19:44:40.804**（UTC `11:44:40.804Z`）的一筆 `/me`：Android／Chrome、`displayMode=standalone`、`sessionCookiePresent=false`、401。此次查詢 `rows_read=11`、`rows_written=0`，沒有新增 begin／callback。因此不是僅停留在未更新的 React 畫面，也不能期待等待幾秒或單加 session refresh 就恢復這次登入。
+
+可確認的失效鏈是：同一次授權回呼競爭，其中一筆完成 LINE 驗證且伺服器設定 cookie，另一筆回 expired；使用者可見的原入口在初次檢查及後續重新整理時均未送 session cookie。仍不能從這些資料區分成功回應被導頁取消／丟棄、cookie 被拒收，或回到另一個儲存空間；沒有證據可宣稱已找到 Android／LINE 內部重送來源。先前 iPhone 也不能直接判為同一根因。
+
+建議的下一版設計（待授權，尚未實作）：
+
+1. 用具期限的 pending／processing／completed／failed 狀態記錄代替取走後立即遺失進度；原子 claim 保證 LINE code 仍只交換一次。重複回呼遇到 processing／completed 不應再把同次登入概括為 expired，也不得僅憑舊 state 重新核發 session。
+2. 發起登入時，在原瀏覽器建立與該次交易綁定、不可從網址／診斷編號取得的獨立秘密。回呼完成驗證後保存短效結果，由持有該秘密的原入口一次性領取，再在該入口建立本站 cookie 並確認 `/me`。這同時處理回呼成功但 cookie 不在使用者可見入口的問題；必須驗證原入口能保留必要的第一方 cookie，不能假定所有容器共享 cookie。
+3. 保留既有 state／nonce／PKCE、Secure／HttpOnly／SameSite 屬性、真人點擊開始 LINE 登入的方式。不得以 raw state、診斷 ID、URL 參數、LINE subject 或「伺服器查到有人成功」作為完成登入的憑證；不把 token 放入 URL。瀏覽器綁定與單次領取需另做重放、錯瀏覽器、併發、過期與中斷測試，再驗收實機 Android Chrome／桌面入口和 iPhone Safari／主畫面入口。
+
+這是根據目前證據提出的本專案設計，不是 LINE 官方提供的現成跨容器解法。OAuth 安全最佳實務要求 PKCE challenge 或 OIDC nonce 對每次交易獨立，且安全綁定發起交易的 client／user agent；[RFC 9700 §2.1](https://www.rfc-editor.org/rfc/rfc9700.html#section-2.1)。LINE 另提醒 iOS Universal Links 可能受 JavaScript 自動跳轉影響，因此修正不能順手改掉原本點擊開始的方式；[LINE 自動登入失敗文件](https://developers.line.biz/en/docs/line-login/how-to-handle-auto-login-failure/)。
+
+本輪沒有修改 auth／schema、清除 session、push 或重新部署；正式版本仍是 `0.26`。下一步是取得此登入行為修正的實作／部署授權，而不是再要求使用者反覆重試或提供 LINE 密碼。
+
+## 2026-09-07 18:11：實機 trace 證實同一次登入回呼競爭
+
+使用者依診斷版指示重試，提供 18:11「LINE 登入未完成」照片，診斷編號 `5a0e0da4c72034b4eae2221266618b22`。只查這個 trace 的正式 D1 紀錄，返回四筆事件；`rows_read=9`、`rows_written=0`。以下是事件收尾／記錄時間，不是請求開始時間：
+
+- **18:10:56.695**：Android／Chrome 開始自動登入，`manual=false`，302，未帶 session cookie。
+- **18:10:58.955**：同 trace 的一筆 callback 回 `attempt.missing_or_consumed`，303，沒有設定 cookie；對照程式即 `login=expired`。
+- **18:10:59.505**：同 trace 的另一筆 callback 為 `attempt.valid → token.valid(200) → verify.valid(200) → session.created`，303，`sessionCookieSet=true`。
+- **18:10:59.582**：頁面既有 `/me` 檢查為 401／`sessionCookiePresent=false`；UA 分類 Android／Chrome，前端回報 `displayMode=standalone`。
+
+**已證實：** 同一次 server-HMAC state 對應兩筆不同 request ID 的回呼，一筆通過授權並建立 session，另一筆取不到一次性 attempt 而先回 expired。不是這次 LINE token／ID-token 驗證失敗，也不是開始後十分鐘自然到期。後端 `DELETE ... RETURNING` 在呼叫 LINE 前即取走 attempt；因此較早結束的失敗紀錄不代表它較早取得 attempt。最符合程式與事件的順序是 A 已取走 attempt 並等待上游，B 找不到 attempt 先返回錯誤，A 稍後成功。診斷未保存 code，不能宣稱兩筆整個 callback URL／code 逐字相同，也不能指認重送是 LINE、Chrome、捷徑或網路哪一層產生。
+
+**仍未證實：** 成功回應的 cookie 是否被同一入口接受、是否回到另一視窗／儲存空間，或原頁只留下先回來的錯誤。`sessionCookieSet=true` 只代表伺服器設了回應標頭，不代表手機收到並保存；`standalone` 是未受信任的前端 display-mode 觀察，不足以證實 PWA／WebAPK 或 cookie 隔離。故完整根因不能簡化為「Android 擋 cookie」。
+
+本機以目前 built Worker、完整 migration 的記憶體 SQLite 與假 LINE 回應做可控交錯：A 取走 attempt 後暫停 token 回應，B 同 state 立刻得到 expired 且無 cookie；釋放 A 後只建立一個 session、只呼叫一次 token 與一次 verify。之後 `/me` 帶 A 的測試 cookie 為 200、不帶為 401。全部斷言通過，沒有正式寫入或變更登入程式；這重現後端競爭，不模擬手機 cookie 接收／分頁交接。
+
+已請使用者在目前失敗頁只重新整理一次、不再按登入，以同 trace 的下一筆 `/me` 區分 cookie 已落地但頁面未更新，與 cookie 仍不在這個入口。修正設計應區分 processing／completed／expired，讓重複回呼不把仍在進行的登入直接當過期，並安全地重新確認原頁 session；不能以診斷 ID、已消耗的 state 或 URL 當作登入授權，也不能重複兌換 code／取消 nonce 或 PKCE。是否還需要綁定原瀏覽器的安全交接，待重新整理證據決定；真正的跨平台修復仍須 Android 和 iPhone 實機驗收。[LINE 登入安全參數](https://developers.line.biz/en/docs/line-login/integrate-line-login/)
+
+本輪只有指定 trace 的唯讀查詢、本機診斷與文件更新；沒有修改／重新部署認證行為。
+
 ## 2026-09-07：Product 0.26 診斷版已部署
 
 - 最終正式版為 `0.26`／commit `5d572a4`，Cloudflare version `70dcd5d9-f0fb-419a-91da-e3e3f456684b` 於台灣時間 17:44:59 切到 100%。使用既有 Wrangler OAuth 正式部署，migration 0016 已套用、無待執行 migration／缺少 binding，query-string redaction 已恢復並讀回確認。本機 release commits 尚未 push。

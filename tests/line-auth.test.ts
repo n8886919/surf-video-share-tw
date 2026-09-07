@@ -91,7 +91,7 @@ describe("LINE Login", () => {
             return statement;
           },
           async first() {
-            if (sql.includes("DELETE FROM oauth_attempts")) {
+            if (sql.includes("UPDATE oauth_attempts SET status = 'processing'")) {
               return {
                 nonce: "expected-nonce",
                 code_verifier: "expected-verifier",
@@ -135,7 +135,7 @@ describe("LINE Login", () => {
     );
 
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("/");
+    expect(response.headers.get("location")).toBe("/?login=completing");
     const userWrite = writes.find(({ sql }) => sql.includes("INSERT INTO users"));
     expect(userWrite?.values.slice(1, 3)).toEqual(["U-private-subject", "浪人小明 🏄"]);
     expect(userWrite?.values.at(-1)).toBe(100);
@@ -160,7 +160,7 @@ describe("LINE Login", () => {
             return statement;
           },
           async first() {
-            if (sql.includes("DELETE FROM oauth_attempts")) {
+            if (sql.includes("UPDATE oauth_attempts SET status = 'processing'")) {
               return {
                 nonce: "expected-nonce",
                 code_verifier: "expected-verifier",
@@ -202,9 +202,10 @@ describe("LINE Login", () => {
     );
 
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("/");
+    expect(response.headers.get("location")).toBe("/?login=completing");
     expect(writes.some(({ sql }) => sql.includes("INSERT INTO users"))).toBe(false);
-    expect(writes.some(({ sql }) => sql.includes("INSERT INTO auth_sessions"))).toBe(true);
+    expect(writes.some(({ sql }) => sql.includes("status = 'completed'"))).toBe(true);
+    expect(writes.some(({ sql }) => sql.includes("INSERT INTO auth_sessions"))).toBe(false);
   });
 
   it("rejects a new LINE user when all 100 registration slots are occupied", async () => {
@@ -218,7 +219,7 @@ describe("LINE Login", () => {
             return statement;
           },
           async first() {
-            if (sql.includes("DELETE FROM oauth_attempts")) {
+            if (sql.includes("UPDATE oauth_attempts SET status = 'processing'")) {
               return {
                 nonce: "expected-nonce",
                 code_verifier: "expected-verifier",

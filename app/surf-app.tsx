@@ -31,6 +31,7 @@ import {
 } from "../packages/domain/src/public-terms";
 import { loadStreamPlayerSdk, type StreamPlayer } from "./stream-player";
 import { mergeSpotOrder, moveSpotId, spotReorderTarget } from "./spot-order";
+import { recoverLineLogin, type LoginRecovery } from "./line-login";
 import {
   inspectQuickTimeMetadata,
   resolveUploadPrefill,
@@ -77,7 +78,7 @@ interface ModerationReport {
   uploaderNote: string | null;
 }
 
-export type LoginStatus = "capacity" | "cancelled" | "config" | "expired" | "failed" | "invalid";
+export type LoginStatus = "capacity" | "cancelled" | "config" | "expired" | "failed" | "invalid" | "completing";
 
 class ApiFailure extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) {
@@ -182,10 +183,12 @@ function Brand() {
   );
 }
 
-function LoginRequired({ setupError, loginStatus, authTrace }: {
+function LoginRequired({ setupError, loginStatus, authTrace, recovery, onCheck }: {
   setupError?: string | null;
   loginStatus?: LoginStatus;
   authTrace?: string;
+  recovery?: LoginRecovery;
+  onCheck?: () => void;
 }) {
   const capacityReached = loginStatus === "capacity";
   const needsManualRetry = loginStatus === "expired" || loginStatus === "failed";
@@ -206,20 +209,28 @@ function LoginRequired({ setupError, loginStatus, authTrace }: {
     ? "目前先開放 100 位使用者；既有使用者仍可正常登入。"
     : setupError
       || (needsManualRetry
-        ? "LINE 自動登入可能未完成。若使用 iPhone，請關閉 Safari 私密瀏覽後，改用 LINE 登入畫面重試。"
+        ? "請重新點選「使用 LINE 登入」。若仍無法完成，可選擇下方的帳號密碼登入方式。"
         : loginCancelled
           ? "你尚未授權登入，可以隨時重新嘗試。"
           : invalidLogin
             ? "這次登入已過期或無法驗證，請重新開始。"
             : "使用 LINE 登入後即可上傳與管理自己的影片。");
-  const loginHref = needsManualRetry ? "/api/v1/auth/line?manual=1" : "/api/v1/auth/line";
+  const recovering = recovery === "pending";
+  const returnToOriginal = loginStatus === "completing" && recovery === "none";
+  const recoveryMessage = returnToOriginal ? "請回到原本開始登入的 Chrome、Safari 或桌面捷徑，系統會在那裡完成登入；若已在原入口，請允許網站 Cookie 後重新登入。"
+    : recovery === "cookie-unavailable" ? "LINE 驗證已完成，但這個入口沒有帶回登入 Cookie。請允許網站 Cookie，回到原入口後重新登入。"
+      : recovering ? "LINE 登入結果確認中，請稍候。"
+        : recovery === "waiting" ? "尚未收到 LINE 登入結果。請完成 LINE 授權並回到原本入口，再按「再次確認登入」。"
+          : recovery === "unavailable" ? "暫時無法確認登入，請稍後按「再次確認登入」。" : null;
   return (
     <section className="auth-card">
       <Icon name="user" />
-      <h2>{title}</h2>
-      <p>{message}</p>
+      <h2>{recoveryMessage ? (recovering ? "正在完成 LINE 登入" : "請在原入口完成登入") : title}</h2>
+      <p aria-live="polite">{recoveryMessage || message}</p>
       {authTrace && <p className="auth-diagnostic-id">診斷編號：{authTrace}</p>}
-      {!setupError && !capacityReached && <a className="line-login-button" href={loginHref}>{needsManualRetry ? "改用 LINE 登入畫面" : "使用 LINE 登入"}</a>}
+      {recoveryMessage && !recovering && <button type="button" className="line-login-button" onClick={onCheck}>再次確認登入</button>}
+      {!setupError && !capacityReached && !recovering && <a className="line-login-button" href="/api/v1/auth/line">使用 LINE 登入</a>}
+      {needsManualRetry && !recovering && <a href="/api/v1/auth/line?manual=1">改用 LINE 登入畫面（需帳號密碼）</a>}
     </section>
   );
 }
@@ -923,6 +934,10 @@ function RecentObservationList({ observations }: { observations: Observation[] }
 
 export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { loginStatus?: LoginStatus; initialHelpOpen?: boolean; authTrace?: string }) {
   const initialAuthTrace = useRef(authTrace);
+  const [currentTrace, setCurrentTrace] = useState(authTrace);
+  const [recovery, setRecovery] = useState<LoginRecovery>();
+  const [currentLoginStatus, setCurrentLoginStatus] = useState(loginStatus);
+  const checkLoginRef = useRef<() => void>(() => {});
   const [view, setView] = useState<View>(loginStatus ? "mine" : "find");
   const [spots, setSpots] = useState<Spot[]>([]);
   const [me, setMe] = useState<Me | null>(null);
@@ -931,37 +946,102 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { l
   const [observations, setObservations] = useState<Observation[]>([]);
   const [loading, setLoading] = useState(true);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  const [ownerError, setOwnerError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    void (async () => {
+    let busy = false;
+    let resumeQueued = false;
+    let controller: AbortController | undefined;
+    const displayHeaders = () => {
+      let displayMode = "unknown";
       try {
-        const spotResult = await api<{ spots: Spot[] }>("/spots");
-        if (active) setSpots(spotResult.spots);
+        const standalone = window.matchMedia("(display-mode: standalone)").matches
+          || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+        displayMode = standalone ? "standalone" : "browser";
+      } catch { /* Diagnostics must not block session confirmation. */ }
+      return { "x-surf-display-mode": displayMode,
+        ...(initialAuthTrace.current ? { "x-surf-auth-trace": initialAuthTrace.current } : {}) };
+    };
+    const check = async () => {
+      if (!active || document.visibilityState === "hidden") return;
+      if (busy) { if (controller?.signal.aborted) resumeQueued = true; return; }
+      busy = true;
+      controller = new AbortController();
+      try {
+        setAuthSetupError(null);
+        let completed: LoginRecovery = "unavailable";
         try {
-          let displayMode = "unknown";
-          try {
-            const standalone = window.matchMedia("(display-mode: standalone)").matches
-              || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-            displayMode = standalone ? "standalone" : "browser";
-          } catch { /* Display-mode diagnostics must not block the existing session check. */ }
-          const meResult = await api<Me>("/me", { headers: {
-            "x-surf-display-mode": displayMode,
-            ...(initialAuthTrace.current ? { "x-surf-auth-trace": initialAuthTrace.current } : {}),
+          completed = await recoverLineLogin({ signal: controller.signal, onProgress(status, traceId) {
+            if (!active) return;
+            setRecovery(status);
+            setAuthChecked(true);
+            if (status === "pending") setView("mine");
+            if (traceId) { initialAuthTrace.current = traceId; setCurrentTrace(traceId); }
           } });
-          if (!active) return;
-          setMe(meResult);
-          const own = await api<{ observations: Observation[] }>("/videos");
-          if (active) setObservations(own.observations);
         } catch (error) {
-          if (error instanceof ApiFailure && error.code === "AUTH_NOT_CONFIGURED") setAuthSetupError(error.message);
-          else if (!(error instanceof ApiFailure) || error.code !== "UNAUTHENTICATED") throw error;
-        } finally { if (active) setAuthChecked(true); }
+          if (controller.signal.aborted) throw error;
+          // A completion outage must not hide an already-valid seven-day session.
+          setRecovery("unavailable");
+        }
+        if (!active || controller.signal.aborted) return;
+        if (["failed", "expired", "cancelled", "capacity"].includes(completed)) {
+          setCurrentLoginStatus(completed as LoginStatus);
+        }
+        try {
+          const meResult = await api<Me>("/me", { headers: displayHeaders(), signal: controller.signal });
+          if (!active || controller.signal.aborted) return;
+          setMe(meResult);
+          setRecovery(undefined);
+          setCurrentLoginStatus(undefined);
+          if (completed === "ready") setView("mine");
+          // Remove stale failure/correlation values without navigating or exposing credentials.
+          const url = new URL(window.location.href);
+          url.searchParams.delete("login"); url.searchParams.delete("auth_trace");
+          window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+          try {
+            const own = await api<{ observations: Observation[] }>("/videos", { signal: controller.signal });
+            if (active && !controller.signal.aborted) { setObservations(own.observations); setOwnerError(null); }
+          } catch {
+            if (active && !controller.signal.aborted) setOwnerError("已登入，但影片清單暫時無法載入，請稍後重新整理。");
+          }
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          if (error instanceof ApiFailure && error.code === "AUTH_NOT_CONFIGURED") { setMe(null); setAuthSetupError(error.message); }
+          else if (error instanceof ApiFailure && error.code === "UNAUTHENTICATED") {
+            setMe(null);
+            if (completed === "ready") setRecovery("cookie-unavailable");
+          } else throw error;
+        }
       } catch (error) {
-        if (active) setFatalError(error instanceof Error ? error.message : "無法載入");
-      } finally { if (active) setLoading(false); }
-    })();
-    return () => { active = false; };
+        if (active && !controller.signal.aborted) {
+          setRecovery("unavailable");
+          if (error instanceof ApiFailure && error.code === "AUTH_NOT_CONFIGURED") setAuthSetupError(error.message);
+        }
+      } finally {
+        busy = false;
+        if (active) setAuthChecked(true);
+        if (resumeQueued) { resumeQueued = false; void check(); }
+      }
+    };
+    // Authentication must not depend on the public spot query or owner video-list success.
+    void api<{ spots: Spot[] }>("/spots").then(result => { if (active) setSpots(result.spots); })
+      .catch(error => { if (active) setFatalError(error instanceof Error ? error.message : "無法載入浪點"); })
+      .finally(() => { if (active) setLoading(false); });
+    const resume = () => { void check(); };
+    const visibility = () => {
+      if (document.visibilityState === "hidden") controller?.abort();
+      else resume();
+    };
+    checkLoginRef.current = resume;
+    window.addEventListener("pageshow", resume);
+    document.addEventListener("visibilitychange", visibility);
+    resume();
+    return () => {
+      active = false; controller?.abort(); checkLoginRef.current = () => {};
+      window.removeEventListener("pageshow", resume);
+      document.removeEventListener("visibilitychange", visibility);
+    };
   }, []);
 
   async function patchObservation(id: string, patch: Record<string, unknown>) {
@@ -975,8 +1055,8 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { l
     <main className="app-shell">
       <Topbar initialHelpOpen={initialHelpOpen}/>
       <FindView spots={spots} active={view === "find"}/>
-      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus} authTrace={authTrace}/></div>)}
-      {view === "mine" && (me ? <MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={loginStatus} authTrace={authTrace}/></div>)}
+      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={currentLoginStatus} authTrace={currentTrace} recovery={recovery} onCheck={() => checkLoginRef.current()}/></div>)}
+      {view === "mine" && (me ? <><MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/>{ownerError && <p role="status">{ownerError}</p>}</> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={currentLoginStatus} authTrace={currentTrace} recovery={recovery} onCheck={() => checkLoginRef.current()}/></div>)}
       <BottomNav view={view} onChange={setView}/>
     </main>
   );

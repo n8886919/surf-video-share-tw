@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../src/worker/api";
-import { beginLineLogin, finishLineLogin } from "../src/worker/auth";
+import { beginLineLogin, completeLineLogin, finishLineLogin } from "../src/worker/auth";
 import { withAuthDiagnostic } from "../src/worker/auth-diagnostics";
 import type { AppEnv } from "../src/worker/db";
 import { runHourlyOpsAnalysis } from "../src/worker/ops-observability";
@@ -39,12 +39,17 @@ function fixture() {
       async first() { return sqlite.prepare(sql).get(...values) ?? null; },
       async all() { return { results: sqlite.prepare(sql).all(...values), success: true }; },
       async run() { return { meta: sqlite.prepare(sql).run(...values), success: true }; },
+      execute() { return { results: sqlite.prepare(sql).all(...values), success: true }; },
     };
     return statement;
   }
   const db = {
     prepare,
-    async batch(statements: Array<ReturnType<typeof prepare>>) { return Promise.all(statements.map(s => s.run())); },
+    async batch(statements: Array<ReturnType<typeof prepare>>) {
+      sqlite.exec("BEGIN");
+      try { const results = statements.map(s => s.execute()); sqlite.exec("COMMIT"); return results; }
+      catch (error) { sqlite.exec("ROLLBACK"); throw error; }
+    },
   } as unknown as D1Database;
   const limit = vi.fn().mockResolvedValue({ success: true });
   const env = {
@@ -53,6 +58,7 @@ function fixture() {
     LINE_CALLBACK_URL: callback, SESSION_SECRET: "private-session-secret",
     AUTH_DIAGNOSTICS_UNTIL: "2026-09-14T00:00:00.000Z",
     PUBLIC_WRITE_RATE_LIMITER: { limit },
+    PLAYBACK_RATE_LIMITER: { limit: vi.fn().mockResolvedValue({ success: true }) },
   } as unknown as AppEnv;
   return {
     sqlite, env, limit,
@@ -65,7 +71,13 @@ async function start(env: AppEnv, ua = headers["user-agent"]) {
     headers: { ...headers, "user-agent": ua },
   }) });
   const url = new URL(response.headers.get("location")!);
-  return { response, url, state: url.searchParams.get("state")!, nonce: url.searchParams.get("nonce")! };
+  return { response, url, cookie: response.headers.get("set-cookie")!.split(";")[0], state: url.searchParams.get("state")!, nonce: url.searchParams.get("nonce")! };
+}
+
+function claimRequest(cookie: string, ua = headers["user-agent"]) {
+  return new Request(`${origin}/api/v1/auth/line/complete`, { method: "POST", headers: {
+    ...headers, "user-agent": ua, origin, cookie, "content-type": "application/json", "sec-fetch-site": "same-origin",
+  } });
 }
 
 function completeRequest(state: string, ua = headers["user-agent"], params = `code=${privateCode}`) {
@@ -113,8 +125,10 @@ describe("temporary LINE diagnostics with the migrated schema", () => {
     expect(trace).toMatch(/^[a-f0-9]{32}$/);
     expect(trace).toBe(attempt.response.headers.get("x-surf-auth-trace"));
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe(`/?auth_trace=${trace}`);
-    const setCookie = response.headers.get("set-cookie")!;
+    expect(response.headers.get("location")).toBe(`/?login=completing&auth_trace=${trace}`);
+    expect(response.headers.has("set-cookie")).toBe(false);
+    const claimed = await completeLineLogin(claimRequest(attempt.cookie, ua), f.env);
+    const setCookie = claimed.headers.getSetCookie().find(value => value.startsWith("__Host-surf_session="))!;
     expect(setCookie).toMatch(/^__Host-surf_session=[A-Za-z0-9_-]+; Path=\/; Max-Age=604800; HttpOnly; Secure; SameSite=Lax$/);
     const cookie = setCookie.split(";")[0];
     for (const [sentCookie, status] of [[cookie, 200], ["", 401], ["__Host-surf_session=forged", 401]] as const) {
@@ -125,27 +139,28 @@ describe("temporary LINE diagnostics with the migrated schema", () => {
     }
     const replay = await finishLineLogin(completeRequest(attempt.state, ua), f.env);
     expect(replay.status).toBe(303);
-    expect(replay.headers.get("location")).toBe(`/?login=expired&auth_trace=${trace}`);
+    expect(replay.headers.get("location")).toBe(`/?login=completing&auth_trace=${trace}`);
     expect(replay.headers.has("set-cookie")).toBe(false);
     expect(line).toHaveBeenCalledTimes(2);
     const rows = f.rows();
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
     expect(new Set(rows.map(row => row.trace_id))).toEqual(new Set([trace]));
-    expect(new Set(rows.map(row => row.id)).size).toBe(6);
-    expect(JSON.parse(rows[1].details_json)).toMatchObject({ os, browser, sessionCookieSet: true,
-      steps: expect.arrayContaining([{ stage: "session", outcome: "created" }]) });
-    expect(JSON.parse(rows[2].details_json)).toMatchObject({ os, browser, displayMode, sessionCookiePresent: true,
+    expect(new Set(rows.map(row => row.id)).size).toBe(7);
+    expect(JSON.parse(rows[1].details_json)).toMatchObject({ sessionCookieSet: false });
+    expect(JSON.parse(rows[2].details_json)).toMatchObject({ os, browser, sessionCookieSet: true,
+      steps: expect.arrayContaining([{ stage: "session", outcome: "delivered" }]) });
+    expect(JSON.parse(rows[3].details_json)).toMatchObject({ os, browser, displayMode, sessionCookiePresent: true,
       traceSource: "untrusted_client", steps: expect.arrayContaining([{ stage: "session", outcome: "authenticated", httpStatus: 200 }]) });
-    expect(JSON.parse(rows[3].details_json)).toMatchObject({ sessionCookiePresent: false,
+    expect(JSON.parse(rows[4].details_json)).toMatchObject({ sessionCookiePresent: false,
       steps: expect.arrayContaining([{ stage: "session", outcome: "unauthenticated", httpStatus: 401 }]) });
-    expect(JSON.parse(rows[5].details_json).steps.at(-1)).toEqual({ stage: "attempt", outcome: "missing_or_consumed" });
+    expect(JSON.parse(rows[6].details_json).steps.at(-1)).toEqual({ stage: "attempt", outcome: "completed" });
 
     const serialized = JSON.stringify([rows, vi.mocked(console.info).mock.calls]);
     const session = f.sqlite.prepare("SELECT id_hash FROM auth_sessions").get()!;
-    for (const secret of [attempt.state, attempt.nonce, privateCode, privateToken, privateSubject,
+    for (const secret of [attempt.state, attempt.nonce, attempt.cookie.split("=")[1], privateCode, privateToken, privateSubject,
       "private-line-name", f.env.LINE_CHANNEL_SECRET!, f.env.SESSION_SECRET!, cookie.split("=")[1],
       String(session.id_hash), ua, headers["cf-connecting-ip"], callback]) expect(serialized).not.toContain(secret);
-    expect(f.limit.mock.calls.every(([input]) => /^auth-diagnostic:(begin|callback|me):[a-f0-9]{32}$/.test(input.key))).toBe(true);
+    expect(f.limit.mock.calls.every(([input]) => /^auth-diagnostic:(begin|callback|completion|me):[a-f0-9]{32}$/.test(input.key))).toBe(true);
   });
 
   it.each([undefined, "", "invalid-date", now])("does not instrument when deadline is %s", async until => {
@@ -153,7 +168,7 @@ describe("temporary LINE diagnostics with the migrated schema", () => {
     const attempt = await start(f.env);
     mockLine(attempt.nonce);
     const response = await finishLineLogin(completeRequest(attempt.state), f.env);
-    expect(response.headers.get("location")).toBe("/");
+    expect(response.headers.get("location")).toBe("/?login=completing");
     expect(response.headers.has("x-surf-auth-trace")).toBe(false);
     expect(f.rows()).toEqual([]);
     expect(console.info).not.toHaveBeenCalled();
@@ -169,9 +184,11 @@ describe("temporary LINE diagnostics with the migrated schema", () => {
     mockLine(attempt.nonce);
     const response = await finishLineLogin(completeRequest(attempt.state), f.env);
     expect(response.status).toBe(303);
-    expect(response.headers.get("set-cookie")).toContain("SameSite=Lax");
-    expect(response.headers.get("location")).not.toContain("login=");
-    expect(console.info).toHaveBeenCalledTimes(2);
+    expect(response.headers.has("set-cookie")).toBe(false);
+    expect(response.headers.get("location")).toContain("login=completing");
+    const claimed = await completeLineLogin(claimRequest(attempt.cookie), f.env);
+    expect(claimed.headers.get("set-cookie")).toContain("SameSite=Lax");
+    expect(console.info).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(privateToken);
   });
 

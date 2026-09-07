@@ -76,12 +76,19 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx ON auth_sessions (expires_at)`,
   `CREATE TABLE IF NOT EXISTS oauth_attempts (
     state_hash TEXT PRIMARY KEY NOT NULL,
+    browser_proof_hash TEXT,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    result_user_id TEXT REFERENCES users(id),
+    failure TEXT,
+    delivered_at TEXT,
+    trace_id TEXT,
     nonce TEXT NOT NULL,
     code_verifier TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS oauth_attempts_expires_at_idx ON oauth_attempts (expires_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS oauth_attempts_browser_proof_idx ON oauth_attempts (browser_proof_hash)`,
   `CREATE TABLE IF NOT EXISTS auth_diagnostic_events (
     id TEXT PRIMARY KEY NOT NULL, trace_id TEXT NOT NULL, kind TEXT NOT NULL,
     details_json TEXT NOT NULL, occurred_at TEXT NOT NULL

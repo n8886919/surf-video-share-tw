@@ -213,6 +213,10 @@ async function fulfillJson(route: Route, status: number, body: unknown) {
 async function mockPublicApi(page: Page, delayedSpotId?: string) {
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === "/api/v1/auth/line/complete") {
+      await fulfillJson(route, 200, { status: "none" });
+      return;
+    }
     if (url.pathname === "/api/v1/spots") {
       await fulfillJson(route, 200, { spots });
       return;
@@ -250,7 +254,8 @@ for (const displayMode of ["browser", "standalone"] as const) {
     await page.goto(`/?login=expired&auth_trace=${trace}`);
     await expect(page.getByRole("heading", { name: "LINE 登入未完成" })).toBeVisible();
     await expect(page.getByText(`診斷編號：${trace}`, { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "改用 LINE 登入畫面" })).toHaveAttribute("href", "/api/v1/auth/line?manual=1");
+    await expect(page.getByRole("link", { name: "改用 LINE 登入畫面（需帳號密碼）" })).toHaveAttribute("href", "/api/v1/auth/line?manual=1");
+    await expect(page.getByRole("link", { name: "使用 LINE 登入", exact: true })).toHaveAttribute("href", "/api/v1/auth/line");
     expect(meHeaders).toHaveLength(1);
     expect(meHeaders[0]["x-surf-auth-trace"]).toBe(trace);
     expect(meHeaders[0]["x-surf-display-mode"]).toBe(displayMode);
@@ -258,7 +263,7 @@ for (const displayMode of ["browser", "standalone"] as const) {
     await page.getByRole("button", { name: "我的", exact: true }).click();
     await expect(page.getByText(`診斷編號：${trace}`, { exact: true })).toBeVisible();
     expect(meHeaders).toHaveLength(1);
-    expect(loginRequests).toHaveLength(0);
+    expect(loginRequests).toEqual(["/api/v1/auth/line/complete"]);
     if (displayMode === "browser") await page.screenshot({ path: "outputs/line-diagnostic-mobile.png", fullPage: true });
   });
 }

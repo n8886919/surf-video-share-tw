@@ -8,6 +8,7 @@ const LOGIN_STATUSES = new Set<LoginStatus>([
   "expired",
   "failed",
   "invalid",
+  "completing",
 ]);
 
 export default async function Home({

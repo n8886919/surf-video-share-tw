@@ -3,6 +3,11 @@ import { z } from "zod";
 // Diagnostic correlation only: never accepted as authentication or authorization.
 export const authTraceSchema = z.string().regex(/^[a-f0-9]{32}$/);
 export const authDisplayModeSchema = z.enum(["browser", "standalone", "unknown"]);
+export const lineCompletionSchema = z.object({
+  status: z.enum(["none", "pending", "ready", "expired", "failed", "cancelled", "capacity"]),
+  traceId: authTraceSchema.optional(),
+});
+export type LineCompletion = z.infer<typeof lineCompletionSchema>;
 
 export const CWA_FORECAST_INGESTION_CONTRACT = {
   version: "cwa-forecast-ingestion-v4",

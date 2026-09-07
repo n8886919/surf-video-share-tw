@@ -1,12 +1,12 @@
 import { authDisplayModeSchema, authTraceSchema } from "../../packages/api-contract/src";
 import type { AppEnv } from "./db";
 
-type Kind = "begin" | "callback" | "me";
+type Kind = "begin" | "callback" | "completion" | "me";
 type Stage = "configuration" | "begin" | "attempt" | "token" | "verify" | "user" | "session";
 type Outcome = "started" | "received" | "valid" | "missing_or_consumed" | "expired"
   | "missing_state" | "missing_code" | "cancelled" | "http_error" | "invalid_response"
   | "claims_rejected" | "capacity" | "created" | "authenticated" | "unauthenticated"
-  | "unconfigured" | "exception";
+  | "unconfigured" | "exception" | "processing" | "completed" | "delivered" | "missing_proof";
 type WaitUntil = (promise: Promise<unknown>) => void;
 
 export async function diagnosticDigest(secret: string, value: string): Promise<string> {
@@ -50,6 +50,7 @@ export class AuthDiagnostic {
       // Presence is observational only. No cookie values, URL, UA, IP or upstream body is retained.
       sessionCookiePresent: /(?:^|;\s*)__Host-surf_session=/.test(request?.headers.get("cookie") ?? ""),
       sessionCookieSet: Boolean(response?.headers.get("set-cookie")?.includes("__Host-surf_session=")),
+      browserProofPresent: /(?:^|;\s*)__Host-surf_login=/.test(request?.headers.get("cookie") ?? ""),
       responseStatus: response?.status ?? null,
       manual: this.kind === "begin" && request ? new URL(request.url).searchParams.get("manual") === "1" : null,
       traceSource: this.traceSource,

@@ -493,6 +493,12 @@ async function retryPendingIncidentNotifications(
 
 async function retainBoundedOpsHistory(env: AppEnv, now: Date): Promise<void> {
   await env.DB.batch([
+    env.DB.prepare(`DELETE FROM oauth_attempts WHERE state_hash IN (
+      SELECT state_hash FROM oauth_attempts WHERE expires_at <= ? ORDER BY expires_at LIMIT 500
+    )`).bind(now.toISOString()),
+    env.DB.prepare(`DELETE FROM auth_sessions WHERE id_hash IN (
+      SELECT id_hash FROM auth_sessions WHERE expires_at <= ? ORDER BY expires_at LIMIT 500
+    )`).bind(now.toISOString()),
     env.DB.prepare("DELETE FROM ops_events WHERE occurred_at < ?")
       .bind(new Date(now.getTime() - EVENT_RETENTION_MS).toISOString()),
     env.DB.prepare("DELETE FROM ops_analysis_runs WHERE created_at < ?")

@@ -36,12 +36,21 @@ export const oauthAttempts = sqliteTable(
   "oauth_attempts",
   {
     stateHash: text("state_hash").primaryKey(),
+    browserProofHash: text("browser_proof_hash"),
+    status: text("status").notNull().default("pending"),
+    resultUserId: text("result_user_id").references(() => users.id),
+    failure: text("failure"),
+    deliveredAt: text("delivered_at"),
+    traceId: text("trace_id"),
     nonce: text("nonce").notNull(),
     codeVerifier: text("code_verifier").notNull(),
     expiresAt: text("expires_at").notNull(),
     createdAt: text("created_at").notNull(),
   },
-  (table) => [index("oauth_attempts_expires_at_idx").on(table.expiresAt)],
+  (table) => [
+    index("oauth_attempts_expires_at_idx").on(table.expiresAt),
+    uniqueIndex("oauth_attempts_browser_proof_idx").on(table.browserProofHash),
+  ],
 );
 
 export const authDiagnosticEvents = sqliteTable("auth_diagnostic_events", {

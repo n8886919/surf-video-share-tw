@@ -44,6 +44,7 @@ import { createVideoProvider } from "./providers";
 import { attachConditionsBestEffort } from "./enrichment";
 import {
   beginLineLogin,
+  completeLineLogin,
   finishLineLogin,
   getAuthenticatedUser,
   isLineAuthConfigured,
@@ -946,6 +947,9 @@ api.get("/auth/line", async (context) => {
   });
 });
 api.get("/auth/line/callback", (context) => finishLineLogin(
+  context.req.raw, context.env, promise => context.executionCtx.waitUntil(promise),
+));
+api.post("/auth/line/complete", (context) => completeLineLogin(
   context.req.raw, context.env, promise => context.executionCtx.waitUntil(promise),
 ));
 api.post("/auth/logout", (context) => logout(context.req.raw, context.env));

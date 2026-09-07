@@ -120,6 +120,13 @@
       "when": 1788773353288,
       "tag": "0016_wandering_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1788795020453,
+      "tag": "0017_sturdy_rockslide",
+      "breakpoints": true
     }
   ]
 }
