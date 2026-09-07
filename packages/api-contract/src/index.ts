@@ -185,6 +185,7 @@ export interface CombinedMatchResponse {
 }
 
 export interface PublicMatchesResponse {
+  diagnostic?: { traceId: string; emptyReason: "none" | "no_videos" | "missing_target" | "insufficient_history" };
   spot: { id: string; slug: string; name: string };
   targetTime: string;
   forecasts: ForecastResponse[];
@@ -226,6 +227,7 @@ export const sharedPlaybackSchema = z.object({
 });
 
 export const playbackStartSchema = z.object({
+  searchTraceId: z.string().uuid().optional(),
   trackingToken: z.string().min(20).max(2_000),
 });
 
@@ -464,3 +466,21 @@ export type CwaForecastIngestionCompletion = z.infer<typeof cwaForecastIngestion
 
 export type UploadRequestInput = z.infer<typeof uploadRequestSchema>;
 export type ProblemReportInput = z.infer<typeof problemReportSchema>;
+
+export const clientDiagnosticSchema = z.object({
+  traceId: z.string().uuid(),
+  event: z.enum(["upload_step", "upload_failed", "playback_failed"]),
+  details: z.object({
+    stage: z.enum(["selection", "ticket", "transfer", "completion", "player", "sdk", "tracking"]),
+    outcome: z.enum(["started", "success", "failed"]),
+    durationMs: z.number().int().min(0).max(3_600_000),
+    status: z.number().int().min(100).max(599).optional(),
+    videoId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/).optional(),
+    version: z.string().regex(/^\d+\.\d+(?:\.\d+)?$/),
+  }).strict(),
+}).strict();
+export type ClientDiagnostic = z.infer<typeof clientDiagnosticSchema>;
+
+export const moderationDecisionSchema = z.object({
+  reason: z.enum(["test", "no_violation", "privacy", "minor", "copyright", "irrelevant"]),
+}).strict();

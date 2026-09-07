@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { clientDiagnostic } from "../../journey-diagnostics";
 import { useEffect, useRef, useState } from "react";
 import type {
   ObservationResponse,
@@ -50,6 +51,7 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const playbackRecorded = useRef(false);
+  const diagnosticTrace = useRef(crypto.randomUUID());
   const playbackRequestInFlight = useRef(false);
 
   useEffect(() => {
@@ -64,6 +66,7 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
   useEffect(() => {
     if (playback?.type !== "iframe" || !iframeRef.current) return;
     let active = true;
+    const startedAt = Date.now();
     let player: StreamPlayer | null = null;
     const recordStartedPlayback = () => {
       if (!active || playbackRecorded.current) return;
@@ -73,14 +76,17 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
         body: JSON.stringify({ trackingToken: playback.trackingToken }),
       }).catch(() => undefined);
     };
+    const failed = () => { if (active) clientDiagnostic("playback_failed", diagnosticTrace.current, { stage: "player", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId }); };
     void loadStreamPlayerSdk().then((stream) => {
       if (!active || !iframeRef.current) return;
       player = stream(iframeRef.current);
       player.addEventListener("playing", recordStartedPlayback);
-    }).catch(() => undefined);
+      player.addEventListener("error", failed);
+    }).catch(() => { if (active) clientDiagnostic("playback_failed", diagnosticTrace.current, { stage: "sdk", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId }); });
     return () => {
       active = false;
       player?.removeEventListener?.("playing", recordStartedPlayback);
+      player?.removeEventListener?.("error", failed);
     };
   }, [playback, videoId]);
 
@@ -94,6 +100,8 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
     playbackRequestInFlight.current = true;
     playbackRecorded.current = false;
     setPlaybackLoading(true);
+    const startedAt = Date.now();
+    diagnosticTrace.current = crypto.randomUUID();
     try {
       setPlayback(await publicApi<PlaybackResponse>(`/shared-videos/${encodeURIComponent(videoId)}/playback`, {
         method: "POST",
@@ -101,6 +109,7 @@ export function PublicVideo({ videoId, shareToken }: { videoId: string; shareTok
       }));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "影片播放失敗");
+      clientDiagnostic("playback_failed", diagnosticTrace.current, { stage: "player", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId });
     } finally {
       playbackRequestInFlight.current = false;
       setPlaybackLoading(false);

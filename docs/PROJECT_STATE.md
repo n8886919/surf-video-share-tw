@@ -2,6 +2,14 @@
 
 Updated: 2026-09-08
 
+## Product 0.29 — release candidate
+
+The owner explicitly authorized bounded core-flow diagnostics, a separate LINE-authenticated administrator page and deployment. Implementation adds /admin, per-route authorization and same-origin JSON writes, reported-video review including delisted media, keep/resolve test or no-violation reports, atomic delist/restore audit and product-feedback handling. My now only links to the admin page. Minimal search/upload/playback diagnostics have seven-day detail / thirty-day daily aggregate targets and per-source daily storage caps; all new client claims are untrusted and no identity/content/secrets are logged. Curated console evidence survives failed D1 persistence; incident silence no longer implies recovery. Migration 0019 is additive and does not scan forecast history for a new index. Full pnpm verify passed: lint/typecheck, 44 Vitest files / 296 tests, actual migration execution and drift verification, production build, 4 built-Worker/rendered checks and 22 Chromium tests including administrator access denial, test-report resolution, fixed admin return and WCAG A/AA. Final diagnostic timing refinements also passed lint/typecheck and were included in the tested production build. Product 0.29 publication and read-back are next.
+
+The owner confirmed the existing minor report was a test. No production moderation action, test LINE push, billing-plan change, or historical data backfill is authorized by implementation alone. Preserve the test record until the administrator explicitly resolves it in the new interface.
+
+At 02:49 Taipei, read-only production checks confirmed CWA and MFWAM each had one naturally completed ledger entry from the 02:20 cycle, with health/readiness ok and redaction enabled. GraphQL at 02:46 reported 104,782 writes for September 7 UTC; the cycle did complete despite the previously projected Free-tier headroom risk. Actual billing-plan status remains unconfirmed and must not be inferred solely from this metric. Migration 0019 alone is pending. First eligible daily report remains September 10 at 09:05 Taipei.
+
 ## Product 0.28 daily forecast report — deployed
 
 Local implementation follows the September 8 request: one combined CWA/MFWAM LINE success report at 09:05 Asia/Taipei for the previous Taipei date, showing only expected four updates and successful update count for each source. The per-run Worker pushes are removed and GitHub's six-hour forecast check becomes failure-only. Fault/recovery alerts remain separate. No new schedule, provider, paid resource or secret is added.
@@ -31,6 +39,10 @@ Other confirmed findings: a thumbnail-issued Stream token can retrieve a playbac
 Fresh `pnpm verify` passed 274 Vitest tests, 4 built-Worker/rendered checks, and 19 Chromium UI/accessibility tests plus lint/typecheck/migration drift/build. Dependency audit reported no known vulnerabilities. A built-Worker/in-memory SQLite proof reproduced abandoned-upload retention and verified a candidate partial CWA run index changes SCAN to indexed SEARCH. No product code, production data, subscriptions, deployment, provider settings, or notifications were changed by this audit.
 
 ## Current deployment
+
+Final read-back at 01:24 Taipei after documentation commit `e10ccf5` confirms Cloudflare version `a7f0d431-dc6d-480d-bb55-427ac4f2a058` at 100%, no pending migration, redaction enabled, healthy endpoints and the unchanged verified 0.28 bundle hash. CI run `34147318842` and Workers Build `5a8fee51-380f-469b-aaaf-deece0f59d73` both passed. GitHub `main` and the active failure-only workflow are synchronized.
+
+Immediate operational follow-up: post-migration UTC September 7 writes reached 80,299. A bounded analytics query for the previous normal 12:15–12:40 UTC collection window returned 23,994 writes. If the account is still Workers Free, remaining headroom is only about 19,701 writes and the September 8 02:20 Taipei collection may exhaust the 100,000-write quota before its 08:00 reset. This is a forecast based on observed batch use, not confirmation of the account plan or a guaranteed next-batch size. The owner was asked whether Workers Paid is active; no answer was available at this checkpoint. Do not change the paid plan, pause collectors or fabricate run history without resolving that operational choice. Evidence: ignored `outputs/release-028-quota.json`.
 
 Product `0.28` implementation `e2b0001` is deployed with migration 0018 and the GitHub failure-only forecast workflow. The exact post-build verification record, source hash and pending normal-schedule acceptance are above. Documentation-only publication after that record may create another Cloudflare deployment ID without changing the verified 0.28 runtime.
 
@@ -244,7 +256,7 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 
 ## Next task
 
-Complete normal-schedule acceptance for deployed Product 0.28: inspect the CWA/MFWAM ledger after the September 8 02:20 Taipei collection and verify the first eligible daily report (expected September 10 09:05, covering September 9). Confirm incomplete batches do not count and healthy GitHub forecast checks remain silent; do not trigger extra ingestion, backfill or test LINE pushes merely to populate evidence.
+Complete the approved Product 0.29 deployment and verify the actual production version, private administrator boundary, additive schema and diagnostic persistence. Do not fabricate user actions or automatically resolve the test report.
 
 Pending acceptance: broader physical Android Chrome/home-screen and iPhone Safari/home-screen LINE acceptance remains required, preserving desktop QR login. The two users' physical iPhone Safari scrolling retest for Product `0.23` also remains outstanding. Whole-day D1 usage, thumbnail-token cost isolation, abandoned-upload recovery, and the 14-day pilot evaluation are tracked in the healthcheck; do not broaden feature scope before addressing these observed constraints.
 

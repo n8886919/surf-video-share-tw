@@ -58,7 +58,18 @@ async function readClientBundle(pattern, description) {
       throw error;
     }
     const asset = names.find((name) => pattern.test(name));
-    if (asset) return readFile(new URL(asset, directory), "utf8");
+    if (asset) {
+      const visited = new Set();
+      async function readDependency(name) {
+        if (visited.has(name)) return "";
+        visited.add(name);
+        const source = await readFile(new URL(name, directory), "utf8");
+        const dependencies = [...source.matchAll(/(?:from|import)\s*["'`]\.\/([a-zA-Z0-9_.-]+\.js)["'`]/g)]
+          .map(match => match[1]).filter(name => names.includes(name));
+        return source + (await Promise.all(dependencies.map(readDependency))).join("\n");
+      }
+      return readDependency(asset);
+    }
   }
   assert.fail(`${description} client bundle should exist`);
 }

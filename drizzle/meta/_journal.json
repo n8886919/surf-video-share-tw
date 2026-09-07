@@ -134,6 +134,13 @@
       "when": 1788800413798,
       "tag": "0018_forecast_daily_report",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1788806319724,
+      "tag": "0019_pink_black_knight",
+      "breakpoints": true
     }
   ]
 }

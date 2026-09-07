@@ -55,6 +55,13 @@ export interface SpotRow {
 }
 
 const schemaStatements = [
+  "CREATE TABLE IF NOT EXISTS journey_daily (\n\tday text NOT NULL,\n\tsource text NOT NULL,\n\tevent text NOT NULL,\n\toutcome text NOT NULL,\n\tcount integer NOT NULL\n);",
+  "CREATE UNIQUE INDEX IF NOT EXISTS journey_daily_key_idx ON journey_daily (day,source,event,outcome);",
+  "CREATE TABLE IF NOT EXISTS journey_events (\n\tid text PRIMARY KEY NOT NULL,\n\ttrace_id text NOT NULL,\n\tevent text NOT NULL,\n\tsource text NOT NULL,\n\tdetails_json text NOT NULL,\n\toccurred_at text NOT NULL\n);",
+  "CREATE INDEX IF NOT EXISTS journey_events_time_idx ON journey_events (occurred_at);",
+  "CREATE INDEX IF NOT EXISTS journey_events_trace_idx ON journey_events (trace_id,occurred_at);",
+  "CREATE TABLE IF NOT EXISTS moderation_actions (\n\tid text PRIMARY KEY NOT NULL,\n\tactor_user_id text NOT NULL,\n\ttarget_type text NOT NULL,\n\ttarget_id text NOT NULL,\n\taction text NOT NULL,\n\treason text NOT NULL,\n\toccurred_at text NOT NULL\n);",
+  "CREATE INDEX IF NOT EXISTS moderation_actions_time_idx ON moderation_actions (occurred_at);",
   `CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY NOT NULL,
     line_subject TEXT NOT NULL,
@@ -241,6 +248,7 @@ const schemaStatements = [
     id TEXT PRIMARY KEY NOT NULL,
     video_id TEXT NOT NULL REFERENCES videos(id),
     reason TEXT NOT NULL,
+    resolution_action TEXT, resolution_reason TEXT, resolution_id TEXT,
     status TEXT DEFAULT 'open' NOT NULL,
     created_at TEXT NOT NULL,
     resolved_at TEXT,

@@ -1,6 +1,34 @@
 import { sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+export const journeyEvents = sqliteTable("journey_events", {
+  id: text("id").primaryKey(),
+  traceId: text("trace_id").notNull(),
+  event: text("event").notNull(),
+  source: text("source").notNull(),
+  detailsJson: text("details_json").notNull(),
+  occurredAt: text("occurred_at").notNull(),
+}, table => [index("journey_events_time_idx").on(table.occurredAt),
+  index("journey_events_trace_idx").on(table.traceId, table.occurredAt)]);
+
+export const journeyDaily = sqliteTable("journey_daily", {
+  day: text("day").notNull(),
+  source: text("source").notNull(),
+  event: text("event").notNull(),
+  outcome: text("outcome").notNull(),
+  count: integer("count").notNull(),
+}, table => [uniqueIndex("journey_daily_key_idx").on(table.day, table.source, table.event, table.outcome)]);
+
+export const moderationActions = sqliteTable("moderation_actions", {
+  id: text("id").primaryKey(),
+  actorUserId: text("actor_user_id").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  action: text("action").notNull(),
+  reason: text("reason").notNull(),
+  occurredAt: text("occurred_at").notNull(),
+}, table => [index("moderation_actions_time_idx").on(table.occurredAt)]);
+
 export const users = sqliteTable(
   "users",
   {
@@ -270,6 +298,9 @@ export const videoReports = sqliteTable(
     id: text("id").primaryKey(),
     videoId: text("video_id").notNull().references(() => videos.id),
     reason: text("reason").notNull(),
+    resolutionAction: text("resolution_action"),
+    resolutionReason: text("resolution_reason"),
+    resolutionId: text("resolution_id"),
     status: text("status").notNull().default("open"),
     createdAt: text("created_at").notNull(),
     resolvedAt: text("resolved_at"),

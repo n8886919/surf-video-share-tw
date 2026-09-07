@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import {
   completeUploadSchema,
+  clientDiagnosticSchema,
   MAX_UPLOAD_BYTES,
   MAX_VIDEO_DURATION_SECONDS,
   matchQuerySchema,
@@ -53,7 +54,9 @@ import {
 import { cleanupExpiredPendingVideos } from "./video-lifecycle";
 import { resolveVideoStatus } from "./video-status";
 import { internalForecastIngestionApi } from "./internal-forecast-ingestion";
-import { checkOpsReadiness, recordOpsEvent } from "./ops-observability";
+import { checkOpsReadiness, recordOpsEvent, recordOpsRecovery, normalizeCode } from "./ops-observability";
+import { adminApi } from "./admin";
+import { recordJourney } from "./journey-diagnostics";
 import { withAuthDiagnostic } from "./auth-diagnostics";
 
 type Variables = { user: UserRow; authMode: "development" | "line" };
@@ -515,18 +518,7 @@ interface PublicVideoRow {
   video_provider: string;
 }
 
-interface ReportRow {
-  id: string;
-  video_id: string;
-  reason: string;
-  status: string;
-  created_at: string;
-  resolved_at: string | null;
-  spot_name_en: string | null;
-  spot_name_zh: string | null;
-  captured_at: string | null;
-  uploader_note: string | null;
-}
+
 
 const observationSelect = (ownerView: boolean) => `
   SELECT
@@ -840,14 +832,7 @@ async function cleanupOwnerExpiredVideos(env: AppEnv, userId: string) {
   }
 }
 
-interface ProblemReportRow {
-  id: string;
-  message: string;
-  view: string;
-  status: string;
-  created_at: string;
-  resolved_at: string | null;
-}
+
 
 async function findPublicVideo(env: AppEnv, videoId: string): Promise<PublicVideoRow | null> {
   return env.DB.prepare(
@@ -920,6 +905,16 @@ export const api = new Hono<{ Bindings: AppEnv; Variables: Variables }>()
 
 api.route("/internal/forecast-ingestion", internalForecastIngestionApi);
 
+api.use("*", async (context, next) => {
+  await next();
+  if (context.res.status >= 400 || !["/matches", "/spots", "/me"].some(route => context.req.path === "/api/v1" + route)) return;
+  const fingerprint = normalizeCode(`api.unhandled:${context.req.routePath || "unknown-route"}`);
+  try {
+    const incident = await context.env.DB.prepare("SELECT fingerprint FROM ops_incidents WHERE fingerprint = ? AND status = 'open'").bind(fingerprint).first();
+    if (incident) await recordOpsRecovery(context.env, fingerprint);
+  } catch { /* Observability cannot turn a successful request into a failure. */ }
+});
+
 api.get("/health", (context) => context.json({ ok: true }));
 api.get("/readiness", async (context) => {
   const checkedAt = new Date().toISOString();
@@ -953,6 +948,44 @@ api.post("/auth/line/complete", (context) => completeLineLogin(
   context.req.raw, context.env, promise => context.executionCtx.waitUntil(promise),
 ));
 api.post("/auth/logout", (context) => logout(context.req.raw, context.env));
+
+api.post("/diagnostics", async context => {
+  // Same-origin, bounded, fixed-schema reports; never accept arbitrary log text.
+  if (context.req.header("origin") !== new URL(context.req.url).origin
+    || context.req.header("sec-fetch-site") === "cross-site") return context.body(null, 403);
+  const clientKey = await anonymousClientKey(context.req.raw, context.env);
+  if (!clientKey) return context.body(null, 204);
+  const limiter = context.env.PUBLIC_WRITE_RATE_LIMITER;
+  try {
+    if (!limiter || !(await limiter.limit({ key: `diagnostics:${clientKey}` })).success) return context.body(null, 204);
+  } catch {
+    console.warn(JSON.stringify({ event: "journey_limiter_unavailable" }));
+    return context.body(null, 204);
+  }
+  if (Number(context.req.header("content-length") || 0) > 2048) return context.body(null, 413);
+  const reader = context.req.raw.body?.getReader();
+  if (!reader) return context.body(null, 400);
+  const chunks: Uint8Array[] = []; let size = 0;
+  while (true) {
+    const part = await reader.read(); if (part.done) break;
+    size += part.value.byteLength;
+    if (size > 2048) { await reader.cancel(); return context.body(null, 413); }
+    chunks.push(part.value);
+  }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  let body: unknown;
+  try { body = JSON.parse(new TextDecoder().decode(bytes)); } catch { return context.body(null, 400); }
+  const parsed = clientDiagnosticSchema.safeParse(body);
+  if (!parsed.success) return context.body(null, 400);
+  const ua = context.req.header("user-agent") ?? "";
+  const os = /Android/i.test(ua) ? "android" : /iPhone|iPad|iPod/i.test(ua) ? "ios"
+    : /Windows/i.test(ua) ? "windows" : /Macintosh/i.test(ua) ? "macos" : "other";
+  const browser = /Line\//i.test(ua) ? "line" : /Edg/i.test(ua) ? "edge" : /Chrome|CriOS/i.test(ua) ? "chrome"
+    : /Firefox|FxiOS/i.test(ua) ? "firefox" : /Safari/i.test(ua) ? "safari" : "other";
+  await recordJourney(context.env, parsed.data.event, parsed.data.traceId, { ...parsed.data.details, os, browser }, "client");
+  return context.body(null, 204);
+});
 
 api.get("/spots", async (context) => {
   await ensureDevelopmentDatabase(context.env);
@@ -1245,14 +1278,23 @@ api.post("/videos/:id/playback-start", zValidator("json", playbackStartSchema), 
   const authenticated = await getAuthenticatedUser(context.req.raw, context.env);
   if (authenticated?.user.id === video.user_id) return new Response(null, { status: 204 });
 
-  await context.env.DB.prepare(
+  const inserted = await context.env.DB.prepare(
     `INSERT OR IGNORE INTO video_playback_events (id, video_id, started_at) VALUES (?, ?, ?)`,
   ).bind(payload.eventId, video.id, new Date().toISOString()).run();
+  if (inserted.meta.changes) {
+    const searchTraceId = context.req.valid("json").searchTraceId;
+    // Correlation is a client assertion, not evidence of identity or unique viewers.
+    const work = recordJourney(context.env, "playback_started", payload.eventId, {
+      videoId: video.id, outcome: "success", ...(searchTraceId ? { searchTraceId } : {}),
+    });
+    try { context.executionCtx.waitUntil(work); } catch { await work; }
+  }
   return new Response(null, { status: 204 });
 });
 
 api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   await ensureDevelopmentDatabase(context.env);
+  const startedAt = Date.now();
   const input = context.req.valid("query");
   const targetTime = canonicalUtcTimestamp(input.targetTime);
   const spot = await findActiveSpot(context.env, input.spotId);
@@ -1412,7 +1454,16 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     }];
   }).sort((a, b) => b.score - a.score || a.observation.id.localeCompare(b.observation.id));
 
+  const traceId = crypto.randomUUID();
+  const emptyReason = matches.length ? "none" : !videoResult.results.length ? "no_videos"
+    : requiredSourceKeys.some(key => !targetForecastBySource.has(key)) ? "missing_target" : "insufficient_history";
+  const diagnosticWork = recordJourney(context.env, "search", traceId, {
+    spotId: spot.id, targetTime, resultCount: matches.length, outcome: emptyReason,
+    durationMs: Math.min(3_600_000, Date.now() - startedAt),
+  });
+  try { context.executionCtx.waitUntil(diagnosticWork); } catch { await diagnosticWork; }
   const response: PublicMatchesResponse = {
+    diagnostic: { traceId, emptyReason },
     spot: { id: spot.id, slug: spot.slug, name: spot.name_zh || spot.name_en },
     targetTime,
     forecasts: forecastResult.results.map(serializeForecast),
@@ -1427,6 +1478,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
 });
 
 api.use("*", async (context, next) => {
+  context.header("cache-control", "no-store");
   await ensureDevelopmentDatabase(context.env);
   const authenticated = context.req.path === "/api/v1/me" && context.req.method === "GET"
     ? await withAuthDiagnostic(context.env, context.req.raw, "me", async diagnostic => {
@@ -1803,98 +1855,7 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
   });
 });
 
-api.get("/admin/reports", async (context) => {
-  const user = context.get("user");
-  if (!isAdmin(context.env, user)) {
-    return context.json({ error: "FORBIDDEN", message: "沒有管理權限" }, 403);
-  }
-  const result = await context.env.DB.prepare(
-    `SELECT r.id, r.video_id, r.reason, r.status, r.created_at, r.resolved_at,
-            s.name_en AS spot_name_en, s.name_zh AS spot_name_zh,
-            v.captured_at, v.uploader_note
-     FROM video_reports r
-     JOIN videos v ON v.id = r.video_id
-     LEFT JOIN spots s ON s.id = v.spot_id
-     WHERE r.status = 'open'
-     ORDER BY r.created_at ASC LIMIT 100`,
-  ).all<ReportRow>();
-  return context.json({
-    reports: result.results.map((report) => ({
-      id: report.id,
-      videoId: report.video_id,
-      reason: report.reason,
-      status: report.status,
-      createdAt: report.created_at,
-      resolvedAt: report.resolved_at,
-      capturedAt: report.captured_at,
-      spotName: report.spot_name_zh || report.spot_name_en,
-      uploaderNote: report.uploader_note,
-    })),
-  });
-});
-
-api.post("/admin/reports/:id/delist", async (context) => {
-  const user = context.get("user");
-  if (!isAdmin(context.env, user)) {
-    return context.json({ error: "FORBIDDEN", message: "沒有管理權限" }, 403);
-  }
-  const report = await context.env.DB.prepare(
-    `SELECT id, video_id, reason FROM video_reports WHERE id = ? AND status = 'open'`,
-  ).bind(context.req.param("id")).first<{ id: string; video_id: string; reason: string }>();
-  if (!report) return context.json({ error: "REPORT_NOT_FOUND", message: "找不到待處理檢舉" }, 404);
-
-  const now = new Date().toISOString();
-  await context.env.DB.batch([
-    context.env.DB.prepare(
-      `UPDATE videos SET moderation_status = 'delisted', public_at = NULL,
-       delisted_at = ?, delisted_reason = ?, updated_at = ? WHERE id = ?`,
-    ).bind(now, `report:${report.reason}`, now, report.video_id),
-    context.env.DB.prepare(
-      `UPDATE video_reports SET status = 'resolved', resolved_at = ?, resolved_by_user_id = ?
-       WHERE video_id = ? AND status = 'open'`,
-    ).bind(now, user.id, report.video_id),
-  ]);
-  return context.json({ videoId: report.video_id, moderationStatus: "delisted" });
-});
-
-api.get("/admin/problem-reports", async (context) => {
-  const user = context.get("user");
-  if (!isAdmin(context.env, user)) {
-    return context.json({ error: "FORBIDDEN", message: "沒有管理員權限" }, 403);
-  }
-  const result = await context.env.DB.prepare(
-    `SELECT id, message, view, status, created_at, resolved_at
-     FROM problem_reports WHERE status = 'open'
-     ORDER BY created_at ASC LIMIT 100`,
-  ).all<ProblemReportRow>();
-  return context.json({
-    reports: result.results.map((report) => ({
-      id: report.id,
-      message: report.message,
-      view: report.view,
-      status: report.status,
-      createdAt: report.created_at,
-      resolvedAt: report.resolved_at,
-    })),
-  });
-});
-
-api.post("/admin/problem-reports/:id/resolve", async (context) => {
-  const user = context.get("user");
-  if (!isAdmin(context.env, user)) {
-    return context.json({ error: "FORBIDDEN", message: "沒有管理員權限" }, 403);
-  }
-  const now = new Date().toISOString();
-  const result = await context.env.DB.prepare(
-    `UPDATE problem_reports
-     SET status = 'resolved', resolved_at = ?, resolved_by_user_id = ?
-     WHERE id = ? AND status = 'open'`,
-  ).bind(now, user.id, context.req.param("id")).run();
-  if (result.meta.changes !== 1) {
-    return context.json({ error: "PROBLEM_REPORT_NOT_FOUND", message: "找不到待處理問題回報" }, 404);
-  }
-  return context.json({ reportId: context.req.param("id"), status: "resolved", resolvedAt: now });
-});
+api.route("/admin", adminApi);
 
 api.onError(async (error, context) => {
   const message = error instanceof Error ? error.message : "系統暫時無法處理請求";

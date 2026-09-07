@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cleanupJourneys } from "./journey-diagnostics";
 import type { AppEnv } from "./db";
 
 const LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push";
@@ -7,7 +8,6 @@ const EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const ANALYSIS_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const ERROR_BURST_WINDOW_MS = 5 * 60 * 1_000;
 const ERROR_BURST_THRESHOLD = 3;
-const INCIDENT_STALE_MS = 30 * 60 * 1_000;
 const LINE_USER_ID_PATTERN = /^U[0-9a-f]{32}$/iu;
 
 export type OpsEventSeverity = "info" | "warning" | "error" | "critical";
@@ -115,7 +115,7 @@ export function sanitizeOpsSummary(value: string | undefined): string | null {
     .slice(0, 300);
 }
 
-function normalizeCode(value: string): string {
+export function normalizeCode(value: string): string {
   const normalized = value.trim().toLowerCase().replace(/[^a-z0-9_.:-]+/gu, "-");
   return (normalized || "ops.unknown").slice(0, 100);
 }
@@ -338,6 +338,17 @@ export async function recordOpsEvent(
     summary: sanitizeOpsSummary(input.summary),
   };
 
+    structuredLog(event.severity === "critical" || event.severity === "error" ? "warn" : "log", {
+      event: "ops_event",
+      eventCode: event.code,
+      severity: event.severity,
+      source: event.source,
+      fingerprint: event.fingerprint,
+      requestId: event.requestId,
+      route: event.route,
+      errorName: event.errorName,
+      occurredAt,
+    });
   try {
     await env.DB.prepare(
       `INSERT INTO ops_events (
@@ -357,17 +368,6 @@ export async function recordOpsEvent(
       occurredAt,
       occurredAt,
     ).run();
-    structuredLog(event.severity === "critical" || event.severity === "error" ? "warn" : "log", {
-      event: "ops_event",
-      eventCode: event.code,
-      severity: event.severity,
-      source: event.source,
-      fingerprint: event.fingerprint,
-      requestId: event.requestId,
-      route: event.route,
-      errorName: event.errorName,
-      occurredAt,
-    });
     const incidentOpened = await maybeOpenIncident(
       env,
       { code: event.code, severity: event.severity, fingerprint: event.fingerprint },
@@ -462,14 +462,13 @@ async function analyzeAggregates(env: AppEnv, rows: OpsAggregateRow[]): Promise<
   return analysisSchema.parse(extractAiResponse(result));
 }
 
-async function resolveStaleIncidents(env: AppEnv, now: Date): Promise<void> {
-  const recoveredAt = now.toISOString();
-  const staleBefore = new Date(now.getTime() - INCIDENT_STALE_MS).toISOString();
-  await env.DB.prepare(
-    `UPDATE ops_incidents
-     SET status = 'recovered', recovered_at = ?, updated_at = ?
-     WHERE status = 'open' AND last_seen_at < ?`,
-  ).bind(recoveredAt, recoveredAt, staleBefore).run();
+/** Silence is not recovery. Only a successful matching task/route supplies evidence. */
+export async function recordOpsRecovery(env: AppEnv, fingerprint: string, now = new Date()): Promise<void> {
+  try {
+    await env.DB.prepare(`UPDATE ops_incidents SET status = 'recovered', recovered_at = ?, updated_at = ?
+      WHERE fingerprint = ? AND status = 'open' AND last_seen_at <= ?`)
+      .bind(now.toISOString(), now.toISOString(), normalizeCode(fingerprint), now.toISOString()).run();
+  } catch { console.warn(JSON.stringify({ event: "ops_recovery_storage_unavailable", fingerprint })); }
 }
 
 async function retryPendingIncidentNotifications(
@@ -503,6 +502,7 @@ async function retryPendingIncidentNotifications(
 }
 
 async function retainBoundedOpsHistory(env: AppEnv, now: Date): Promise<void> {
+  await cleanupJourneys(env, now);
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM oauth_attempts WHERE state_hash IN (
       SELECT state_hash FROM oauth_attempts WHERE expires_at <= ? ORDER BY expires_at LIMIT 500
@@ -527,8 +527,6 @@ export async function runHourlyOpsAnalysis(
 ): Promise<void> {
   const windowEnd = scheduledAt.toISOString();
   const windowStart = new Date(scheduledAt.getTime() - 60 * 60 * 1_000).toISOString();
-  await retryPendingIncidentNotifications(env, scheduledAt, fetchImpl);
-  await resolveStaleIncidents(env, scheduledAt);
   await retryPendingIncidentNotifications(env, scheduledAt, fetchImpl);
   await retainBoundedOpsHistory(env, scheduledAt);
 

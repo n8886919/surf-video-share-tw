@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { forecastFixture } from "./helpers/forecast-fixture";
 import { api } from "../src/worker/api";
 import type { AppEnv } from "../src/worker/db";
 
@@ -158,7 +159,7 @@ describe("problem reports", () => {
         run: async () => ({ meta: { changes: 1 } }),
         all: async () => ({
           results: sql.includes("FROM problem_reports")
-            ? [{ id: "report_1", message: "播放按鈕沒有反應", view: "find", status: "open", created_at: "2026-08-29T00:00:00.000Z", resolved_at: null }]
+            ? [{ id: "report_1", message: "播放按鈕沒有反應", view: "find", status: "open", createdAt: "2026-08-29T00:00:00.000Z", resolvedAt: null }]
             : [],
         }),
       };
@@ -190,36 +191,18 @@ describe("problem reports", () => {
     }] });
   });
 
-  it("lets the configured administrator resolve one open report", async () => {
-    const user = { id: "user_dev_local", line_display_name: null, display_id: "admin", show_identity_default: 0 };
-    const updates: unknown[][] = [];
-    const db = {
-      prepare: (sql: string) => {
-        const statement = {
-          bind: (...values: unknown[]) => {
-            if (sql.includes("UPDATE problem_reports")) updates.push(values);
-            return statement;
-          },
-          first: async () => user,
-          run: async () => ({ meta: { changes: 1 } }),
-          all: async () => ({ results: [] }),
-        };
-        return statement;
-      },
-      batch: async () => [],
-    } as unknown as D1Database;
-
-    const response = await api.fetch(
-      new Request("https://example.com/api/v1/admin/problem-reports/report_1/resolve", { method: "POST" }),
-      {
-        APP_ENV: "development",
-        ENABLE_DEV_AUTH: "true",
-        ADMIN_USER_ID: user.id,
-        DB: db,
-      } as AppEnv,
-    );
-
-    expect(response.status).toBe(200);
-    expect(updates[0]).toEqual([expect.any(String), user.id, "report_1"]);
+  it("lets the configured administrator resolve one open report atomically with an audit", async () => {
+    const fixture = forecastFixture();
+    try {
+      fixture.sqlite.exec("INSERT INTO problem_reports(id,message,view,status,created_at) VALUES('report_1','test','find','open','2026-09-08')");
+      const env = { ...fixture.env, APP_ENV: "development", ENABLE_DEV_AUTH: "true", ADMIN_USER_ID: "user_dev_local" };
+      const make = () => new Request("https://example.com/api/v1/admin/problem-reports/report_1/resolve", {
+        method: "POST", headers: { origin: "https://example.com", "content-type": "application/json" }, body: "{}",
+      });
+      expect((await api.fetch(make(), env)).status).toBe(200);
+      expect(fixture.sqlite.prepare("SELECT status,resolved_by_user_id FROM problem_reports").get()).toMatchObject({status:"resolved",resolved_by_user_id:"user_dev_local"});
+      expect(fixture.sqlite.prepare("SELECT action,target_type,target_id FROM moderation_actions").get()).toMatchObject({action:"resolve",target_type:"problem",target_id:"report_1"});
+      expect((await api.fetch(make(),env)).status).toBe(404);
+    } finally { fixture.sqlite.close(); }
   });
 });

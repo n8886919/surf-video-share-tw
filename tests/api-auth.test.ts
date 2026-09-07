@@ -49,7 +49,7 @@ describe("API authorization boundary", () => {
         APP_ENV: "production",
         DB: {
           prepare: (sql: string) => {
-            spotsSql = sql;
+            if (sql.includes("FROM spots")) spotsSql = sql;
             return ({
             all: async () => ({
               results: [

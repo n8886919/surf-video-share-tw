@@ -27,8 +27,13 @@ Base path: `/api/v1`.
 | Signed in | POST | `/videos/upload-request` | Create upload; spot is required and capture time may be null |
 | Signed in | POST | `/videos/:id/complete` | Verify media; conditions are best-effort |
 | Signed in | PATCH | `/videos/:id` | Fill metadata, favorite, identity, public supplement, or fun reaction |
-| Admin | GET | `/admin/reports` | List open reports |
-| Admin | POST | `/admin/reports/:id/delist` | Delist the video and resolve its open reports |
+| Admin | GET | `/admin/reports?status=open` | List up to 100 open or resolved reports with preview metadata and resolution |
+| Admin | POST | `/admin/reports/:id/delist` | Same-origin JSON `{reason}`; atomically delist, resolve open reports and audit |
+| Admin | POST | `/admin/reports/:id/resolve` | `{reason: "test" or "no_violation"}`; preserve video and resolve reports with audit |
+| Admin | GET / POST | `/admin/videos/:id/thumbnail`, `/admin/videos/:id/playback` | Authenticated review of reported, ready complete videos including delisted content; no-store |
+| Admin | POST | `/admin/videos/:id/restore` | Same-origin JSON `{}`; restore eligible delisted video with audit |
+| Admin | GET | `/admin/history`, `/admin/diagnostics` | Bounded moderation history and recent daily diagnostic totals |
+| Public | POST | `/diagnostics` | Strict, 2 KiB, same-origin client diagnostics; separately rate limited and best effort |
 | Admin | GET | `/admin/problem-reports` | List open product problem reports |
 | Admin | POST | `/admin/problem-reports/:id/resolve` | Resolve one open product problem report |
 | Internal HMAC | GET | `/internal/forecast-ingestion/spots` | Return only active spot IDs/slugs and verified coordinates for the CWA adapter |
@@ -92,3 +97,5 @@ These optional headers are untrusted observations, never proof of identity or br
 Every Worker response includes `Referrer-Policy: strict-origin` and `X-Content-Type-Options: nosniff`. Expected validation/domain failures retain their explicit status and safe message. An unexpected exception returns `500 REQUEST_FAILED` with a generic message, generated `requestId`, and matching `X-Request-ID`; the original exception is available only through the structured server log correlated by that ID, not in the client response.
 
 `GET /readiness` returns only `ok` and `checkedAt`, is always `no-store`, and never names a missing secret or dependency. It checks D1 connectivity; in production it also requires the Workers AI binding, both operations-only LINE Messaging API values, core LINE Login/Stream/forecast-ingestion configuration, the administrator ID, and all four rate-limit bindings. It does not make live cost-bearing calls to those dependencies. The external monitor uses this endpoint in addition to `/health`, the exact eight-spot response, and the rendered home page. Recommendation accuracy is intentionally outside the uptime check.
+
+Product 0.29: `GET /matches` adds an optional `diagnostic: {traceId, emptyReason}`. Accepted `/videos/:id/playback-start` may include `searchTraceId` (UUID) as a client-asserted correlation, never an authorization credential. Diagnostic storage and retention details are in OPERATIONS.md. All administrator mutations require the configured administrator, exact same-origin Origin, non-cross-site Fetch Metadata when supplied, and application/json. Missing authorization cannot be bypassed with request fields or headers.

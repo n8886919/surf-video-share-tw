@@ -62,3 +62,7 @@ Every provider/model/run/valid row is immutable. D1 never averages models or ove
 ## Operations boundary
 
 Curated credential-free operations events remain inside the modular monolith. Workers AI receives only grouped operational metadata and cannot change product data. A separate GitHub Actions probe monitors production so a Cloudflare outage cannot suppress the only alert path. Unexpected API errors return a generic request ID; request bodies, credentials, raw client addresses, and LINE subjects are not logged.
+
+## Administrator and diagnostic boundaries (0.29)
+
+`/admin` is a separate LINE-authenticated client surface; all `/api/v1/admin/*` operations enforce the internal administrator allowlist. Resolution/restoration and their append-only audit commit in one D1 transaction. Private review thumbnails proxy only provider-returned image bytes; explicit review playback remains signed and never enters public playback counts. New diagnostic events use strict shared input validation, no identity or arbitrary content, console-first best-effort persistence, per-source/day D1 caps and bounded hourly retention. Server observations and client claims remain distinct; daily counts cannot establish billing or unique people. See Operations for the exact limits and retention.

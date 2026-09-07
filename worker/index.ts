@@ -8,7 +8,7 @@ import { runDailyForecastReport } from "../src/worker/forecast/daily-report";
 import { runScheduledExpiredVideoCleanup } from "../src/worker/video-lifecycle";
 import { runScheduledPlaybackEventCleanup } from "../src/worker/playback-analytics";
 import { withSecurityHeaders } from "../src/worker/security-headers";
-import { recordOpsEvent, runHourlyOpsAnalysis } from "../src/worker/ops-observability";
+import { recordOpsRecovery, recordOpsEvent, runHourlyOpsAnalysis } from "../src/worker/ops-observability";
 
 const OPS_ANALYSIS_CRON = "5 * * * *";
 const MAINTENANCE_CRON = "20 */6 * * *";
@@ -45,6 +45,12 @@ const worker = {
       response = await handler.fetch(request, env, ctx);
     }
 
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+      response = new Response(response.body, response);
+      response.headers.set("cache-control", "no-store");
+      response.headers.set("x-frame-options", "DENY");
+      response.headers.set("content-security-policy", "frame-ancestors 'none'");
+    }
     return withSecurityHeaders(response);
   },
   async scheduled(controller: ScheduledController, env: AppEnv): Promise<void> {
@@ -58,6 +64,7 @@ const worker = {
         ]);
         const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
         if (failures.length) throw new AggregateError(failures, "Hourly operations task failed");
+        await recordOpsRecovery(env, "scheduled.ops-analysis");
       } catch (error) {
         await recordOpsEvent(env, {
           code: "scheduled.ops_analysis_failed",
@@ -104,7 +111,7 @@ const worker = {
     const results = await Promise.allSettled(tasks.map((task) => task.promise));
     const failures: unknown[] = [];
     for (const [index, result] of results.entries()) {
-      if (result.status !== "rejected") continue;
+      if (result.status !== "rejected") { await recordOpsRecovery(env, tasks[index].fingerprint); continue; }
       failures.push(result.reason);
       const task = tasks[index];
       await recordOpsEvent(env, {

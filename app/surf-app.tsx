@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import Link from "next/link";
 import type {
   CombinedMatchResponse as CombinedMatch,
   ForecastResponse as Forecast,
@@ -31,6 +32,8 @@ import {
 } from "../packages/domain/src/public-terms";
 import { loadStreamPlayerSdk, type StreamPlayer } from "./stream-player";
 import { mergeSpotOrder, moveSpotId, spotReorderTarget } from "./spot-order";
+import { AdminPanel } from "./admin/admin-panel";
+import { clientDiagnostic } from "./journey-diagnostics";
 import { recoverLineLogin, type LoginRecovery } from "./line-login";
 import {
   inspectQuickTimeMetadata,
@@ -68,15 +71,7 @@ interface UploadTicket {
   uploadMethod: "POST" | "mock";
 }
 
-interface ModerationReport {
-  id: string;
-  videoId: string;
-  reason: "privacy" | "minor" | "copyright" | "irrelevant";
-  createdAt: string;
-  capturedAt: string | null;
-  spotName: string | null;
-  uploaderNote: string | null;
-}
+
 
 export type LoginStatus = "capacity" | "cancelled" | "config" | "expired" | "failed" | "invalid" | "completing";
 
@@ -183,7 +178,8 @@ function Brand() {
   );
 }
 
-function LoginRequired({ setupError, loginStatus, authTrace, recovery, onCheck }: {
+function LoginRequired({ setupError, loginStatus, authTrace, recovery, onCheck, adminMode = false }: {
+  adminMode?: boolean;
   setupError?: string | null;
   loginStatus?: LoginStatus;
   authTrace?: string;
@@ -214,7 +210,7 @@ function LoginRequired({ setupError, loginStatus, authTrace, recovery, onCheck }
           ? "你尚未授權登入，可以隨時重新嘗試。"
           : invalidLogin
             ? "這次登入已過期或無法驗證，請重新開始。"
-            : "使用 LINE 登入後即可上傳與管理自己的影片。");
+            : adminMode ? "請使用指定管理員的 LINE 帳號登入。" : "使用 LINE 登入後即可上傳與管理自己的影片。");
   const recovering = recovery === "pending";
   const returnToOriginal = loginStatus === "completing" && recovery === "none";
   const recoveryMessage = returnToOriginal ? "請回到原本開始登入的 Chrome、Safari 或桌面捷徑，系統會在那裡完成登入；若已在原入口，請允許網站 Cookie 後重新登入。"
@@ -229,8 +225,8 @@ function LoginRequired({ setupError, loginStatus, authTrace, recovery, onCheck }
       <p aria-live="polite">{recoveryMessage || message}</p>
       {authTrace && <p className="auth-diagnostic-id">診斷編號：{authTrace}</p>}
       {recoveryMessage && !recovering && <button type="button" className="line-login-button" onClick={onCheck}>再次確認登入</button>}
-      {!setupError && !capacityReached && !recovering && <a className="line-login-button" href="/api/v1/auth/line">使用 LINE 登入</a>}
-      {needsManualRetry && !recovering && <a href="/api/v1/auth/line?manual=1">改用 LINE 登入畫面（需帳號密碼）</a>}
+      {!setupError && !capacityReached && !recovering && <a className="line-login-button" href="/api/v1/auth/line" onClick={() => { if (adminMode) { try { sessionStorage.setItem("surf-admin-return", "1"); } catch { /* Entry remains reachable from My. */ } } }}>使用 LINE 登入</a>}
+      {needsManualRetry && !recovering && <a href="/api/v1/auth/line?manual=1" onClick={() => { if (adminMode) { try { sessionStorage.setItem("surf-admin-return", "1"); } catch { /* Optional navigation preference. */ } } }}>改用 LINE 登入畫面（需帳號密碼）</a>}
     </section>
   );
 }
@@ -757,7 +753,7 @@ function CandidateThumbnail({ observation }: { observation: Observation }) {
   );
 }
 
-function PlaybackModal({ observation, onClose }: { observation: Observation; onClose: () => void }) {
+function PlaybackModal({ observation, onClose, searchTraceId }: { observation: Observation; onClose: () => void; searchTraceId?: string }) {
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
@@ -765,12 +761,17 @@ function PlaybackModal({ observation, onClose }: { observation: Observation; onC
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const playbackRecorded = useRef(false);
+  const playbackTrace = useRef(crypto.randomUUID());
 
   useEffect(() => {
     let active = true;
+    const startedAt = Date.now();
     void api<PlaybackResponse>(`/videos/${observation.id}/playback`, { method: "POST" })
       .then((result) => { if (active) setPlayback(result); })
-      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : "影片播放失敗"); });
+      .catch((caught) => { if (active) {
+        setError(caught instanceof Error ? caught.message : "影片播放失敗");
+        clientDiagnostic("playback_failed", playbackTrace.current, { stage: "player", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: observation.id });
+      } });
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => {
@@ -782,25 +783,29 @@ function PlaybackModal({ observation, onClose }: { observation: Observation; onC
   useEffect(() => {
     if (playback?.type !== "iframe" || !iframeRef.current) return;
     let active = true;
+    const startedAt = Date.now();
     let player: StreamPlayer | null = null;
     const recordStartedPlayback = () => {
       if (!active || playbackRecorded.current) return;
       playbackRecorded.current = true;
       void api(`/videos/${observation.id}/playback-start`, {
         method: "POST",
-        body: JSON.stringify({ trackingToken: playback.trackingToken }),
-      }).catch(() => undefined);
+        body: JSON.stringify({ trackingToken: playback.trackingToken, searchTraceId }),
+      }).catch(() => { clientDiagnostic("playback_failed", playbackTrace.current, { stage: "tracking", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: observation.id }); });
     };
+    const failed = () => { if (active) clientDiagnostic("playback_failed", playbackTrace.current, { stage: "player", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: observation.id }); };
     void loadStreamPlayerSdk().then((stream) => {
       if (!active || !iframeRef.current) return;
       player = stream(iframeRef.current);
       player.addEventListener("playing", recordStartedPlayback);
-    }).catch(() => undefined);
+      player.addEventListener("error", failed);
+    }).catch(() => { if (active) clientDiagnostic("playback_failed", playbackTrace.current, { stage: "sdk", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: observation.id }); });
     return () => {
       active = false;
       player?.removeEventListener?.("playing", recordStartedPlayback);
+      player?.removeEventListener?.("error", failed);
     };
-  }, [observation.id, playback]);
+  }, [observation.id, playback, searchTraceId]);
 
   async function report(reason: typeof REPORT_REASONS[number][0]) {
     setError(null);
@@ -877,7 +882,7 @@ function PlaybackModal({ observation, onClose }: { observation: Observation; onC
   </div>;
 }
 
-function CombinedMatchList({ matches, targetTime }: { matches: CombinedMatch[]; targetTime: string }) {
+function CombinedMatchList({ matches, targetTime, searchTraceId }: { matches: CombinedMatch[]; targetTime: string; searchTraceId?: string }) {
   const [activeObservation, setActiveObservation] = useState<Observation | null>(null);
   const targetSources = matches[0]?.sources ?? [];
   const targetDate = formatForecastCardDate(targetTime);
@@ -905,7 +910,7 @@ function CombinedMatchList({ matches, targetTime }: { matches: CombinedMatch[]; 
           </article>)}
         </div>
       </div>
-      {activeObservation && <PlaybackModal observation={activeObservation} onClose={() => setActiveObservation(null)}/>}
+      {activeObservation && <PlaybackModal searchTraceId={searchTraceId} observation={activeObservation} onClose={() => setActiveObservation(null)}/>}
     </section>
   );
 }
@@ -932,7 +937,7 @@ function RecentObservationList({ observations }: { observations: Observation[] }
   );
 }
 
-export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { loginStatus?: LoginStatus; initialHelpOpen?: boolean; authTrace?: string }) {
+export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace, adminMode = false }: { loginStatus?: LoginStatus; initialHelpOpen?: boolean; authTrace?: string; adminMode?: boolean }) {
   const initialAuthTrace = useRef(authTrace);
   const [currentTrace, setCurrentTrace] = useState(authTrace);
   const [recovery, setRecovery] = useState<LoginRecovery>();
@@ -992,6 +997,11 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { l
           const meResult = await api<Me>("/me", { headers: displayHeaders(), signal: controller.signal });
           if (!active || controller.signal.aborted) return;
           setMe(meResult);
+          try {
+            if (!adminMode && sessionStorage.getItem("surf-admin-return") === "1") {
+              sessionStorage.removeItem("surf-admin-return"); window.location.replace("/admin"); return;
+            }
+          } catch { /* Navigation preference never grants access. */ }
           setRecovery(undefined);
           setCurrentLoginStatus(undefined);
           if (completed === "ready") setView("mine");
@@ -999,6 +1009,7 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { l
           const url = new URL(window.location.href);
           url.searchParams.delete("login"); url.searchParams.delete("auth_trace");
           window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+          if (adminMode) return;
           try {
             const own = await api<{ observations: Observation[] }>("/videos", { signal: controller.signal });
             if (active && !controller.signal.aborted) { setObservations(own.observations); setOwnerError(null); }
@@ -1025,7 +1036,8 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { l
       }
     };
     // Authentication must not depend on the public spot query or owner video-list success.
-    void api<{ spots: Spot[] }>("/spots").then(result => { if (active) setSpots(result.spots); })
+    if (adminMode) void Promise.resolve().then(() => { if (active) setLoading(false); });
+    else void api<{ spots: Spot[] }>("/spots").then(result => { if (active) setSpots(result.spots); })
       .catch(error => { if (active) setFatalError(error instanceof Error ? error.message : "無法載入浪點"); })
       .finally(() => { if (active) setLoading(false); });
     const resume = () => { void check(); };
@@ -1042,13 +1054,20 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace }: { l
       window.removeEventListener("pageshow", resume);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, []);
+  }, [adminMode]);
 
   async function patchObservation(id: string, patch: Record<string, unknown>) {
     const result = await api<{ observation: Observation }>(`/videos/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
     setObservations((current) => current.map((item) => item.id === id ? result.observation : item));
   }
 
+  if (adminMode) return <main className="admin-shell"><header><Brand/><Link href="/">回到網站</Link></header>
+    <h1>管理後台</h1><p>僅限指定管理員使用 LINE 登入。這裡處理全站檢舉與網站問題。</p>
+    {!authChecked ? <p role="status">確認登入權限…</p> : !me
+      ? <LoginRequired adminMode setupError={authSetupError} loginStatus={currentLoginStatus} authTrace={currentTrace} recovery={recovery} onCheck={() => checkLoginRef.current()}/>
+      : me.isAdmin ? <><form action="/api/v1/auth/logout" method="post"><button className="logout-button">登出 LINE</button></form><AdminPanel/></>
+        : <section role="alert"><h2>無權存取管理後台</h2><p>目前登入的 LINE 帳號不是管理員。</p><form action="/api/v1/auth/logout" method="post"><button>登出並切換帳號</button></form></section>}
+  </main>;
   if (loading) return <main className="app-shell center-screen"><Brand/><p className="loading-purpose">{PROJECT_PURPOSE}</p><div className="loading-line"><span/></div></main>;
   if (fatalError) return <main className="app-shell center-screen"><Brand/><p>{fatalError}</p>{authTrace && <p className="auth-diagnostic-id">診斷編號：{authTrace}</p>}</main>;
   return (
@@ -1285,10 +1304,11 @@ function FindView({ spots, active }: { spots: Spot[]; active: boolean }) {
   const [dayOffset, setDayOffset] = useState(() => firstSelectableForecastHour(0) == null ? 1 : 0);
   const [hour, setHour] = useState(() => firstSelectableForecastHour(0) ?? 8);
   const [spotId, setSpotId] = useState("");
-  const emptyResults = useMemo(() => ({ matches: [], timeWindowObservations: [] }), []);
+  const emptyResults = useMemo(() => ({ matches: [], timeWindowObservations: [], searchTraceId: undefined as string | undefined }), []);
   const [queryState, setQueryState] = useState<FindQueryState<{
     matches: CombinedMatch[];
     timeWindowObservations: Observation[];
+    searchTraceId?: string;
   }>>({
     requestId: 0,
     queryKey: null,
@@ -1331,15 +1351,16 @@ function FindView({ spots, active }: { spots: Spot[]; active: boolean }) {
       emptyResults,
     }));
     void api<PublicMatchesResponse>(requestPath, { signal: controller.signal })
-        .then((result) => setQueryState((current) => reduceFindQuery(current, {
+        .then((result) => { setQueryState((current) => reduceFindQuery(current, {
           type: "success",
           requestId,
           queryKey: requestPath,
           results: {
             matches: result.matches,
             timeWindowObservations: result.timeWindowObservations,
+            searchTraceId: result.diagnostic?.traceId,
           },
-        })))
+        })); })
         .catch((caught) => {
           if (caught instanceof DOMException && caught.name === "AbortError") return;
           setQueryState((current) => reduceFindQuery(current, {
@@ -1373,7 +1394,7 @@ function FindView({ spots, active }: { spots: Spot[]; active: boolean }) {
     {!hasSearched && <p className="find-search-hint" role="status">{queryState.queryKey ? "條件已變更，請按搜尋。" : "選好浪點、日期與時間後，按搜尋查看影片。"}</p>}
     {active && hasSearched && <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{loading ? "查詢中" : matches.length ? `${matches.length} 段` : "累積中"}</small></div>
       {matches.length
-        ? <CombinedMatchList matches={matches} targetTime={targetTime}/>
+        ? <CombinedMatchList searchTraceId={results.searchTraceId} matches={matches} targetTime={targetTime}/>
         : !loading && !error && <div className="info-state"><Icon name="wave"/><p>{effectiveDayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "尚未累積同時具備 CWA 與 MFWAM 歷史預報的實拍；資料完整後會以一個綜合相似度排序。" : "尚未累積具備 MFWAM 歷史預報的實拍；第 4–5 天會使用 MFWAM-only 相似度排序。"}</p></div>}
       <div className="time-window-observation-section">
         <div className="section-heading"><h3>即時影片（近 2 小時）</h3><small>{loading ? "查詢中" : `${timeWindowObservations.length} 段`}</small></div>
@@ -1434,7 +1455,11 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
 
   function chooseVideo(selected: File | undefined) {
     if (!selected) return;
-    void inspectVideo(selected).catch((caught) => setError(caught instanceof Error ? caught.message : "無法讀取影片"));
+    const traceId = crypto.randomUUID(); const startedAt = Date.now();
+    void inspectVideo(selected).catch((caught) => {
+      clientDiagnostic("upload_failed", traceId, { stage: "selection", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt) });
+      setError((caught instanceof Error ? caught.message : "無法讀取影片") + "（診斷編號：" + traceId + "）");
+    });
   }
 
   async function submit(event: React.FormEvent) {
@@ -1447,15 +1472,23 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
       if (!isWithinUploadWindow(parsed, now)) return setError("拍攝時間不可晚於現在、必須在 168 小時內，且台北時間須介於 05:00–19:59");
     }
     setError(null); setProgress("建立上傳連結…");
+    const traceId = crypto.randomUUID(); const startedAt = Date.now();
+    let stage: "ticket" | "transfer" | "completion" = "ticket";
+    let diagnosticVideoId: string | undefined;
+    clientDiagnostic("upload_step", traceId, { stage, outcome: "started", durationMs: 0 });
     try {
       const ticket = await api<UploadTicket>("/videos/upload-request", { method: "POST", body: JSON.stringify({ spotId, capturedAt: capturedAt ? new Date(capturedAt).toISOString() : null, durationSeconds: duration, sizeBytes: file.size, fileName: file.name, contentType: file.type, showUploader }) });
-      localStorage.setItem("lastSpotId", spotId);
+      diagnosticVideoId = ticket.videoId;
+      stage = "transfer";
+      try { localStorage.setItem("lastSpotId", spotId); } catch { /* A blocked preference must not stop an upload. */ }
       if (ticket.uploadMethod === "POST" && ticket.uploadUrl) {
         setProgress("影片上傳中…");
         const form = new FormData(); form.append("file", file);
         const upload = await fetch(ticket.uploadUrl, { method: "POST", body: form });
         if (!upload.ok) throw new Error("影片上傳失敗，請再試一次");
       }
+      clientDiagnostic("upload_step", traceId, { stage, outcome: "success", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: diagnosticVideoId });
+      stage = "completion";
       setProgress("確認影片狀態…");
       let complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
       for (let attempt = 0; attempt < 4 && (complete.observation.status === "pending" || complete.observation.status === "processing"); attempt += 1) {
@@ -1463,8 +1496,14 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
         await new Promise((resolve) => window.setTimeout(resolve, 1_500));
         complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
       }
+      clientDiagnostic(complete.observation.status === "error" ? "upload_failed" : "upload_step", traceId, { stage,
+        outcome: complete.observation.status === "error" ? "failed" : "success", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: diagnosticVideoId });
       onComplete(complete.observation);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "上傳失敗"); setProgress(null); }
+    } catch (caught) {
+      clientDiagnostic("upload_failed", traceId, { stage, outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt),
+        ...(caught instanceof ApiFailure ? { status: caught.status } : {}), ...(diagnosticVideoId ? { videoId: diagnosticVideoId } : {}) });
+      setError((caught instanceof Error ? caught.message : "上傳失敗") + "（診斷編號：" + traceId + "）"); setProgress(null);
+    }
   }
 
   return <div className="screen upload-screen">
@@ -1538,37 +1577,6 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   </div>;
 }
 
-function AdminReports() {
-  const [reports, setReports] = useState<ModerationReport[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    void api<{ reports: ModerationReport[] }>("/admin/reports")
-      .then((result) => { if (active) setReports(result.reports); })
-      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : "無法載入檢舉"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, []);
-
-  async function delist(report: ModerationReport) {
-    setBusyId(report.id);
-    setError(null);
-    try {
-      await api(`/admin/reports/${report.id}/delist`, { method: "POST" });
-      setReports((current) => current.filter((item) => item.videoId !== report.videoId));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "下架失敗");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  return <section className="admin-reports"><h3>待處理檢舉</h3>{loading ? <p>載入中…</p> : reports.length ? reports.map((report) => <article key={report.id}><div><strong>{report.spotName || "未知浪點"} · {formatTime(report.capturedAt)}</strong><span>{REPORT_REASONS.find(([reason]) => reason === report.reason)?.[1] || report.reason}</span>{report.uploaderNote && <small>{report.uploaderNote}</small>}</div><button disabled={busyId === report.id} onClick={() => void delist(report)}>{busyId === report.id ? "處理中…" : "下架影片"}</button></article>) : <p>目前沒有待處理檢舉。</p>}{error && <p className="inline-error">{error}</p>}</section>;
-}
-
 function MineView({ me, spots, observations, onPatch, onMeChange }: { me: Me; spots: Spot[]; observations: Observation[]; onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>; onMeChange: (me: Me) => void }) {
   const [filter, setFilter] = useState("all");
   const [editingDisplayId, setEditingDisplayId] = useState(false);
@@ -1603,7 +1611,7 @@ function MineView({ me, spots, observations, onPatch, onMeChange }: { me: Me; sp
       <ProblemReport view="mine"/>
       {error && <p className="inline-error">{error}</p>}
     </section>
-    {me.isAdmin && <AdminReports/>}
+    {me.isAdmin && <a className="admin-entry" href="/admin">管理後台</a>}
     <div className="filter-row"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button><button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>待補</button>{spots.map((spot) => <button key={spot.id} className={filter === spot.id ? "active" : ""} onClick={() => setFilter(spot.id)}>{spot.name}</button>)}</div>
     {filtered.length ? <div className="record-list">{filtered.map((item) => <ObservationCard key={item.id} observation={item} ownerActions={{ spots, onPatch }}/>)}</div> : <div className="info-state"><Icon name="wave"/><p>這個篩選還沒有影片。</p></div>}
   </div>;

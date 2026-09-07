@@ -191,3 +191,30 @@ select:focus, input:focus { border-color: var(--sea); box-shadow: 0 0 0 3px rgba
 @media (min-width:700px) { .problem-report-backdrop { align-items: center; }}
 @media (max-width:420px) { .two-fields { grid-template-columns: 1fr; }.condition-grid { grid-template-columns: repeat(2,1fr); } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; scroll-behavior:auto!important; } }
+.admin-shell { max-width: 920px; margin: 0 auto; padding: 24px 20px 64px; color: #163b43; }
+.admin-shell header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.admin-shell h1 { font-size: 28px; margin-top: 28px; }
+.admin-panel { display: grid; gap: 24px; margin-top: 24px; }
+.admin-panel section, .admin-panel details { min-width: 0; }
+.admin-panel h2 { font-size: 22px; margin-bottom: 8px; }
+.admin-panel h3 { font-size: 18px; }
+.admin-panel p { margin: 10px 0; }
+.admin-panel small { overflow-wrap: anywhere; }
+.admin-panel button, .admin-panel select, .admin-shell > section button { min-height: 44px; padding: 10px 14px; border: 1px solid #668187; border-radius: 8px; background: white; color: #163b43; cursor: pointer; }
+.admin-panel button:disabled { opacity: .55; cursor: wait; }
+.admin-panel button:focus-visible, .admin-panel summary:focus-visible, .admin-entry:focus-visible { outline: 3px solid #24716e; outline-offset: 3px; }
+.admin-tabs, .admin-decision { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.admin-tabs button[aria-pressed="true"] { color: white; background: #245b62; }
+.admin-review-card { padding: 18px; border: 1px solid #bccfd0; background: #f7faf9; border-radius: 12px; margin: 16px 0; }
+.admin-review-card ul { padding-left: 20px; margin: 14px 0; }
+.admin-decision label { display: grid; gap: 6px; }
+.admin-panel .admin-danger { border-color: #913d32; color: #913d32; }
+.admin-preview-button { display: grid; gap: 8px; max-width: 320px; margin: 12px 0; }
+.admin-preview-button img { width: 100%; max-height: 200px; object-fit: contain; }
+.admin-preview iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; margin: 12px 0; background: #102329; }
+.admin-panel summary { cursor: pointer; padding: 12px 0; font-weight: 700; }
+.admin-panel details li { overflow-wrap: anywhere; margin-bottom: 8px; }
+.admin-table-wrap { overflow: auto; }
+.admin-panel table { width: 100%; border-collapse: collapse; }
+.admin-panel th, .admin-panel td { text-align: left; padding: 10px; border-bottom: 1px solid #bccfd0; white-space: nowrap; }
+.admin-entry { display: inline-block; margin: 16px 0; padding: 10px 14px; border: 1px solid #668187; border-radius: 8px; }
