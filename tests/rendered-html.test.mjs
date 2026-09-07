@@ -12,6 +12,37 @@ async function readCanonicalProjectPurpose() {
   return match[1];
 }
 
+test("the real Worker forwards waitUntil so diagnostic storage cannot hold the auth response", async () => {
+  const { default: worker } = await import("../dist/server/index.js");
+  let finishWrite;
+  const slowWrite = new Promise(resolve => { finishWrite = resolve; });
+  const pending = [];
+  const env = {
+    APP_ENV: "production", AUTH_DIAGNOSTICS_UNTIL: "2099-01-01T00:00:00.000Z",
+    SESSION_SECRET: "fixture-secret", LINE_CHANNEL_ID: "fixture-channel",
+    LINE_CHANNEL_SECRET: "fixture-channel-secret", LINE_CALLBACK_URL: "https://example.com/api/v1/auth/line/callback",
+    PUBLIC_WRITE_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    DB: { prepare: () => ({ bind: () => ({ run: () => slowWrite }) }) },
+  };
+  let timeout;
+  try {
+    const response = await Promise.race([
+      worker.fetch(new Request("https://example.com/api/v1/auth/line/callback"), env, {
+        props: {}, waitUntil(promise) { pending.push(promise); }, passThroughOnException() {},
+      }),
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("Auth waited for diagnostic storage")), 2_000); }),
+    ]);
+    assert.equal(response.status, 303);
+    assert.match(response.headers.get("location"), /^\/\?login=invalid&auth_trace=[a-f0-9]{32}$/);
+    assert.equal(pending.length, 1, "Worker execution context must reach Hono");
+    assert.equal(response.headers.get("referrer-policy"), "strict-origin");
+  } finally {
+    clearTimeout(timeout);
+    finishWrite({ success: true });
+    await Promise.all(pending);
+  }
+});
+
 async function readClientBundle(pattern, description) {
   const directories = [
     new URL("../dist/client/assets/", import.meta.url),

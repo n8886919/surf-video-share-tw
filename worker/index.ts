@@ -13,6 +13,7 @@ const OPS_ANALYSIS_CRON = "5 * * * *";
 const MAINTENANCE_CRON = "20 */6 * * *";
 
 interface ExecutionContext {
+  props: unknown;
   waitUntil(promise: Promise<unknown>): void;
   passThroughOnException(): void;
 }
@@ -29,7 +30,7 @@ const worker = {
     let response: Response;
 
     if (url.pathname.startsWith("/api/v1/")) {
-      response = await api.fetch(request, env);
+      response = await api.fetch(request, env, ctx);
     } else if (url.pathname === "/_vinext/image" && env.IMAGES) {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       response = await handleImageOptimization(request, {
