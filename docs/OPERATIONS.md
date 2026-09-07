@@ -48,7 +48,7 @@ On iPhone, [LINE documents that auto login can fail](https://developers.line.biz
 
 ## Daily forecast report (Product 0.28)
 
-Release candidate: migration `0018_forecast_daily_report.sql`, Worker, and GitHub forecast workflow must be released together; `PROJECT_STATE.md` records actual deployment status. No new Cron or secret is introduced. The hourly `5 * * * *` task runs the report independently alongside operations analysis, so an AI failure does not suppress it.
+Released September 8 with migration `0018_forecast_daily_report.sql`, Worker 0.28 and the GitHub failure-only forecast workflow; `PROJECT_STATE.md` records deployment evidence and pending first scheduled report acceptance. No new Cron or secret is introduced. The hourly `5 * * * *` task runs the report independently alongside operations analysis, so an AI failure does not suppress it.
 
 - At 09:05 Asia/Taipei, send one message for the previous Taipei date: `昨日預報更新（YYYY-MM-DD）`, `CWA：應更新 4 次，成功 N 次`, `MFWAM：應更新 4 次，成功 N 次`. Expected counts reflect the existing six-hour cadence, not provider uptime guarantees.
 - CWA belongs to its upstream model-run date: 00/06/12/18 UTC = 08/14/20/02 Taipei. A delayed run received next morning still belongs to its model-run day if complete before the report. The 09:05 report leaves room after the contract's twelve-hour publication-lag bound for the last 20:00 run. Every active, coordinate-bearing spot needs all 25 distinct three-hour leads through 72 hours. Inactive spots and duplicated publications cannot substitute for missing coverage.

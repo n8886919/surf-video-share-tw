@@ -2,7 +2,7 @@
 
 Updated: 2026-09-08
 
-## Product 0.28 daily forecast report — ready for approval
+## Product 0.28 daily forecast report — deployed
 
 Local implementation follows the September 8 request: one combined CWA/MFWAM LINE success report at 09:05 Asia/Taipei for the previous Taipei date, showing only expected four updates and successful update count for each source. The per-run Worker pushes are removed and GitHub's six-hour forecast check becomes failure-only. Fault/recovery alerts remain separate. No new schedule, provider, paid resource or secret is added.
 
@@ -14,7 +14,11 @@ Full `pnpm verify` passed on this release candidate: lint/typecheck, 41 Vitest f
 
 Read-only preflight at approximately 01:07–01:08 Taipei confirms current 0.27 version `95b7439a-8f8a-47ff-80ec-33440a9ff866` at 100%, all required secret names present, no missing bindings and query-string redaction enabled. Only migration `0018_forecast_daily_report.sql` is pending. The 116,305-row forecast table contains 9,075 rows with non-null model_run_at, so the candidate partial index needs about 9,075 index entries rather than indexing all providers. The aggregate count read 116,305 rows and wrote zero. Sampled September 7 UTC D1 usage was 502,166 reads / 71,200 writes (analytics may lag); if Free applies, leave room under its 100,000-write daily allowance for index construction and the next normal ingestion. Recheck quota immediately before migration or wait for the 08:00 Taipei UTC-day reset. Account billing-plan status remains unconfirmed.
 
-No commit, push, remote migration, deployment or real LINE test message was made in this change. Product/package versions are prepared as 0.28 / 0.28.0 locally. The GitHub workflow must be published as part of the approved release too; a Worker-only release leaves the old GitHub success pushes active. Existing local 0.25–0.27 release commits are already deployed but not pushed; review the default-branch publication and Workers Builds migration/redaction gate together. The earlier audit artifact and unrelated user attachments are preserved.
+The user explicitly approved deployment on September 8. Implementation commit `e2b00013472998ee98bd6b8165ba3848ed20827c` is deployed and pushed to GitHub `main`, including the previously deployed but unpushed LINE fixes. Migration 0018 applied successfully (five statements, approximately 329 ms). The reviewed local OAuth deployment first published `0cf8833b-4352-4920-94cf-d479005a1bfe` and verified query-string redaction. GitHub CI run `34147062202` and Cloudflare build `7313d4a9-e56c-45c2-a4ff-8768188a30f5` then passed for that exact implementation commit. The post-build read at 01:20–01:21 Taipei observed `6f5ce66f-1e16-45ce-971b-013ff2727c4f` at 100%, no pending migration, all three new schema objects, no missing bindings and redaction enabled. The Builds-settings API returned 403 and the browser was not signed in; no build setting was changed or guessed. The final deployment state was instead read back after the successful build. No real LINE test message, provider backfill, price-plan change or user-data edit was performed.
+
+Formal production verification of the new CWA query returned all 19 active spots complete through the covering run index: 969 rows read, zero writes and 0.5762 ms SQL duration for the latest available run. This is a single production sample, compared with the earlier audit's roughly 107,989-row average for the old query, not a whole-day savings claim. Health/readiness and nineteen-spot listing returned HTTP 200. The production `surf-app-Dock7HZL.js` contains 0.28 and matches the local SHA-256 `3dca9643928d26c19827a1fdab30daf6e735b73da993a16c455110da59d22ed2`. GitHub's active forecast workflow matches the local failure-only file exactly and contains no old success message. Credential-free release evidence is in ignored `outputs/release-028-*.json` / deployment log.
+
+At the 01:21 verification the new run ledger was correctly empty: the next ordinary six-hour collection is September 8 at 02:20 Taipei. Its first instrumented MFWAM attempt should establish the reporting baseline. Under normal scheduling, September 9 is the first complete reportable day and the first combined report is due September 10 at 09:05 Taipei. No artificial completion or manual cron was inserted to make the ledger look populated. Normal-ingestion and first-message acceptance remain pending natural schedule execution. User attachments remain untouched.
 
 ## September 8 healthcheck checkpoint
 
@@ -27,6 +31,10 @@ Other confirmed findings: a thumbnail-issued Stream token can retrieve a playbac
 Fresh `pnpm verify` passed 274 Vitest tests, 4 built-Worker/rendered checks, and 19 Chromium UI/accessibility tests plus lint/typecheck/migration drift/build. Dependency audit reported no known vulnerabilities. A built-Worker/in-memory SQLite proof reproduced abandoned-upload retention and verified a candidate partial CWA run index changes SCAN to indexed SEARCH. No product code, production data, subscriptions, deployment, provider settings, or notifications were changed by this audit.
 
 ## Current deployment
+
+Product `0.28` implementation `e2b0001` is deployed with migration 0018 and the GitHub failure-only forecast workflow. The exact post-build verification record, source hash and pending normal-schedule acceptance are above. Documentation-only publication after that record may create another Cloudflare deployment ID without changing the verified 0.28 runtime.
+
+### Previous deployment: Product 0.27
 
 Product `0.27` implementation commit `acb76f6` is deployed through the reviewed local OAuth flow. Cloudflare version `95b7439a-8f8a-47ff-80ec-33440a9ff866` has 100% traffic as of `2026-09-07T15:44:35Z` (23:44:35 Taipei). Migration 0017 applied successfully; post-deploy preflight reports no pending migration/missing bindings, all required secret names present, and query-string redaction enabled. The local release commits have not been pushed; remote `main` is not the active deployed source.
 
@@ -236,7 +244,7 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 
 ## Next task
 
-After explicit deployment approval, release the verified Product 0.28 candidate and publish the GitHub failure-only forecast workflow together: recheck D1 migration write headroom, apply only migration 0018 before the Worker, preserve query-string redaction, verify deployed version/workflow, then inspect normally scheduled CWA/MFWAM completion ledger entries and the first eligible 09:05 daily report.
+Complete normal-schedule acceptance for deployed Product 0.28: inspect the CWA/MFWAM ledger after the September 8 02:20 Taipei collection and verify the first eligible daily report (expected September 10 09:05, covering September 9). Confirm incomplete batches do not count and healthy GitHub forecast checks remain silent; do not trigger extra ingestion, backfill or test LINE pushes merely to populate evidence.
 
 Pending acceptance: broader physical Android Chrome/home-screen and iPhone Safari/home-screen LINE acceptance remains required, preserving desktop QR login. The two users' physical iPhone Safari scrolling retest for Product `0.23` also remains outstanding. Whole-day D1 usage, thumbnail-token cost isolation, abandoned-upload recovery, and the 14-day pilot evaluation are tracked in the healthcheck; do not broaden feature scope before addressing these observed constraints.
 
