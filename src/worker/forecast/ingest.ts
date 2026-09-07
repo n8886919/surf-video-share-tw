@@ -1,5 +1,5 @@
 import type { AppEnv } from "../db";
-import { sendLineNotification } from "../ops-observability";
+import { recordForecastUpdate } from "./daily-report";
 import {
   fetchOpenMeteoMarineModel,
   OPEN_METEO_WAVE_MODELS,
@@ -13,28 +13,6 @@ export interface ForecastIngestionSummary {
   finishedAt: string;
   spots: number;
   providers: ForecastProviderResult[];
-}
-
-const FORECAST_PROVIDER_LABELS: Record<string, string> = {
-  "open-meteo/meteofrance_wave": "MFWAM",
-  "open-meteo/ecmwf_wam": "ECMWF WAM",
-  "open-meteo/ncep_gfswave016": "GFS Wave",
-  "open-meteo/dwd_gwam": "GWAM",
-};
-
-function forecastHeartbeatMessage(summary: ForecastIngestionSummary): string {
-  const degraded = summary.providers.some((provider) => provider.status !== "complete");
-  const providerLines = summary.providers.map((provider) => {
-    const label = FORECAST_PROVIDER_LABELS[provider.provider] ?? provider.provider;
-    return `${label}: ${provider.status}（新增 ${provider.inserted}、重複 ${provider.duplicates}）`;
-  });
-  return [
-    `${degraded ? "⚠️" : "✅"} 彼日浪影氣象資料排程已跑完`,
-    `排程時間：${summary.scheduledAt}`,
-    `浪點：${summary.spots}`,
-    ...providerLines,
-    "此訊息僅代表 Cloudflare 的 Open-Meteo 更新；CWA 由 Home Assistant 另行收集。",
-  ].join("\n");
 }
 
 function safeErrorMessage(error: unknown, sensitiveValue?: string): string {
@@ -97,6 +75,7 @@ export async function runScheduledForecastIngestion(
   scheduledAt: Date,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
+  await recordForecastUpdate(env.DB, "mfwam", scheduledAt.toISOString(), false);
   const summary = await runForecastIngestion(env, scheduledAt, fetchImpl);
   const requiredMfwam = summary.providers.find(
     (provider) => provider.provider === "open-meteo/meteofrance_wave",
@@ -107,18 +86,8 @@ export async function runScheduledForecastIngestion(
   } else {
     console.log(log);
   }
-  if (!requiredMfwam || requiredMfwam.status === "failed") {
-    throw new Error("Required Météo-France MFWAM ingestion failed");
+  if (!requiredMfwam || requiredMfwam.status !== "complete") {
+    throw new Error("Required Météo-France MFWAM ingestion incomplete");
   }
-  try {
-    const notification = await sendLineNotification(env, forecastHeartbeatMessage(summary), fetchImpl);
-    if (notification === "unconfigured") {
-      console.warn(JSON.stringify({ event: "forecast_ingestion_line_unconfigured" }));
-    }
-  } catch (error) {
-    console.error(JSON.stringify({
-      event: "forecast_ingestion_line_delivery_failed",
-      errorName: error instanceof Error ? error.name : "UnknownError",
-    }));
-  }
+  await recordForecastUpdate(env.DB, "mfwam", scheduledAt.toISOString(), true);
 }

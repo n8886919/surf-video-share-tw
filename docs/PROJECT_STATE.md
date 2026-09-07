@@ -1,6 +1,32 @@
 # Project state
 
-Updated: 2026-09-07
+Updated: 2026-09-08
+
+## Product 0.28 daily forecast report — ready for approval
+
+Local implementation follows the September 8 request: one combined CWA/MFWAM LINE success report at 09:05 Asia/Taipei for the previous Taipei date, showing only expected four updates and successful update count for each source. The per-run Worker pushes are removed and GitHub's six-hour forecast check becomes failure-only. Fault/recovery alerts remain separate. No new schedule, provider, paid resource or secret is added.
+
+CWA completion now checks the operational ledger first, then uses a partial covering provider/model/model-run/spot/lead index to verify every active spot has all twenty-five three-hour leads through 72 hours. A duplicate skips forecast history. Home Assistant App 0.5.0 remains compatible: its strict legacy sent/duplicate response acknowledges completion persistence, not a per-run push. MFWAM slots become successful only after all active spots finish; duplicates are accepted and partial failures do not count. The daily report reads only the small source/slot ledger. CWA day attribution uses model-run time; MFWAM uses scheduled time. Skip the partial activation day and first report the following complete day on the next morning; do not invent pre-release success history.
+
+The persisted daily message/recipient hash, atomic claim and LINE retry key prevent duplicate pushes under concurrent cron runs or a lost acceptance acknowledgement. Transient retries end that Taipei day within LINE's 24-hour deduplication window. The message is frozen at first preparation; later completions do not generate corrections. See [Operations](OPERATIONS.md#daily-forecast-report-product-028) and [API](API.md).
+
+Full `pnpm verify` passed on this release candidate: lint/typecheck, 41 Vitest files / 286 tests, migration drift, production build, 4 built-Worker/rendered checks and 19 Chromium UI/accessibility tests. Tests use the actual migrations and in-memory SQLite for indexed query plans, all-spot/all-lead completeness, duplicate replay, date boundaries, all/partial/no successes, concurrent sending, LINE 409 acceptance, crash/5xx retries and partial-launch-day handling. The local plan is indexed SEARCH; no production savings measurement is claimed yet.
+
+Read-only preflight at approximately 01:07–01:08 Taipei confirms current 0.27 version `95b7439a-8f8a-47ff-80ec-33440a9ff866` at 100%, all required secret names present, no missing bindings and query-string redaction enabled. Only migration `0018_forecast_daily_report.sql` is pending. The 116,305-row forecast table contains 9,075 rows with non-null model_run_at, so the candidate partial index needs about 9,075 index entries rather than indexing all providers. The aggregate count read 116,305 rows and wrote zero. Sampled September 7 UTC D1 usage was 502,166 reads / 71,200 writes (analytics may lag); if Free applies, leave room under its 100,000-write daily allowance for index construction and the next normal ingestion. Recheck quota immediately before migration or wait for the 08:00 Taipei UTC-day reset. Account billing-plan status remains unconfirmed.
+
+No commit, push, remote migration, deployment or real LINE test message was made in this change. Product/package versions are prepared as 0.28 / 0.28.0 locally. The GitHub workflow must be published as part of the approved release too; a Worker-only release leaves the old GitHub success pushes active. Existing local 0.25–0.27 release commits are already deployed but not pushed; review the default-branch publication and Workers Builds migration/redaction gate together. The earlier audit artifact and unrelated user attachments are preserved.
+
+## September 8 healthcheck checkpoint
+
+Read-only production audit around 00:13–00:23 Asia/Taipei confirms 9 registered users including the administrator, 13 public videos (3 from 2 non-administrators), and 1 non-administrator with uploads on two dates. A new 0.27 Android/Chrome standalone trace at 00:02 has completed/delivered login followed by authenticated `/me`, repeated at 00:05; broader physical Android/iPhone acceptance is still outstanding. Health/readiness are ok, CWA/MFWAM have fresh data for all 19 spots, and the existing 0.27 deployment and redaction remain unchanged.
+
+The audit found a present cost/reliability defect: CWA completion verification scans the entire forecast table before checking an already-sent notification. Query Insights reports 2,807,731 rows read across 26 executions in the September 7 00:00–September 8 00:00 Taipei window. D1 is 115.72 MB and its stable pre-index growth sample is about 14.24 MB/day; if Workers Free still applies and growth continues, the 500 MB per-database limit is roughly 27 days away. A subscription-list read was denied, so current billing-plan status is not asserted. September 7 UTC daily usage is incomplete and must not be treated as a whole-day validation.
+
+Other confirmed findings: a thumbnail-issued Stream token can retrieve a playback manifest without visiting a playback-limited route (one manifest, zero media segments fetched); two `awaiting_upload` / metadata-complete records have no expiry and are excluded from owner reconciliation/cleanup, one already older than seven days. One unresolved minor-related video report needs administrator review; it is not itself proof of a violation. Full findings, cost scenarios, source citations, limits, and the proposed 14-day pilot evaluation are in [September 8 healthcheck](HEALTHCHECK_2026-09-08.md).
+
+Fresh `pnpm verify` passed 274 Vitest tests, 4 built-Worker/rendered checks, and 19 Chromium UI/accessibility tests plus lint/typecheck/migration drift/build. Dependency audit reported no known vulnerabilities. A built-Worker/in-memory SQLite proof reproduced abandoned-upload retention and verified a candidate partial CWA run index changes SCAN to indexed SEARCH. No product code, production data, subscriptions, deployment, provider settings, or notifications were changed by this audit.
+
+## Current deployment
 
 Product `0.27` implementation commit `acb76f6` is deployed through the reviewed local OAuth flow. Cloudflare version `95b7439a-8f8a-47ff-80ec-33440a9ff866` has 100% traffic as of `2026-09-07T15:44:35Z` (23:44:35 Taipei). Migration 0017 applied successfully; post-deploy preflight reports no pending migration/missing bindings, all required secret names present, and query-string redaction enabled. The local release commits have not been pushed; remote `main` is not the active deployed source.
 
@@ -210,8 +236,8 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 
 ## Next task
 
-Obtain physical Android Chrome/home-screen and iPhone Safari/home-screen LINE acceptance on deployed Product `0.27`, using a fresh automatic login from the original entry. Preserve desktop Chrome QR login and inspect only the new diagnostic ID on failure. Whole-day D1 usage remains a separate observation.
+After explicit deployment approval, release the verified Product 0.28 candidate and publish the GitHub failure-only forecast workflow together: recheck D1 migration write headroom, apply only migration 0018 before the Worker, preserve query-string redaction, verify deployed version/workflow, then inspect normally scheduled CWA/MFWAM completion ledger entries and the first eligible 09:05 daily report.
 
-Pending acceptance: the two users' physical iPhone Safari scrolling retest for Product `0.23` remains outstanding.
+Pending acceptance: broader physical Android Chrome/home-screen and iPhone Safari/home-screen LINE acceptance remains required, preserving desktop QR login. The two users' physical iPhone Safari scrolling retest for Product `0.23` also remains outstanding. Whole-day D1 usage, thumbnail-token cost isolation, abandoned-upload recovery, and the 14-day pilot evaluation are tracked in the healthcheck; do not broaden feature scope before addressing these observed constraints.
 
 Deferred next-stage goal: after the first-user validation gates, use observed pilot behavior and the two-phone acceptance exercise to decide whether long share URLs block sharing. Only with that evidence, add a first-party expiring short-code path that preserves the existing 24-hour lifetime, exporter quota, and long-link compatibility; do not use a third-party shortener. The implementation decision must also settle whether the public share page's logged-in 「重新分享」 action remains in addition to the two intended share surfaces documented in `docs/PRODUCT.md`.

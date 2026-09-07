@@ -10,7 +10,7 @@ import {
 import type { AppEnv } from "./db";
 import { insertForecastSnapshots, stableForecastId } from "./forecast/store";
 import type { ForecastSnapshotInput } from "./forecast/types";
-import { sendLineNotification } from "./ops-observability";
+import { recordForecastUpdate } from "./forecast/daily-report";
 
 const SIGNATURE_VERSION = "1";
 const SIGNATURE_WINDOW_SECONDS = 5 * 60;
@@ -18,7 +18,6 @@ const MAX_BODY_BYTES = 128 * 1024;
 const MAX_CWA_PUBLICATION_LAG_MS = 12 * 60 * 60_000;
 const CWA_PROVIDER = "cwa";
 const CWA_MODEL = "cwa-wave-f-a0020-001";
-const NOTIFICATION_CLAIM_TIMEOUT_MS = 5 * 60_000;
 const LEGACY_CWA_TIDE_SPOT_IDS = new Set(["spot_wushi-harbor-north", "spot_double-lions"]);
 
 const signatureHeaders = {
@@ -189,123 +188,47 @@ function hasValidRunRelationship(issuedAt: string, modelRunAt: string): boolean 
   return issued >= modelRun - 60 * 60_000 && issued <= modelRun + MAX_CWA_PUBLICATION_LAG_MS;
 }
 
-function formatTaipeiTime(value: string): string {
-  return new Date(new Date(value).getTime() + 8 * 60 * 60_000)
-    .toISOString()
-    .slice(0, 16)
-    .replace("T", " ");
-}
+// Restrict the scan to one run; the partial covering index excludes Open-Meteo.
+export const CWA_RUN_COMPLETENESS_SQL = `
+  SELECT
+    (SELECT COUNT(*) FROM spots
+     WHERE active = 1 AND latitude IS NOT NULL AND longitude IS NOT NULL) AS active_spot_count,
+    COUNT(*) AS ingested_spot_count
+  FROM (
+    SELECT f.spot_id
+    FROM forecast_snapshots f
+    JOIN spots s ON s.id = f.spot_id
+    WHERE f.provider = ? AND f.model = ? AND f.model_run_at = ?
+      AND s.active = 1 AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+      AND f.lead_hours BETWEEN 0 AND 72 AND f.lead_hours % 3 = 0
+    GROUP BY f.spot_id
+    HAVING COUNT(DISTINCT f.lead_hours) = 25
+  )`;
 
-interface CwaRunCompletenessRow {
-  active_spot_count: number;
-  ingested_spot_count: number;
-  snapshot_count: number;
-}
-
-interface NotificationClaimRow {
-  status: "sending" | "failed" | "sent";
-  claimed_at: string;
-}
-
-async function completeCwaRunNotification(
+async function completeCwaRun(
   env: AppEnv,
   input: { provider: string; model: string; issuedAt: string; modelRunAt: string },
-  fetchImpl: typeof fetch = fetch,
-): Promise<"sent" | "duplicate" | "in-progress" | "incomplete" | "unconfigured"> {
-  const completeness = await env.DB.prepare(
-    `SELECT
-       (SELECT COUNT(*) FROM spots
-        WHERE active = 1 AND latitude IS NOT NULL AND longitude IS NOT NULL) AS active_spot_count,
-       COUNT(DISTINCT spot_id) AS ingested_spot_count,
-       COUNT(*) AS snapshot_count
-     FROM forecast_snapshots
-     WHERE provider = ? AND model = ? AND model_run_at = ?`,
-  ).bind(input.provider, input.model, input.modelRunAt).first<CwaRunCompletenessRow>();
-  if (
-    !completeness
-    || completeness.active_spot_count < 1
-    || completeness.ingested_spot_count !== completeness.active_spot_count
-    || completeness.snapshot_count < completeness.active_spot_count
-  ) return "incomplete";
+): Promise<"sent" | "duplicate" | "incomplete"> {
+  const existing = await env.DB.prepare(
+    `SELECT completed_at FROM forecast_update_runs WHERE source = 'cwa' AND slot_at = ?`,
+  ).bind(input.modelRunAt).first<{ completed_at: string | null }>();
+  if (existing?.completed_at) return "duplicate";
 
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const notificationKey = `${input.provider}:${input.model}:${input.modelRunAt}`;
-  const inserted = await env.DB.prepare(
-    `INSERT OR IGNORE INTO forecast_ingestion_notifications (
-       notification_key, provider, model, issued_at, model_run_at, status, attempts,
-       claimed_at, sent_at, last_error, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, 'sending', 1, ?, NULL, NULL, ?, ?)`,
-  ).bind(
-    notificationKey,
-    input.provider,
-    input.model,
-    input.issuedAt,
-    input.modelRunAt,
-    nowIso,
-    nowIso,
-    nowIso,
-  ).run();
+  const completeness = await env.DB.prepare(CWA_RUN_COMPLETENESS_SQL)
+    .bind(input.provider, input.model, input.modelRunAt)
+    .first<{ active_spot_count: number; ingested_spot_count: number }>();
+  if (!completeness || completeness.active_spot_count < 1
+    || completeness.ingested_spot_count !== completeness.active_spot_count) return "incomplete";
 
-  if ((inserted.meta.changes ?? 0) === 0) {
-    const existing = await env.DB.prepare(
-      `SELECT status, claimed_at FROM forecast_ingestion_notifications WHERE notification_key = ?`,
-    ).bind(notificationKey).first<NotificationClaimRow>();
-    if (existing?.status === "sent") return "duplicate";
-    const staleBefore = new Date(now.getTime() - NOTIFICATION_CLAIM_TIMEOUT_MS).toISOString();
-    const reclaimed = await env.DB.prepare(
-      `UPDATE forecast_ingestion_notifications
-       SET status = 'sending', attempts = attempts + 1, claimed_at = ?, last_error = NULL, updated_at = ?
-       WHERE notification_key = ? AND status != 'sent'
-         AND (status = 'failed' OR claimed_at <= ?)`,
-    ).bind(nowIso, nowIso, notificationKey, staleBefore).run();
-    if ((reclaimed.meta.changes ?? 0) === 0) return "in-progress";
-  }
-
-  const message = [
-    "✅ CWA 最新批次已完整入庫",
-    `模式時間：${formatTaipeiTime(input.modelRunAt)}`,
-    `發布時間：${formatTaipeiTime(input.issuedAt)}`,
-    `浪點：${completeness.ingested_spot_count}`,
-    `資料列：${completeness.snapshot_count}`,
-  ].join("\n");
-
-  try {
-    const delivery = await sendLineNotification(env, message, fetchImpl);
-    if (delivery === "unconfigured") {
-      await env.DB.prepare(
-        `UPDATE forecast_ingestion_notifications
-         SET status = 'failed', last_error = 'line_unconfigured', updated_at = ?
-         WHERE notification_key = ? AND status = 'sending'`,
-      ).bind(new Date().toISOString(), notificationKey).run();
-      return "unconfigured";
-    }
-    const sentAt = new Date().toISOString();
-    await env.DB.prepare(
-      `UPDATE forecast_ingestion_notifications
-       SET status = 'sent', sent_at = ?, last_error = NULL, updated_at = ?
-       WHERE notification_key = ? AND status = 'sending'`,
-    ).bind(sentAt, sentAt, notificationKey).run();
-    console.log(JSON.stringify({
-      event: "cwa_ingestion_notification_sent",
-      issuedAt: input.issuedAt,
-      modelRunAt: input.modelRunAt,
-      spots: completeness.ingested_spot_count,
-      snapshots: completeness.snapshot_count,
-    }));
-    return "sent";
-  } catch (error) {
-    await env.DB.prepare(
-      `UPDATE forecast_ingestion_notifications
-       SET status = 'failed', last_error = ?, updated_at = ?
-       WHERE notification_key = ? AND status = 'sending'`,
-    ).bind(
-      error instanceof Error ? error.name.slice(0, 100) : "UnknownError",
-      new Date().toISOString(),
-      notificationKey,
-    ).run();
-    throw error;
-  }
+  await recordForecastUpdate(env.DB, "cwa", input.modelRunAt, true);
+  console.log(JSON.stringify({
+    event: "cwa_ingestion_completed",
+    modelRunAt: input.modelRunAt,
+    spots: completeness.ingested_spot_count,
+  }));
+  // HA App 0.5.0 strictly accepts only sent/duplicate. Keep its wire acknowledgement;
+  // it now means completion recorded for the daily report, not a per-run LINE push.
+  return "sent";
 }
 
 function hasValidTideMapping(
@@ -472,7 +395,7 @@ internalForecastIngestionApi.post("/cwa/complete", async (context) => {
     return context.json({ error: "INVALID_INGESTION_BODY" }, 422);
   }
   try {
-    const result = await completeCwaRunNotification(context.env, {
+    const result = await completeCwaRun(context.env, {
       ...parsed.data,
       issuedAt: new Date(parsed.data.issuedAt).toISOString(),
       modelRunAt: new Date(parsed.data.modelRunAt).toISOString(),
@@ -480,16 +403,10 @@ internalForecastIngestionApi.post("/cwa/complete", async (context) => {
     if (result === "incomplete") {
       return context.json({ error: "CWA_INGESTION_INCOMPLETE" }, 409);
     }
-    if (result === "in-progress") {
-      return context.json({ error: "CWA_NOTIFICATION_IN_PROGRESS" }, 409);
-    }
-    if (result === "unconfigured") {
-      return context.json({ error: "CWA_NOTIFICATION_UNAVAILABLE" }, 503);
-    }
     return context.json({ notification: result });
   } catch (error) {
     console.error(JSON.stringify({
-      event: "cwa_ingestion_notification_failed",
+      event: "cwa_ingestion_completion_failed",
       errorName: error instanceof Error ? error.name : "UnknownError",
     }));
     return context.json({ error: "CWA_NOTIFICATION_FAILED" }, 502);

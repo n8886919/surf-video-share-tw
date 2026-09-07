@@ -170,6 +170,9 @@ export const forecastSnapshots = sqliteTable(
       table.spotId, table.provider, table.model,
       sql`CAST(strftime('%s', ${table.validAt}) AS INTEGER)`,
     ),
+    index("forecast_completion_run_idx")
+      .on(table.provider, table.model, table.modelRunAt, table.spotId, table.leadHours)
+      .where(sql`${table.modelRunAt} IS NOT NULL`),
     uniqueIndex("forecast_source_run_idx").on(
       table.spotId,
       table.provider,
@@ -376,3 +379,24 @@ export const forecastIngestionNotifications = sqliteTable(
     index("forecast_ingestion_notifications_status_idx").on(table.status, table.updatedAt),
   ],
 );
+
+// Operational slots are separate from immutable provider model-run timestamps.
+export const forecastUpdateRuns = sqliteTable("forecast_update_runs", {
+  runKey: text("run_key").primaryKey(),
+  source: text("source").notNull(),
+  slotAt: text("slot_at").notNull(),
+  startedAt: text("started_at").notNull(),
+  completedAt: text("completed_at"),
+}, (table) => [uniqueIndex("forecast_update_runs_source_slot_idx").on(table.source, table.slotAt)]);
+
+export const forecastDailyReports = sqliteTable("forecast_daily_reports", {
+  reportDay: text("report_day").primaryKey(),
+  message: text("message").notNull(),
+  recipientHash: text("recipient_hash").notNull(),
+  retryKey: text("retry_key").notNull(),
+  status: text("status").notNull(),
+  claimToken: text("claim_token"),
+  claimedAt: text("claimed_at"),
+  sentAt: text("sent_at"),
+  createdAt: text("created_at").notNull(),
+});

@@ -128,10 +128,18 @@ function structuredLog(level: "log" | "warn" | "error", payload: Record<string, 
   console[level](JSON.stringify(payload));
 }
 
+export class LineNotificationError extends Error {
+  constructor(readonly status: number) {
+    super(`LINE Messaging API rejected the operations alert (${status})`);
+    this.name = "LineNotificationError";
+  }
+}
+
 export async function sendLineNotification(
   env: AppEnv,
   message: string,
   fetchImpl: typeof fetch = fetch,
+  retryKey?: string,
 ): Promise<"sent" | "unconfigured"> {
   const token = env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN;
   const target = env.OPS_LINE_USER_ID;
@@ -142,14 +150,17 @@ export async function sendLineNotification(
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json; charset=UTF-8",
+      ...(retryKey ? { "X-Line-Retry-Key": retryKey } : {}),
     },
     body: JSON.stringify({
       to: target,
       messages: [{ type: "text", text: message.trim().slice(0, 1_000) }],
     }),
+    signal: AbortSignal.timeout(20_000),
   });
+  if (retryKey && response.status === 409 && response.headers.has("x-line-accepted-request-id")) return "sent";
   if (!response.ok) {
-    throw new Error(`LINE Messaging API rejected the operations alert (${response.status})`);
+    throw new LineNotificationError(response.status);
   }
   return "sent";
 }

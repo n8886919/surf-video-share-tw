@@ -67,18 +67,16 @@ jobs:
           echo "MFWAM run ${issued_at} verified for expected ingestion slot ${expected_slot_at}."
 
   notify:
-    name: Send owner LINE forecast heartbeat
-    if: always()
+    name: Alert owner only when the forecast check fails
+    if: ${{ always() && needs.check.result == 'failure' }}
     needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 2
     env:
-      CHECK_RESULT: ${{ needs.check.result }}
-      ISSUED_AT: ${{ needs.check.outputs.issued_at }}
       LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN }}
       OPS_LINE_USER_ID: ${{ secrets.OPS_LINE_USER_ID }}
     steps:
-      - name: Send the verified update or failure
+      - name: Send a failure alert
         shell: bash
         run: |
           set -euo pipefail
@@ -88,12 +86,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "${CHECK_RESULT}" == "success" ]]; then
-            issued_taipei="$(TZ=Asia/Taipei date --date="${ISSUED_AT}" '+%Y-%m-%d %H:%M')"
-            message="$(printf '✅MFWAM 最新批次：%s' "${issued_taipei}")"
-          else
-            message='🚨MFWAM 最新批次未確認'
-          fi
+          message='🚨MFWAM 最新批次未確認'
 
           payload="$(jq -cn --arg to "${OPS_LINE_USER_ID}" --arg text "${message}" \
             '{to: $to, messages: [{type: "text", text: $text}]}')"

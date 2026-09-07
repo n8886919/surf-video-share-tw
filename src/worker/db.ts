@@ -186,6 +186,9 @@ const schemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS forecast_spot_valid_at_idx ON forecast_snapshots (spot_id, valid_at)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS forecast_source_run_idx ON forecast_snapshots (spot_id, provider, model, issued_at, valid_at)`,
+  `CREATE INDEX IF NOT EXISTS forecast_completion_run_idx
+    ON forecast_snapshots (provider, model, model_run_at, spot_id, lead_hours)
+    WHERE model_run_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS videos (
     id TEXT PRIMARY KEY NOT NULL,
     user_id TEXT NOT NULL REFERENCES users(id),
@@ -318,6 +321,17 @@ const schemaStatements = [
     ON forecast_ingestion_notifications (provider, model, model_run_at)`,
   `CREATE INDEX IF NOT EXISTS forecast_ingestion_notifications_status_idx
     ON forecast_ingestion_notifications (status, updated_at)`,
+  `CREATE TABLE IF NOT EXISTS forecast_update_runs (
+    run_key TEXT PRIMARY KEY NOT NULL, source TEXT NOT NULL, slot_at TEXT NOT NULL,
+    started_at TEXT NOT NULL, completed_at TEXT
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS forecast_update_runs_source_slot_idx
+    ON forecast_update_runs (source, slot_at)`,
+  `CREATE TABLE IF NOT EXISTS forecast_daily_reports (
+    report_day TEXT PRIMARY KEY NOT NULL, message TEXT NOT NULL, recipient_hash TEXT NOT NULL,
+    retry_key TEXT NOT NULL, status TEXT NOT NULL, claim_token TEXT, claimed_at TEXT,
+    sent_at TEXT, created_at TEXT NOT NULL
+  )`,
 ] as const;
 
 function parseSeedCsv(): Array<{

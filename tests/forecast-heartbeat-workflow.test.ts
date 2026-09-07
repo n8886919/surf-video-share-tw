@@ -16,15 +16,16 @@ describe("production forecast heartbeat workflow", () => {
     expect(workflow).toContain("ingestion_grace_seconds=900");
     expect(workflow).toContain("issued_epoch < expected_slot_epoch - 300");
     expect(workflow).not.toContain("age_seconds > 14400");
-    expect(workflow).toContain("✅MFWAM 最新批次：%s");
+    expect(workflow).not.toContain("✅MFWAM 最新批次：%s");
     expect(workflow).not.toContain("✅ 彼日浪影氣象資料已更新");
   });
 
-  it("uses the independently configured LINE path for both success and failure", () => {
+  it("keeps independent failure alerts while daily reports own success notifications", () => {
     expect(workflow).toContain("LINE_MESSAGING_CHANNEL_ACCESS_TOKEN");
     expect(workflow).toContain("OPS_LINE_USER_ID");
-    expect(workflow).toContain("✅MFWAM 最新批次：%s");
+    expect(workflow).not.toContain("✅MFWAM 最新批次：%s");
     expect(workflow).toContain("🚨MFWAM 最新批次未確認");
+    expect(workflow).toContain("if: ${{ always() && needs.check.result == 'failure' }}");
     expect(workflow).not.toContain("run_url");
     expect(workflow).not.toContain("github.run_id");
     expect(workflow).toContain("https://api.line.me/v2/bot/message/push");

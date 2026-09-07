@@ -2,7 +2,8 @@ import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { api } from "../src/worker/api";
 import type { AppEnv } from "../src/worker/db";
-import { canonicalForecastIngestionRequest } from "../src/worker/internal-forecast-ingestion";
+import { forecastFixture } from "./helpers/forecast-fixture";
+import { canonicalForecastIngestionRequest, CWA_RUN_COMPLETENESS_SQL } from "../src/worker/internal-forecast-ingestion";
 
 const secret = "forecast-ingestion-test-secret-32-bytes";
 const path = "/api/v1/internal/forecast-ingestion/cwa";
@@ -119,64 +120,6 @@ function validCompletion() {
   };
 }
 
-class CompletionD1 {
-  notification: { status: "sending" | "failed" | "sent"; claimedAt: string } | null = null;
-
-  constructor(readonly completeness = {
-    active_spot_count: 19,
-    ingested_spot_count: 19,
-    snapshot_count: 475,
-  }) {}
-
-  prepare(sql: string) {
-    return {
-      bind: (...values: unknown[]) => ({
-        first: async () => {
-          if (sql.includes("FROM forecast_snapshots")) return this.completeness;
-          if (sql.includes("SELECT status, claimed_at")) {
-            return this.notification ? {
-              status: this.notification.status,
-              claimed_at: this.notification.claimedAt,
-            } : null;
-          }
-          throw new Error(`unexpected first query: ${sql}`);
-        },
-        run: async () => {
-          if (sql.includes("INSERT OR IGNORE INTO forecast_ingestion_notifications")) {
-            if (this.notification) return { meta: { changes: 0 } };
-            this.notification = { status: "sending", claimedAt: String(values[5]) };
-            return { meta: { changes: 1 } };
-          }
-          if (!this.notification) throw new Error("notification row missing");
-          if (sql.includes("SET status = 'sending'")) {
-            if (this.notification.status === "sent") return { meta: { changes: 0 } };
-            this.notification = { status: "sending", claimedAt: String(values[0]) };
-            return { meta: { changes: 1 } };
-          }
-          if (sql.includes("SET status = 'sent'")) {
-            this.notification.status = "sent";
-            return { meta: { changes: 1 } };
-          }
-          if (sql.includes("SET status = 'failed'")) {
-            this.notification.status = "failed";
-            return { meta: { changes: 1 } };
-          }
-          throw new Error(`unexpected run query: ${sql}`);
-        },
-      }),
-    };
-  }
-}
-
-function completionEnv(db: CompletionD1) {
-  return {
-    DB: db as unknown as D1Database,
-    FORECAST_INGESTION_SECRET: secret,
-    LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: "channel-token",
-    OPS_LINE_USER_ID: `U${"a".repeat(32)}`,
-  } as AppEnv;
-}
-
 describe("internal forecast ingestion API", () => {
   it("authenticates spots without exposing a public browser route", async () => {
     const unauthenticated = await api.fetch(new Request(`https://worker.example${spotsPath}`), env());
@@ -215,59 +158,52 @@ describe("internal forecast ingestion API", () => {
     expect(response.status).toBe(200);
   });
 
-  it("sends one dedicated LINE notification only after a complete CWA run", async () => {
-    const db = new CompletionD1();
-    const lineFetch = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
-    vi.stubGlobal("fetch", lineFetch);
-    try {
-      const first = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
-      expect(first.status).toBe(200);
-      await expect(first.json()).resolves.toEqual({ notification: "sent" });
-      const second = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
-      await expect(second.json()).resolves.toEqual({ notification: "duplicate" });
-      expect(lineFetch).toHaveBeenCalledTimes(1);
-      const request = lineFetch.mock.calls[0]?.[1] as RequestInit;
-      const lineBody = JSON.parse(String(request.body)) as { messages: Array<{ text: string }> };
-      expect(lineBody.messages[0]?.text).toContain("CWA 最新批次已完整入庫");
-      expect(lineBody.messages[0]?.text).toContain("浪點：19");
-      expect(lineBody.messages[0]?.text).toContain("資料列：475");
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("rejects a CWA completion before LINE when any active spot is missing", async () => {
-    const db = new CompletionD1({
-      active_spot_count: 19,
-      ingested_spot_count: 18,
-      snapshot_count: 450,
-    });
+  it("records a complete CWA run without LINE and skips snapshot reads on replay", async () => {
+    const fixture = forecastFixture();
+    fixture.seedCwaRun();
     const lineFetch = vi.fn();
     vi.stubGlobal("fetch", lineFetch);
     try {
-      const response = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
-      expect(response.status).toBe(409);
-      await expect(response.json()).resolves.toEqual({ error: "CWA_INGESTION_INCOMPLETE" });
+      // Completion no longer depends on Messaging API configuration/delivery.
+      delete fixture.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN;
+      const first = await post(validCompletion(), fixture.env, completionPath, completionPath);
+      expect(first.status).toBe(200);
+      await expect(first.json()).resolves.toEqual({ notification: "sent" });
+      const second = await post(validCompletion(), fixture.env, completionPath, completionPath);
+      await expect(second.json()).resolves.toEqual({ notification: "duplicate" });
       expect(lineFetch).not.toHaveBeenCalled();
-    } finally {
-      vi.unstubAllGlobals();
-    }
+      expect(fixture.queries.filter(sql => sql.includes("FROM forecast_snapshots"))).toHaveLength(1);
+      const plan = fixture.sqlite.prepare("EXPLAIN QUERY PLAN " + CWA_RUN_COMPLETENESS_SQL)
+        .all("cwa", "cwa-wave-f-a0020-001", validCompletion().modelRunAt);
+      expect(JSON.stringify(plan)).toContain("SEARCH f USING COVERING INDEX forecast_completion_run_idx");
+      expect(JSON.stringify(plan)).not.toMatch(/SCAN (?:f|forecast_snapshots)(?:"| )/u);
+    } finally { vi.unstubAllGlobals(); fixture.sqlite.close(); }
   });
 
-  it("keeps a failed LINE delivery retryable", async () => {
-    const db = new CompletionD1();
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 500 })));
+  it.each(["spot", "lead"])("rejects completion with a missing active %s", async missing => {
+    const fixture = forecastFixture();
+    fixture.seedCwaRun();
+    fixture.sqlite.exec(missing === "spot"
+      ? "DELETE FROM forecast_snapshots WHERE spot_id = 'spot_double-lions'"
+      : "DELETE FROM forecast_snapshots WHERE spot_id = 'spot_double-lions' AND lead_hours = 72");
     try {
-      const failed = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
+      const response = await post(validCompletion(), fixture.env, completionPath, completionPath);
+      expect(response.status).toBe(409);
+      expect(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM forecast_update_runs").get()?.count).toBe(0);
+    } finally { fixture.sqlite.close(); }
+  });
+
+  it("keeps failed completion persistence retryable without a LINE dependency", async () => {
+    const fixture = forecastFixture();
+    fixture.seedCwaRun();
+    fixture.failNext("INSERT INTO forecast_update_runs");
+    try {
+      const failed = await post(validCompletion(), fixture.env, completionPath, completionPath);
       expect(failed.status).toBe(502);
-      expect(db.notification?.status).toBe("failed");
-      vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 200 })));
-      const retried = await post(validCompletion(), completionEnv(db), completionPath, completionPath);
+      const retried = await post(validCompletion(), fixture.env, completionPath, completionPath);
       await expect(retried.json()).resolves.toEqual({ notification: "sent" });
-      expect(db.notification?.status).toBe("sent");
-    } finally {
-      vi.unstubAllGlobals();
-    }
+      expect(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM forecast_update_runs").get()?.count).toBe(1);
+    } finally { fixture.sqlite.close(); }
   });
 
   it("keeps legacy v1 behavior by dropping fixed O00400 tide outside the two launch spots", async () => {

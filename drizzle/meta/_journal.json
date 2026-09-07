@@ -127,6 +127,13 @@
       "when": 1788795020453,
       "tag": "0017_sturdy_rockslide",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1788800413798,
+      "tag": "0018_forecast_daily_report",
+      "breakpoints": true
     }
   ]
 }
