@@ -6,7 +6,9 @@ export async function proxyThumbnail(url: string, requestUrl: string, env: AppEn
     const target = new URL(url, requestUrl);
     const local = target.origin === new URL(requestUrl).origin;
     if (!local && target.protocol !== "https:") throw new Error("Invalid thumbnail protocol");
-    const request = new Request(target, { redirect: "error", signal: AbortSignal.timeout(8000) });
+    // workerd rejects redirect:"error". Manual mode exposes no redirect to the client:
+    // the !ok check below rejects 3xx responses before constructing the image response.
+    const request = new Request(target, { redirect: "manual", signal: AbortSignal.timeout(8000) });
     const upstream = local ? await env.ASSETS.fetch(request) : await fetch(request);
     const type = upstream.headers.get("content-type")?.split(";")[0].trim();
     if (!upstream.ok || !type || !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(type)) {

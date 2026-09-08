@@ -32,7 +32,7 @@ describe("CI quality gates", () => {
 
   it("keeps local verify aligned with CI", () => {
     expect(packageJson.scripts["db:check"]).toBe("node ops/check-migration-drift.mjs");
-    expect(packageJson.scripts["test:site:built"]).toBe("node --test tests/rendered-html.test.mjs tests/line-login-browser.test.mjs");
+    expect(packageJson.scripts["test:site:built"]).toBe("node --test tests/rendered-html.test.mjs tests/line-login-browser.test.mjs tests/thumbnail-runtime.test.mjs");
     expect(packageJson.scripts["test:browser:built"]).toBe("playwright test");
     for (const command of [
       "pnpm lint",
