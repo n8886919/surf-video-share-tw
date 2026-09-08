@@ -141,6 +141,20 @@
       "when": 1788806319724,
       "tag": "0019_pink_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1788851694551,
+      "tag": "0020_tired_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1788853765502,
+      "tag": "0021_big_hulk",
+      "breakpoints": true
     }
   ]
 }

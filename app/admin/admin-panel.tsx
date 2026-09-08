@@ -18,7 +18,7 @@ const labels: Record<string, string> = { privacy: "隱私", minor: "未成年人
   test: "測試", no_violation: "檢舉不成立", reviewed: "管理員確認", resolve: "保留並結案", delist: "下架", restore: "恢復公開",
   search: "搜尋", playback_started: "開始播放", upload_step: "上傳步驟", upload_failed: "上傳失敗", playback_failed: "播放失敗",
   none: "有搜尋結果", no_videos: "無公開實拍", missing_target: "缺目標預報", insufficient_history: "歷史資料不足",
-  success: "成功", started: "開始", failed: "失敗", server: "伺服器", client: "用戶端回報",
+  success: "成功", started: "開始", failed: "失敗", duplicate: "重複提醒", server: "伺服器", client: "用戶端回報",
   ticket: "建立上傳連結", transfer: "傳送檔案", completion: "確認上傳", selection: "讀取選取影片", player: "播放器", sdk: "播放器程式", tracking: "播放回報" };
 const label = (value: string | null) => value ? value.split(":").map(part => labels[part] || part).join("／") : "舊紀錄未保存";
 function time(value: string | null) {

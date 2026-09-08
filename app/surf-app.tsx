@@ -15,6 +15,7 @@ import {
   MAX_UPLOAD_BYTES,
   MAX_VIDEO_DURATION_SECONDS,
   MIN_VIDEO_DURATION_SECONDS,
+  uploadDuplicateResponseSchema,
 } from "../packages/api-contract/src";
 import {
   COMPOSITE_FORECAST_DAY_OFFSET_MAX,
@@ -34,6 +35,8 @@ import { loadStreamPlayerSdk, type StreamPlayer } from "./stream-player";
 import { mergeSpotOrder, moveSpotId, spotReorderTarget } from "./spot-order";
 import { AdminPanel } from "./admin/admin-panel";
 import { clientDiagnostic } from "./journey-diagnostics";
+import { hashVideoFile } from "./video-hash";
+import { ForecastFreshness } from "./forecast-freshness";
 import { recoverLineLogin, type LoginRecovery } from "./line-login";
 import {
   inspectQuickTimeMetadata,
@@ -76,7 +79,7 @@ interface UploadTicket {
 export type LoginStatus = "capacity" | "cancelled" | "config" | "expired" | "failed" | "invalid" | "completing";
 
 class ApiFailure extends Error {
-  constructor(message: string, readonly status: number, readonly code?: string) {
+  constructor(message: string, readonly status: number, readonly code?: string, readonly payload?: unknown) {
     super(message);
   }
 }
@@ -87,7 +90,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "content-type": "application/json", ...init?.headers },
   });
   const payload = await response.json() as T & { error?: string; message?: string };
-  if (!response.ok) throw new ApiFailure(payload.message || "連線失敗，請稍後再試", response.status, payload.error);
+  if (!response.ok) throw new ApiFailure(payload.message || "連線失敗，請稍後再試", response.status, payload.error, payload);
   return payload;
 }
 
@@ -1388,6 +1391,7 @@ function FindView({ spots, active }: { spots: Spot[]; active: boolean }) {
       <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`${offset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "multi-source" : "mfwam-only"} ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散五日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>第 1–3 天：CWA＋MFWAM</span><span className="mfwam-only"><i/>第 4–5 天：MFWAM-only</span></div></label>
       <label className="range-field"><span>時間 <output>{String(effectiveHour).padStart(2, "0")}:00</output></span><input type="range" min={minimumHour} max={FORECAST_HOUR_MAX} step="1" value={effectiveHour} onChange={(event) => setHour(Number(event.target.value))}/></label>
       <button className="find-search-button" type="button" disabled={!requestPath || queryState.loading} onClick={search}><Icon name="search"/>{queryState.loading ? "搜尋中…" : "搜尋"}</button>
+      <ForecastFreshness query={requestPath} active={active}/>
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
     {error && <div className="error-message">{error}</div>}
@@ -1417,10 +1421,25 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   const [showUploader, setShowUploader] = useState(() => Boolean(me.displayId));
   const [uploadGuideOpen, setUploadGuideOpen] = useState(false);
   const [rightsHelpOpen, setRightsHelpOpen] = useState(false);
+  const [duplicateVideoId, setDuplicateVideoId] = useState<string | null>(null);
+  const [duplicatePreview, setDuplicatePreview] = useState<Observation | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewAbort = useRef<AbortController | null>(null);
+  const [hashNotice, setHashNotice] = useState<string | null>(null);
+  const fileHash = useRef<{ file: File; value: string | null } | null>(null);
+  const uploadBusy = useRef(false);
+  const uploadAbort = useRef<AbortController | null>(null);
+  const selectionId = useRef(0);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => () => { uploadAbort.current?.abort(); previewAbort.current?.abort(); selectionId.current += 1; }, []);
+
   async function inspectVideo(selected: File) {
+    const selectedId = ++selectionId.current;
+    setFile(null); setDuration(null); setDuplicateVideoId(null);
+    previewAbort.current?.abort(); setDuplicatePreview(null); setPreviewLoading(false);
+    setHashNotice(null); fileHash.current = null;
     if (selected.size > MAX_UPLOAD_BYTES) throw new Error("影片不可超過 200 MB");
     if (!selected.type.startsWith("video/")) throw new Error("請選擇影片檔案");
     setError(null);
@@ -1442,6 +1461,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
         video.src = url;
       });
       const [seconds, metadata] = await Promise.all([durationPromise, metadataPromise]);
+      if (selectedId !== selectionId.current) return;
       if (!Number.isFinite(seconds) || seconds < MIN_VIDEO_DURATION_SECONDS || seconds > MAX_VIDEO_DURATION_SECONDS) throw new Error("影片長度必須為 10–60 秒");
       const prefill = resolveUploadPrefill(metadata, selected.lastModified, spotId, spots);
       setCapturedAt(prefill.capturedAt ? toLocalDateTime(prefill.capturedAt) : "");
@@ -1454,7 +1474,7 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   }
 
   function chooseVideo(selected: File | undefined) {
-    if (!selected) return;
+    if (!selected || uploadBusy.current) return;
     const traceId = crypto.randomUUID(); const startedAt = Date.now();
     void inspectVideo(selected).catch((caught) => {
       clientDiagnostic("upload_failed", traceId, { stage: "selection", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt) });
@@ -1462,8 +1482,24 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
     });
   }
 
+  async function previewDuplicate() {
+    if (!duplicateVideoId || previewLoading) return;
+    const controller = new AbortController(); previewAbort.current?.abort(); previewAbort.current = controller;
+    const currentSelection = selectionId.current;
+    setPreviewLoading(true); setError(null);
+    try {
+      const result = await api<{ observation: Observation }>(`/public-videos/${duplicateVideoId}`, { signal: controller.signal });
+      if (!controller.signal.aborted && currentSelection === selectionId.current) setDuplicatePreview(result.observation);
+    } catch (caught) {
+      if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "目前無法查看影片");
+    } finally {
+      if (previewAbort.current === controller) { previewAbort.current = null; setPreviewLoading(false); }
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (uploadBusy.current) return;
     if (!file || duration == null) return setError("請先選擇影片");
     if (!spotId) return setError("請先選擇浪點");
     if (capturedAt) {
@@ -1471,38 +1507,58 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
       const now = new Date();
       if (!isWithinUploadWindow(parsed, now)) return setError("拍攝時間不可晚於現在、必須在 168 小時內，且台北時間須介於 05:00–19:59");
     }
-    setError(null); setProgress("建立上傳連結…");
+    uploadBusy.current = true;
+    previewAbort.current?.abort(); setDuplicatePreview(null);
+    const controller = new AbortController(); uploadAbort.current = controller;
+    setError(null); setProgress("檢查是否重複上傳…");
     const traceId = crypto.randomUUID(); const startedAt = Date.now();
     let stage: "ticket" | "transfer" | "completion" = "ticket";
     let diagnosticVideoId: string | undefined;
     clientDiagnostic("upload_step", traceId, { stage, outcome: "started", durationMs: 0 });
     try {
-      const ticket = await api<UploadTicket>("/videos/upload-request", { method: "POST", body: JSON.stringify({ spotId, capturedAt: capturedAt ? new Date(capturedAt).toISOString() : null, durationSeconds: duration, sizeBytes: file.size, fileName: file.name, contentType: file.type, showUploader }) });
+      const hash = fileHash.current?.file === file ? fileHash.current.value : await hashVideoFile(file, controller.signal);
+      if (controller.signal.aborted) return;
+      fileHash.current = { file, value: hash };
+      if (!hash) setHashNotice("本次未能檢查重複檔案，仍可正常上傳。");
+      setProgress("建立上傳連結…");
+      const ticket = await api<UploadTicket>("/videos/upload-request", { method: "POST", signal: controller.signal, body: JSON.stringify({ spotId, capturedAt: capturedAt ? new Date(capturedAt).toISOString() : null, durationSeconds: duration, sizeBytes: file.size, fileName: file.name, contentType: file.type, showUploader, ...(hash ? { fileSha256: hash } : {}) }) });
       diagnosticVideoId = ticket.videoId;
       stage = "transfer";
       try { localStorage.setItem("lastSpotId", spotId); } catch { /* A blocked preference must not stop an upload. */ }
       if (ticket.uploadMethod === "POST" && ticket.uploadUrl) {
         setProgress("影片上傳中…");
         const form = new FormData(); form.append("file", file);
-        const upload = await fetch(ticket.uploadUrl, { method: "POST", body: form });
+        const upload = await fetch(ticket.uploadUrl, { method: "POST", body: form, signal: controller.signal });
         if (!upload.ok) throw new Error("影片上傳失敗，請再試一次");
       }
       clientDiagnostic("upload_step", traceId, { stage, outcome: "success", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: diagnosticVideoId });
       stage = "completion";
       setProgress("確認影片狀態…");
-      let complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
+      let complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", signal: controller.signal, body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
       for (let attempt = 0; attempt < 4 && (complete.observation.status === "pending" || complete.observation.status === "processing"); attempt += 1) {
         setProgress("影片轉檔中…");
         await new Promise((resolve) => window.setTimeout(resolve, 1_500));
-        complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
+        complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", signal: controller.signal, body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
       }
       clientDiagnostic(complete.observation.status === "error" ? "upload_failed" : "upload_step", traceId, { stage,
         outcome: complete.observation.status === "error" ? "failed" : "success", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: diagnosticVideoId });
       onComplete(complete.observation);
     } catch (caught) {
+      if (controller.signal.aborted) return;
+      if (caught instanceof ApiFailure && caught.status === 409) {
+        const duplicate = uploadDuplicateResponseSchema.safeParse(caught.payload);
+        if (duplicate.success) {
+          clientDiagnostic("upload_step", traceId, { stage: "ticket", outcome: "duplicate", durationMs: Math.min(3_600_000, Date.now() - startedAt) });
+          setDuplicateVideoId(duplicate.data.duplicate.videoId); setProgress(null);
+          return;
+        }
+      }
       clientDiagnostic("upload_failed", traceId, { stage, outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt),
         ...(caught instanceof ApiFailure ? { status: caught.status } : {}), ...(diagnosticVideoId ? { videoId: diagnosticVideoId } : {}) });
       setError((caught instanceof Error ? caught.message : "上傳失敗") + "（診斷編號：" + traceId + "）"); setProgress(null);
+    } finally {
+      uploadBusy.current = false;
+      if (uploadAbort.current === controller) uploadAbort.current = null;
     }
   }
 
@@ -1527,8 +1583,8 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
           系統會以影片的拍攝時間與浪點，比對 CWA 與 MFWAM 浪況。若一般預報流程稍後提供該時段的近期歷史預報，會優先使用它；其他模型只保存與顯示，不影響相似度。之後有人搜尋到相似預報時，這段實拍就可能成為他的浪況參考。
         </p>}
         <div className="upload-source-picker" role="group" aria-label="影片來源">
-          <label title="選擇影片"><input aria-label="選擇影片" type="file" accept="video/*" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="upload"/></label>
-          <label title="錄影"><input aria-label="錄影" type="file" accept="video/*" capture="environment" onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="camera"/></label>
+          <label title="選擇影片"><input aria-label="選擇影片" type="file" accept="video/*" disabled={Boolean(progress)} onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="upload"/></label>
+          <label title="錄影"><input aria-label="錄影" type="file" accept="video/*" capture="environment" disabled={Boolean(progress)} onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="camera"/></label>
         </div>
         {file && duration != null
           ? <div className="selected-video-summary"><strong>{file.name}</strong><small>{duration.toFixed(1)} 秒 · {(file.size / 1_000_000).toFixed(1)} MB</small></div>
@@ -1572,8 +1628,16 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
         </section>}
       </div>
       {error && <div className="error-message">{error}</div>}{progress && <div className="progress-message"><span className="spinner"/>{progress}</div>}
-      <button className="submit-button" disabled={!file || !spotId || Boolean(progress)}>{progress ? "處理中" : "上傳影片"}</button>
+      {hashNotice && <p className="field-hint" role="status">{hashNotice}</p>}
+      {duplicateVideoId && <section className="duplicate-upload-notice" aria-label="重複影片提醒" role="status">
+        <p>最近 24 小時已有相同檔案的公開影片，可以先查看，避免重複上傳。</p>
+        <button type="button" className="secondary" disabled={previewLoading || Boolean(progress)} onClick={() => void previewDuplicate()}>{previewLoading ? "載入影片…" : "查看已有影片"}</button>
+        <p>請從上方重新選擇其他影片。若判斷有誤，請回報問題並附上影片編號：{duplicateVideoId}</p>
+      </section>}
+      {!duplicateVideoId && <button className="submit-button" disabled={!file || !spotId || Boolean(progress)}>{progress ? "處理中" : "上傳影片"}</button>}
     </form>
+    {duplicatePreview && <PlaybackModal observation={duplicatePreview} onClose={() => setDuplicatePreview(null)}/>}
+    <ProblemReport view="upload"/>
   </div>;
 }
 

@@ -1,12 +1,16 @@
 import type { AppEnv } from "./db";
 import { createVideoProvider } from "./providers";
 import type { VideoProvider } from "./providers";
+import { resolveVideoStatus } from "./video-status";
 
 interface ExpiredVideoRow {
   id: string;
   video_provider: string;
   provider_video_id: string;
-  metadata_status: "pending" | "deleting";
+  metadata_status: "pending" | "complete" | "deleting";
+  duration_seconds: number | null;
+  terms_version: string | null;
+  moderation_status: string;
   updated_at: string;
 }
 
@@ -54,10 +58,13 @@ export async function cleanupExpiredPendingVideos(
   const limit = cleanupLimit(options.limit);
   const scope = options.userId ? "AND user_id = ?" : "";
   const statement = env.DB.prepare(
-    `SELECT id, video_provider, provider_video_id, metadata_status, updated_at
+    `SELECT id, video_provider, provider_video_id, metadata_status, updated_at,
+            duration_seconds, terms_version, moderation_status
      FROM videos
      WHERE (
        (metadata_status = 'pending' AND metadata_expires_at IS NOT NULL AND metadata_expires_at <= ?)
+       OR (metadata_status = 'complete' AND status IN ('awaiting_upload', 'pending', 'processing', 'error')
+           AND julianday(created_at) <= julianday(?) - 7)
        OR (metadata_status = 'deleting' AND updated_at <= ?)
      )
      ${scope}
@@ -68,8 +75,8 @@ export async function cleanupExpiredPendingVideos(
      LIMIT ?`,
   );
   const expired = options.userId
-    ? await statement.bind(cutoffIso, leaseExpiredAt, options.userId, limit).all<ExpiredVideoRow>()
-    : await statement.bind(cutoffIso, leaseExpiredAt, limit).all<ExpiredVideoRow>();
+    ? await statement.bind(cutoffIso, cutoffIso, leaseExpiredAt, options.userId, limit).all<ExpiredVideoRow>()
+    : await statement.bind(cutoffIso, cutoffIso, leaseExpiredAt, limit).all<ExpiredVideoRow>();
   const summary: ExpiredVideoCleanupSummary = {
     cutoff: cutoffIso,
     selected: expired.results.length,
@@ -84,6 +91,26 @@ export async function cleanupExpiredPendingVideos(
   const provider = providerFactory(env);
   for (const video of expired.results) {
     const claimedAt = new Date().toISOString();
+    // A lost completion request must not cause a successfully transferred video to be deleted.
+    if (video.metadata_status === "complete") {
+      try {
+        if (video.video_provider !== provider.provider) throw new Error("Video provider mismatch");
+        const resolved = resolveVideoStatus(provider.provider, await provider.getStatus(video.provider_video_id), video.duration_seconds);
+        if (resolved.canPublish && video.terms_version) {
+          await env.DB.prepare(`UPDATE videos SET status = 'ready', duration_seconds = ?,
+            uploaded_at = COALESCE(uploaded_at, ?), metadata_expires_at = NULL,
+            public_at = CASE WHEN moderation_status = 'visible' THEN COALESCE(public_at, ?) ELSE NULL END,
+            updated_at = ? WHERE id = ? AND metadata_status = 'complete' AND updated_at = ?`)
+            .bind(resolved.durationSeconds, claimedAt, claimedAt, claimedAt, video.id, video.updated_at).run();
+          summary.skipped += 1;
+          continue;
+        }
+      } catch {
+        summary.failed += 1;
+        summary.failures.push({ videoId: video.id, message: "Provider status could not be verified before cleanup" });
+        continue;
+      }
+    }
     const claim = await env.DB.prepare(
       `UPDATE videos SET metadata_status = 'deleting', public_at = NULL, updated_at = ?
        WHERE id = ? AND metadata_status = ? AND updated_at = ?`,

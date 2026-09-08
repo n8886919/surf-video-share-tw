@@ -1,5 +1,7 @@
 # Product
 
+Before uploading, check for the same original file among all accounts' public videos uploaded within the previous 24 hours. A match presents「最近 24 小時已有相同檔案的公開影片，可以先查看，避免重複上傳。」with「查看已有影片」and instructions to select a different file or report a suspected mistake with the displayed public video ID. Viewing revalidates public metadata and opens the existing rate-limited player in the upload screen; closing it preserves the chosen file and fields, without requiring a share token or creating an export link. No override button or automatic overwrite is provided. This is an exact-file check based on an unverified client claim, not visual similarity detection or an ownership determination. Other accounts' private, pending, failed, expired and delisted videos are excluded. Old videos without a stored original-file fingerprint cannot be matched; changing the filename alone still matches, while edits/re-encoding can change the fingerprint. Hashing failure leaves the core upload flow available. The 24-hour window is measured from the first server-recorded upload completion, not capture time, calendar midnight or the most recent status check.
+
 ## Definition
 
 彼日浪影讓使用者選擇浪點與一個未來預報時間，再用同浪點、相似歷史預報下的公開實拍，回答「這種預報下，浪實際會長怎樣」。個人影片時間軸、收藏與公開名稱是促進上傳的誘因，不是私人影片儲存服務。

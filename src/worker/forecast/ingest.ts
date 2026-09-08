@@ -7,6 +7,9 @@ import {
 } from "./open-meteo";
 import { insertForecastSnapshots, listActiveForecastSpots } from "./store";
 import type { ForecastProviderResult } from "./types";
+import { isFarForecastSlot, mfwamForecastHours } from "./schedule";
+import { readMfwamVersion } from "./model-update";
+import { hasHourlyCoverage } from "./coverage";
 
 export interface ForecastIngestionSummary {
   scheduledAt: string;
@@ -29,11 +32,16 @@ async function ingestOpenMeteoModel(
   retrievedAt: string,
   model: OpenMeteoWaveModel,
   fetchImpl: typeof fetch,
+  forecastHours?: number,
+  sourceVersion?: string,
 ): Promise<ForecastProviderResult> {
   const results = await Promise.allSettled(spots.map(async (spot) => {
-    const snapshots = await fetchOpenMeteoMarineModel(spot, retrievedAt, model, fetchImpl);
+    const snapshots = await fetchOpenMeteoMarineModel(spot, retrievedAt, model, fetchImpl, { forecastHours, sourceVersion });
     if (!snapshots.length) throw new Error(`Open-Meteo returned no usable ${model} forecasts`);
-    return insertForecastSnapshots(env.DB, snapshots);
+    if (model === "meteofrance_wave" && !hasHourlyCoverage(snapshots, retrievedAt, forecastHours ?? 126)) {
+      throw new Error("MFWAM response does not cover the requested hourly collection window");
+    }
+    return insertForecastSnapshots(env.DB, snapshots, true);
   }));
   const successful = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   const failures = results.flatMap((result, index) => result.status === "rejected"
@@ -45,6 +53,10 @@ async function ingestOpenMeteoModel(
     attempted: successful.reduce((sum, result) => sum + result.attempted, 0),
     inserted: successful.reduce((sum, result) => sum + result.inserted, 0),
     duplicates: successful.reduce((sum, result) => sum + result.duplicates, 0),
+    ...(successful.length && successful.every(result => result.rowsWritten !== undefined) ? {
+      rowsRead: successful.reduce((sum, result) => sum + (result.rowsRead ?? 0), 0),
+      rowsWritten: successful.reduce((sum, result) => sum + (result.rowsWritten ?? 0), 0),
+    } : {}),
     ...(failures.length ? { message: failures.join("; ") } : {}),
   };
 }
@@ -58,9 +70,12 @@ export async function runForecastIngestion(
   const retrievalStartedAt = new Date().toISOString();
   const spots = await listActiveForecastSpots(env.DB);
   if (!spots.length) throw new Error("Forecast ingestion has no active spots with coordinates");
+  const mfwamVersion = await readMfwamVersion(new Date(retrievalStartedAt), fetchImpl);
 
   const openMeteo = await Promise.all(OPEN_METEO_WAVE_MODELS.map(({ model }) =>
-    ingestOpenMeteoModel(env, spots, retrievalStartedAt, model, fetchImpl)
+    ingestOpenMeteoModel(env, spots, retrievalStartedAt, model, fetchImpl,
+      model === "meteofrance_wave" ? mfwamForecastHours(new Date(retrievalStartedAt), isFarForecastSlot(scheduledAt)) : undefined,
+      model === "meteofrance_wave" ? mfwamVersion : undefined)
   ));
   return {
     scheduledAt: scheduledInstant,
@@ -76,6 +91,7 @@ export async function runScheduledForecastIngestion(
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   await recordForecastUpdate(env.DB, "mfwam", scheduledAt.toISOString(), false);
+  if (isFarForecastSlot(scheduledAt)) await recordForecastUpdate(env.DB, "mfwam_far", scheduledAt.toISOString(), false);
   const summary = await runForecastIngestion(env, scheduledAt, fetchImpl);
   const requiredMfwam = summary.providers.find(
     (provider) => provider.provider === "open-meteo/meteofrance_wave",
@@ -90,4 +106,5 @@ export async function runScheduledForecastIngestion(
     throw new Error("Required Météo-France MFWAM ingestion incomplete");
   }
   await recordForecastUpdate(env.DB, "mfwam", scheduledAt.toISOString(), true);
+  if (isFarForecastSlot(scheduledAt)) await recordForecastUpdate(env.DB, "mfwam_far", scheduledAt.toISOString(), true);
 }

@@ -151,10 +151,11 @@ describe("Cloudflare Stream playback", () => {
 });
 
 describe("public thumbnail API boundary", () => {
-  it("redirects only after a public-ready D1 row is found", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(streamDetails(
-      "https://customer-example.cloudflarestream.com/provider_video/thumbnails/thumbnail.jpg",
-    ));
+  it("returns image bytes without a token or redirect after checking public lifecycle", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(streamDetails(
+      "https://customer-example.cloudflarestream.com/provider_video/thumbnails/thumbnail.jpg", true,
+    )).mockResolvedValueOnce(streamToken("signed-thumbnail-token"))
+      .mockResolvedValueOnce(new Response("image-bytes", { headers: { "content-type": "image/jpeg", location: "signed-thumbnail-token" } }));
     vi.stubGlobal("fetch", fetchMock);
     const db = {
       prepare: () => ({
@@ -179,8 +180,9 @@ describe("public thumbnail API boundary", () => {
       } as AppEnv,
     );
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toContain("/provider_video/thumbnails/thumbnail.jpg?time=1s");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(await response.text()).toBe("image-bytes");
     expect(response.headers.get("cache-control")).toBe("private, max-age=300");
   });
 

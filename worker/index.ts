@@ -5,6 +5,7 @@ import { api } from "../src/worker/api";
 import type { AppEnv } from "../src/worker/db";
 import { runScheduledForecastIngestion } from "../src/worker/forecast/ingest";
 import { runDailyForecastReport } from "../src/worker/forecast/daily-report";
+import { cleanupForecastHistory } from "../src/worker/forecast/retention";
 import { runScheduledExpiredVideoCleanup } from "../src/worker/video-lifecycle";
 import { runScheduledPlaybackEventCleanup } from "../src/worker/playback-analytics";
 import { withSecurityHeaders } from "../src/worker/security-headers";
@@ -61,6 +62,7 @@ const worker = {
         const results = await Promise.allSettled([
           runHourlyOpsAnalysis(env, scheduledAt),
           runDailyForecastReport(env, scheduledAt),
+          cleanupForecastHistory(env.DB, scheduledAt),
         ]);
         const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
         if (failures.length) throw new AggregateError(failures, "Hourly operations task failed");

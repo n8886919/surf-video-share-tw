@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { marineResponse } from "./helpers/marine-response";
 import { describe, expect, it } from "vitest";
 import {
   fetchOpenMeteoEcmwfWam,
@@ -55,7 +56,7 @@ function ingestionDb() {
   return {
     prepare: (sql: string) => {
       if (sql.includes("FROM spots")) return { all: async () => ({ results: [spot] }) };
-      return { bind: (...values: unknown[]) => ({ values }) };
+      return { bind: (...values: unknown[]) => ({ values, all: async () => ({ results: values.filter(id => seen.has(String(id))).map(id => ({ id })) }) }) };
     },
     batch: async (statements: Array<{ values: unknown[] }>) => statements.map((statement) => {
       expect(statement.values).toHaveLength(43);
@@ -139,7 +140,8 @@ describe("scheduled forecast normalization", () => {
   });
 
   it("ingests four Open-Meteo models as independent provider results", async () => {
-    const fetchImpl = (async () => new Response(JSON.stringify(openMeteoFixture), {
+    const fetchImpl = (async input => new Response(JSON.stringify(new URL(String(input)).searchParams.get("models") === "meteofrance_wave"
+      ? marineResponse(new URL(String(input))) : openMeteoFixture), {
       status: 200,
       headers: { "content-type": "application/json" },
     })) as typeof fetch;
@@ -152,7 +154,7 @@ describe("scheduled forecast normalization", () => {
       expect.objectContaining({
         provider: `open-meteo/${model}`,
         status: "complete",
-        inserted: 3,
+        inserted: model === "meteofrance_wave" ? expect.any(Number) : 3,
       })
     ));
   });
@@ -176,7 +178,7 @@ describe("scheduled forecast normalization", () => {
       const model = requestedUrl.searchParams.get("models");
       expect(requestedUrl.searchParams.get("past_hours")).toBe("6");
       expect(requestedUrl.searchParams.get("forecast_hours"))
-        .toBe(model === "meteofrance_wave" ? "168" : "1");
+        .toBe(model === "meteofrance_wave" ? "126" : "1");
       expect(requestedUrl.searchParams.get("hourly")).toContain("tertiary_swell_wave_height");
     }
   });

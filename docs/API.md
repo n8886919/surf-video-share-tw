@@ -4,14 +4,17 @@ The Find UI calls `/matches` only after an explicit Search action, not on entry,
 
 Base path: `/api/v1`.
 
+`POST /videos/upload-request` accepts optional `fileSha256` (64 lowercase hex characters). After authentication, normal validation and the existing upload rate limit, a supplied fingerprint plus declared byte size is looked up through `videos_recent_file_hash_idx`. Only ready, complete, licensed, moderation-visible public videos from any account with `uploaded_at` in `(requestNow - 24 hours, requestNow]` are eligible. A match returns HTTP 409 `{error: "RECENT_DUPLICATE_UPLOAD", message, duplicate: {videoId}}` before issuing a Stream ticket or inserting another video; the response contains no owner, fingerprint or private media details. There is no continuation override; legacy `duplicateAcknowledged` fields are ignored and cannot bypass a matching supplied fingerprint. Missing fingerprints preserve old clients and the browser's hashing-failure fallback. This is an advisory check of unverified client claims, not an ownership, moderation or abuse-control boundary; it does not guarantee exclusion of simultaneous or altered-file duplicates. Fingerprints are not included in public/owner DTOs or diagnostics. Completion sets `uploaded_at` only once so repeated status confirmations cannot renew the check window.
+
 | Access | Method | Path | Purpose |
 |---|---|---|---|
 | Public | GET | `/health` | Shallow process liveness check |
 | Public | GET | `/readiness` | D1 and required operations-binding readiness check |
 | Public | GET | `/spots` | Active launch spots, with 烏石港 first |
+| Public | GET | `/forecast-freshness?spotId=&targetTime=` | Same target-row selection; CWA/MFWAM actual retained `retrieved_at`, missing/stale status; no journey writes, 60-second cache |
 | Public | GET | `/matches?spotId=&targetTime=` | Public forecast context and same-spot videos |
 | Public | GET | `/public-videos/:id` | Return one currently public video for its stable first-party page |
-| Public | GET | `/videos/:id/thumbnail` | Revalidate public lifecycle and redirect to a provider thumbnail |
+| Public | GET | `/videos/:id/thumbnail` | Revalidate public lifecycle and proxy raster-image bytes without a provider token |
 | Public | POST | `/videos/:id/playback` | Revalidate public lifecycle and create short-lived provider playback data |
 | Public | POST | `/shared-videos/:id/playback` | Validate a 24-hour share token and grant playback; anonymous grants consume exporter budget |
 | Public | POST | `/videos/:id/playback-start` | Validate a short-lived playback token and record one actual player start |

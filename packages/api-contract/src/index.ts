@@ -255,6 +255,12 @@ export type VideoDownloadResponse =
     };
 
 export const MAX_UPLOAD_BYTES = 200_000_000;
+export const forecastFreshnessResponseSchema = z.object({
+  sources: z.array(z.object({
+    name: z.enum(["CWA", "MFWAM"]), retrievedAt: z.iso.datetime().nullable(), stale: z.boolean(),
+  })).max(2),
+});
+export type ForecastFreshnessResponse = z.infer<typeof forecastFreshnessResponseSchema>;
 export const MIN_VIDEO_DURATION_SECONDS = 10;
 export const MAX_VIDEO_DURATION_SECONDS = 60;
 
@@ -269,6 +275,12 @@ export const updateMeSchema = z.object({
   showIdentityDefault: z.boolean(),
 });
 
+export const uploadDuplicateResponseSchema = z.object({
+  error: z.literal("RECENT_DUPLICATE_UPLOAD"),
+  message: z.string(),
+  duplicate: z.object({ videoId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/) }),
+});
+
 export const uploadRequestSchema = z.object({
   spotId: z.string().min(1),
   capturedAt: z.string().datetime({ offset: true }).nullable().optional(),
@@ -277,6 +289,8 @@ export const uploadRequestSchema = z.object({
   fileName: z.string().min(1).max(255),
   contentType: z.string().startsWith("video/"),
   showUploader: z.boolean().optional(),
+  // Client assertions for an advisory check, never proof of file ownership.
+  fileSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 export const completeUploadSchema = z.object({
@@ -472,7 +486,7 @@ export const clientDiagnosticSchema = z.object({
   event: z.enum(["upload_step", "upload_failed", "playback_failed"]),
   details: z.object({
     stage: z.enum(["selection", "ticket", "transfer", "completion", "player", "sdk", "tracking"]),
-    outcome: z.enum(["started", "success", "failed"]),
+    outcome: z.enum(["started", "success", "failed", "duplicate"]),
     durationMs: z.number().int().min(0).max(3_600_000),
     status: z.number().int().min(100).max(599).optional(),
     videoId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/).optional(),

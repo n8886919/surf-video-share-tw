@@ -174,6 +174,7 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
       `https://api.cloudflare.com/client/v4/accounts/${this.config.accountId}/stream/${providerVideoId}`,
       { headers: { authorization: `Bearer ${this.config.apiToken}` } },
     );
+    if (response.status === 404) return { state: "error", durationSeconds: null };
     const payload = await response.json() as StreamEnvelope<{
       readyToStream: boolean;
       duration?: number;

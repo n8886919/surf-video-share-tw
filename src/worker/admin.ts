@@ -4,6 +4,7 @@ import { moderationDecisionSchema } from "../../packages/api-contract/src";
 import type { AppEnv, UserRow } from "./db";
 import { createVideoProvider } from "./providers";
 import { journeyDay } from "./journey-diagnostics";
+import { proxyThumbnail } from "./thumbnail";
 
 type AdminEnv = { Bindings: AppEnv; Variables: { user: UserRow; authMode: "development" | "line" } };
 export const adminApi = new Hono<AdminEnv>();
@@ -104,9 +105,7 @@ for (const kind of ["thumbnail", "playback"] as const) {
     if (kind === "playback") return c.json(await provider.createPlayback(video.provider_video_id));
     const url = await provider.getThumbnailUrl(video.provider_video_id);
     if (!url) return c.body(null, 404);
-    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) return c.body(null, 502);
-    return new Response(response.body, { headers: { "content-type": response.headers.get("content-type")!, "cache-control": "no-store" } });
+    return proxyThumbnail(url, c.req.url, c.env, "no-store");
   };
   if (kind === "thumbnail") adminApi.get(`/videos/:id/${kind}`, handler);
   else adminApi.post(`/videos/:id/${kind}`, handler);

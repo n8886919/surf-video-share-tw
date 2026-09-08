@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+.forecast-freshness { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; font-size: 0.78rem; color: #38545c; margin-top: 0.6rem; }
+
 :root {
   --ink: #082c36;
   --soft: #61777d;
@@ -218,3 +220,7 @@ select:focus, input:focus { border-color: var(--sea); box-shadow: 0 0 0 3px rgba
 .admin-panel table { width: 100%; border-collapse: collapse; }
 .admin-panel th, .admin-panel td { text-align: left; padding: 10px; border-bottom: 1px solid #bccfd0; white-space: nowrap; }
 .admin-entry { display: inline-block; margin: 16px 0; padding: 10px 14px; border: 1px solid #668187; border-radius: 8px; }
+.duplicate-upload-notice { padding: 14px; border: 1px solid var(--sea); border-radius: 12px; background: #eef7f5; color: #163b3c; }
+.duplicate-upload-notice p { margin: 0 0 10px; font-size: 14px; line-height: 1.6; }
+.duplicate-upload-notice button { min-height: 44px; margin-right: 12px; }
+.selected-video-summary small { color: #51676d; }

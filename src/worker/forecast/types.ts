@@ -53,6 +53,8 @@ export interface ForecastSnapshotInput {
 }
 
 export interface ForecastWriteResult {
+  rowsRead?: number;
+  rowsWritten?: number;
   attempted: number;
   inserted: number;
   duplicates: number;

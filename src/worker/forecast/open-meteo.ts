@@ -10,7 +10,7 @@ export const OPEN_METEO_WAVE_MODELS = [
   {
     model: "meteofrance_wave",
     displayName: "Météo-France MFWAM",
-    forecastHours: 168,
+    forecastHours: 126,
     swellSemantics: "partitioned",
   },
   {
@@ -180,12 +180,13 @@ export async function parseOpenMeteoMarineModel(
   spot: ForecastSpot,
   retrievedAt: string,
   model: OpenMeteoWaveModel,
+  options: { forecastHours?: number; sourceVersion?: string } = {},
 ): Promise<ForecastSnapshotInput[]> {
   const config = modelConfig(model);
   const response = openMeteoResponseSchema.parse(payload);
   const issuedAt = new Date(retrievedAt).toISOString();
   const issuedMs = new Date(issuedAt).getTime();
-  const sourceRunKey = await sha256Hex(normalizedRunPayload(response));
+  const sourceRunKey = options.sourceVersion ?? await sha256Hex(normalizedRunPayload(response));
 
   const snapshots = await Promise.all(response.hourly.time.map(async (time, index) => {
     const validAt = utcInstant(time);
@@ -207,6 +208,7 @@ export async function parseOpenMeteoMarineModel(
       sourceRunKey,
       spot.id,
       validAt,
+      ...(options.sourceVersion ? [validMs < issuedMs ? "historical_forecast" : "forecast", JSON.stringify([response.latitude, response.longitude, point])] : []),
     ]);
     return {
       id,
@@ -233,7 +235,8 @@ export async function parseOpenMeteoMarineModel(
         sourceRunKey,
         apiMode: "forecast",
         pastHours: RECENT_PAST_HOURS,
-        forecastHours: config.forecastHours,
+        forecastHours: options.forecastHours ?? config.forecastHours,
+        sourceVersion: options.sourceVersion ?? null,
         swellSemantics: config.swellSemantics,
         requestedSpot: { latitude: spot.latitude, longitude: spot.longitude },
         grid: { latitude: response.latitude, longitude: response.longitude },
@@ -279,6 +282,7 @@ export async function fetchOpenMeteoMarineModel(
   retrievedAt: string,
   model: OpenMeteoWaveModel,
   fetchImpl: typeof fetch = fetch,
+  options: { forecastHours?: number; sourceVersion?: string } = {},
 ): Promise<ForecastSnapshotInput[]> {
   const config = modelConfig(model);
   const url = new URL(OPEN_METEO_MARINE_URL);
@@ -286,19 +290,24 @@ export async function fetchOpenMeteoMarineModel(
   url.searchParams.set("longitude", String(spot.longitude));
   url.searchParams.set("hourly", hourlyVariables.join(","));
   url.searchParams.set("models", model);
-  url.searchParams.set("forecast_hours", String(config.forecastHours));
+  url.searchParams.set("forecast_hours", String(options.forecastHours ?? config.forecastHours));
   url.searchParams.set("past_hours", String(RECENT_PAST_HOURS));
   url.searchParams.set("timezone", "GMT");
   url.searchParams.set("cell_selection", "sea");
 
-  const response = await fetchImpl(url, {
+  let response = await fetchImpl(url, {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(30_000),
   });
+  // One immediate retry for transient server failure. Never retry 4xx/rate limits in a loop.
+  if ([502, 503, 504].includes(response.status) && !response.headers.has("retry-after")) {
+    await response.body?.cancel();
+    response = await fetchImpl(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+  }
   if (!response.ok) {
     throw new Error(`Open-Meteo ${config.displayName} returned HTTP ${response.status}`);
   }
-  return parseOpenMeteoMarineModel(await response.json(), spot, retrievedAt, model);
+  return parseOpenMeteoMarineModel(await response.json(), spot, retrievedAt, model, options);
 }
 
 export async function fetchOpenMeteoEcmwfWam(

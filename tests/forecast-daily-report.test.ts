@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { marineResponse } from "./helpers/marine-response";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { expectedForecastSlots, recordForecastUpdate, runDailyForecastReport } from "../src/worker/forecast/daily-report";
 import { runScheduledForecastIngestion } from "../src/worker/forecast/ingest";
@@ -47,7 +47,7 @@ describe("daily forecast reporting", () => {
     await runDailyForecastReport(value.env, reportTime, line);
     expect(line).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(line.mock.calls[0][1]?.body));
-    expect(body.messages[0].text).toBe("昨日預報更新（2026-09-08）\nCWA：應更新 4 次，成功 4 次\nMFWAM：應更新 4 次，成功 3 次");
+    expect(body.messages[0].text).toBe("昨日預報更新（2026-09-08）\nCWA：應更新 4 次，成功 4 次\nMFWAM 近兩天：應更新 4 次，成功 3 次\nMFWAM 後三天：尚未累積完整一天\n成功指全浪點收錄完成（含相同資料），不是官方發布新版本次數。");
     expect(value.queries.some(sql => sql.includes("forecast_snapshots"))).toBe(false);
     const plan = value.sqlite.prepare(`EXPLAIN QUERY PLAN SELECT COUNT(*) FROM forecast_update_runs
       WHERE source = ? AND slot_at IN (?, ?, ?, ?) AND completed_at IS NOT NULL`)
@@ -140,7 +140,6 @@ describe("daily forecast reporting", () => {
 });
 
 describe("scheduled MFWAM success accounting", () => {
-  const payload = readFileSync(new URL("./fixtures/open-meteo-ecmwf-wam.json", import.meta.url), "utf8");
   it.each(["complete", "partial", "failed"])("counts only complete MFWAM slots: %s", async status => {
     const value = fixture();
     let mfwamCalls = 0;
@@ -150,7 +149,7 @@ describe("scheduled MFWAM success accounting", () => {
       if (url.searchParams.get("models") === "meteofrance_wave") {
         mfwamCalls++;
         if (status === "failed" || (status === "partial" && mfwamCalls === 1)) return new Response(null, { status: 500 });
-        return new Response(payload);
+        return Response.json(marineResponse(url));
       }
       // Collect-only failures cannot turn a complete MFWAM run into a failure.
       return new Response(null, { status: 500 });
@@ -160,8 +159,11 @@ describe("scheduled MFWAM success accounting", () => {
       await runScheduledForecastIngestion(value.env, scheduledAt, line);
       await runScheduledForecastIngestion(value.env, scheduledAt, line); // Identical rows still complete the slot.
     } else await expect(runScheduledForecastIngestion(value.env, scheduledAt, line)).rejects.toThrow("incomplete");
-    const row = value.sqlite.prepare("SELECT COUNT(*) AS count, completed_at FROM forecast_update_runs").get();
+    const row = value.sqlite.prepare("SELECT COUNT(*) AS count, completed_at FROM forecast_update_runs WHERE source = 'mfwam'").get();
     expect(row?.count).toBe(1);
     expect(Boolean(row?.completed_at)).toBe(status === "complete");
+    const far = value.sqlite.prepare("SELECT COUNT(*) AS count, completed_at FROM forecast_update_runs WHERE source = 'mfwam_far'").get();
+    expect(far?.count).toBe(1);
+    expect(Boolean(far?.completed_at)).toBe(status === "complete");
   });
 });

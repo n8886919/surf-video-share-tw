@@ -236,6 +236,30 @@ async function mockPublicApi(page: Page, delayedSpotId?: string) {
   });
 }
 
+test("selected forecast freshness is independent of Search and discards stale selection responses", async ({ page }) => {
+  await mockPublicApi(page);
+  const freshnessCalls: string[] = []; let searches = 0;
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/v1/matches") searches++; });
+  await page.route("**/api/v1/forecast-freshness?**", async route => {
+    const spotId = new URL(route.request().url()).searchParams.get("spotId")!;
+    freshnessCalls.push(spotId);
+    if (spotId === spots[0].id) await new Promise(resolve => setTimeout(resolve, 900));
+    await fulfillJson(route, 200, { sources: [
+      { name: "CWA", retrievedAt: null, stale: true },
+      { name: "MFWAM", retrievedAt: spotId === spots[0].id ? "2026-09-08T00:20:00Z" : "2026-09-08T06:20:00Z", stale: false },
+    ] });
+  });
+  await page.goto("/");
+  await expect.poll(() => freshnessCalls.length).toBe(1);
+  await page.getByRole("button", { name: "雙獅", exact: true }).click();
+  const preview = page.getByLabel("所選預報資料更新時間");
+  await expect(preview).toContainText("14:20");
+  await expect(preview).toContainText("CWA：尚無資料");
+  expect(searches).toBe(0);
+  await expect(preview).not.toContainText("08:20");
+  await page.screenshot({ path: "outputs/forecast-freshness.png", fullPage: true });
+});
+
 for (const displayMode of ["browser", "standalone"] as const) {
   test(`login diagnostics keep the existing retry and send only one initial session check (${displayMode})`, async ({ page }) => {
     const trace = "a123456789abcdef".repeat(2);

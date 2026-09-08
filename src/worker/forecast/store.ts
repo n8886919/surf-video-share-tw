@@ -28,12 +28,23 @@ export async function stableForecastId(parts: string[]): Promise<string> {
 export async function insertForecastSnapshots(
   db: D1Database,
   snapshots: ForecastSnapshotInput[],
+  checkExisting = false,
 ): Promise<ForecastWriteResult> {
   let inserted = 0;
+  let rowsRead = 0; let rowsWritten = 0; let metricsAvailable = true;
   const createdAt = new Date().toISOString();
 
   for (let offset = 0; offset < snapshots.length; offset += INSERT_BATCH_SIZE) {
-    const chunk = snapshots.slice(offset, offset + INSERT_BATCH_SIZE);
+    let chunk = snapshots.slice(offset, offset + INSERT_BATCH_SIZE);
+    if (checkExisting) {
+      const existing = await db.prepare(`SELECT id FROM forecast_snapshots WHERE id IN (${chunk.map(() => "?").join(",")})`)
+        .bind(...chunk.map(snapshot => snapshot.id)).all<{ id: string }>();
+      const ids = new Set(existing.results.map(row => row.id));
+      chunk = chunk.filter(snapshot => !ids.has(snapshot.id));
+      rowsRead += existing.meta?.rows_read ?? 0;
+      if (existing.meta?.rows_read === undefined) metricsAvailable = false;
+    }
+    if (!chunk.length) continue;
     const statements = chunk.map((snapshot) => db.prepare(
       `INSERT OR IGNORE INTO forecast_snapshots (
         id, spot_id, provider, model, snapshot_kind,
@@ -101,11 +112,16 @@ export async function insertForecastSnapshots(
     ));
     const results = await db.batch(statements);
     inserted += results.reduce((sum, result) => sum + (result.meta.changes ?? 0), 0);
+    for (const result of results) {
+      rowsRead += result.meta.rows_read ?? 0; rowsWritten += result.meta.rows_written ?? 0;
+      if (result.meta.rows_written === undefined) metricsAvailable = false;
+    }
   }
 
   return {
     attempted: snapshots.length,
     inserted,
     duplicates: snapshots.length - inserted,
+    ...(checkExisting && metricsAvailable ? { rowsRead, rowsWritten } : {}),
   };
 }

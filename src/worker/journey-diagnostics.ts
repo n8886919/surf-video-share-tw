@@ -11,7 +11,7 @@ export function journeyDay(now: Date): string {
 
 export const journeyDetailsSchema = z.object({
   stage: z.enum(["selection", "ticket", "transfer", "completion", "player", "sdk", "tracking", "search"]).optional(),
-  outcome: z.enum(["started", "success", "failed", "none", "no_videos", "missing_target", "insufficient_history"]).optional(),
+  outcome: z.enum(["started", "success", "failed", "duplicate", "none", "no_videos", "missing_target", "insufficient_history"]).optional(),
   durationMs: z.number().int().min(0).max(3_600_000).optional(),
   status: z.number().int().min(100).max(599).optional(),
   spotId: z.string().regex(/^spot_[a-z0-9-]{1,70}$/).optional(),

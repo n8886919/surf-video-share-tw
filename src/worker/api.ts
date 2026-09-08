@@ -53,6 +53,9 @@ import {
 } from "./auth";
 import { cleanupExpiredPendingVideos } from "./video-lifecycle";
 import { resolveVideoStatus } from "./video-status";
+import { TARGET_FORECAST_SQL } from "./forecast/target";
+import { proxyThumbnail } from "./thumbnail";
+import { findRecentPublicDuplicate } from "./upload-duplicate";
 import { internalForecastIngestionApi } from "./internal-forecast-ingestion";
 import { checkOpsReadiness, recordOpsEvent, recordOpsRecovery, normalizeCode } from "./ops-observability";
 import { adminApi } from "./admin";
@@ -855,8 +858,9 @@ async function findPublicObservation(env: AppEnv, videoId: string): Promise<Obse
 async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
   const pending = await env.DB.prepare(
     `SELECT id, provider_video_id, video_provider, duration_seconds,
-            metadata_status, public_at, terms_version, moderation_status FROM videos
-     WHERE user_id = ? AND status IN ('pending', 'processing') LIMIT 5`,
+            metadata_status, public_at, terms_version, moderation_status, updated_at FROM videos
+     WHERE user_id = ? AND status IN ('awaiting_upload', 'pending', 'processing')
+       AND metadata_status <> 'deleting' LIMIT 5`,
   ).bind(userId).all<{
     id: string;
     provider_video_id: string;
@@ -866,6 +870,7 @@ async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
     public_at: string | null;
     terms_version: string | null;
     moderation_status: string;
+    updated_at: string;
   }>();
   if (!pending.results.length) return;
   let provider: ReturnType<typeof createVideoProvider>;
@@ -892,8 +897,12 @@ async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
         : null;
       await env.DB.prepare(
         `UPDATE videos SET status = ?, duration_seconds = COALESCE(?, duration_seconds),
-         public_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
-      ).bind(resolved.state, resolved.durationSeconds, publicAt, now, video.id, userId).run();
+         public_at = ?, updated_at = ?,
+         uploaded_at = CASE WHEN ? = 'ready' THEN COALESCE(uploaded_at, ?) ELSE uploaded_at END,
+         metadata_expires_at = CASE WHEN ? = 'ready' AND metadata_status = 'complete' THEN NULL ELSE metadata_expires_at END
+         WHERE id = ? AND user_id = ? AND updated_at = ? AND metadata_status <> 'deleting'`,
+      ).bind(resolved.state, resolved.durationSeconds, publicAt, now,
+        resolved.state, now, resolved.state, video.id, userId, video.updated_at).run();
     } catch (error) {
       console.warn("Video status reconciliation failed", video.id, error);
     }
@@ -1098,17 +1107,7 @@ api.get("/videos/:id/thumbnail", async (context) => {
     if (!thumbnailUrl) {
       return context.json({ error: "THUMBNAIL_UNAVAILABLE", message: "影片縮圖尚未提供" }, 404);
     }
-    const redirectTarget = new URL(thumbnailUrl, context.req.url);
-    if (redirectTarget.protocol !== "https:" && redirectTarget.protocol !== "http:") {
-      throw new Error("Video provider returned an invalid thumbnail URL");
-    }
-    return new Response(null, {
-      status: 302,
-      headers: {
-        location: redirectTarget.toString(),
-        "cache-control": "private, max-age=300",
-      },
-    });
+    return await proxyThumbnail(thumbnailUrl, context.req.url, context.env, "private, max-age=300");
   } catch (error) {
     console.warn("Public video thumbnail lookup failed", video.id, error);
     await recordHandledProviderFailure(
@@ -1292,6 +1291,30 @@ api.post("/videos/:id/playback-start", zValidator("json", playbackStartSchema), 
   return new Response(null, { status: 204 });
 });
 
+api.get("/forecast-freshness", zValidator("query", matchQuerySchema), async context => {
+  await ensureDevelopmentDatabase(context.env);
+  const input = context.req.valid("query");
+  const target = canonicalUtcTimestamp(input.targetTime);
+  try { assertWithinForecastWindow(target); } catch {
+    return context.json({ error: "TARGET_OUT_OF_RANGE" }, 422);
+  }
+  const spot = await findActiveSpot(context.env, input.spotId);
+  if (!spot) return context.json({ error: "SPOT_NOT_FOUND" }, 404);
+  const now = new Date();
+  const rows = await context.env.DB.prepare(TARGET_FORECAST_SQL)
+    .bind(target, target, spot.id, now.toISOString(), target, target).all<ForecastRow & { retrieved_at: string }>();
+  const dayOffset = taipeiForecastDayOffset(new Date(target), now) ?? 0;
+  const sources = [
+    ...(dayOffset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? [{ name: "CWA", provider: "cwa", model: "cwa-wave-f-a0020-001", hours: 6 }] : []),
+    { name: "MFWAM", provider: "open-meteo", model: "meteofrance_wave", hours: dayOffset <= 1 ? 6 : 12 },
+  ].map(source => {
+    const row = rows.results.find(row => row.provider === source.provider && row.model === source.model);
+    return { name: source.name, retrievedAt: row?.retrieved_at ?? null,
+      stale: !row || now.getTime() - Date.parse(row.retrieved_at) > (source.hours + 2) * 3_600_000 };
+  });
+  return context.json({ sources }, 200, { "cache-control": "public, max-age=60" });
+});
+
 api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
   await ensureDevelopmentDatabase(context.env);
   const startedAt = Date.now();
@@ -1313,20 +1336,7 @@ api.get("/matches", zValidator("query", matchQuerySchema), async (context) => {
     // Range expressions match migration 0015's indexes. Keep integer-second
     // bounds (and the existing ranking expressions), not ISO-string comparisons.
     context.env.DB.prepare(
-      `SELECT * FROM (
-         SELECT fs.*,
-           ABS(strftime('%s', valid_at) - strftime('%s', ?)) AS valid_distance_seconds,
-           ROW_NUMBER() OVER (
-           PARTITION BY provider, model
-           ORDER BY issued_at DESC,
-             ABS(strftime('%s', valid_at) - strftime('%s', ?)), id
-         ) AS source_rank
-         FROM forecast_snapshots fs
-         WHERE spot_id = ? AND snapshot_kind = 'forecast' AND issued_at <= ?
-           AND CAST(strftime('%s', valid_at) AS INTEGER)
-             BETWEEN CAST(strftime('%s', ?) AS INTEGER) - 14400
-                 AND CAST(strftime('%s', ?) AS INTEGER) + 14400
-       ) WHERE source_rank = 1 LIMIT 8`,
+      TARGET_FORECAST_SQL,
     ).bind(targetTime, targetTime, spot.id, now, targetTime, targetTime).all<ForecastRow>(),
     context.env.DB.prepare(
       `${observationSelect(false)}
@@ -1628,6 +1638,15 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
   const limited = await enforceRateLimit(context.env, context.env.UPLOAD_RATE_LIMITER, user.id);
   if (limited) return limited;
 
+  if (input.fileSha256) {
+    const duplicate = await findRecentPublicDuplicate(context.env.DB, input.fileSha256, input.sizeBytes, new Date());
+    if (duplicate) return context.json({
+      error: "RECENT_DUPLICATE_UPLOAD",
+      message: "最近 24 小時已有相同檔案的公開影片，可以先查看，避免重複上傳。",
+      duplicate: { videoId: duplicate.id },
+    }, 409);
+  }
+
   const provider = createVideoProvider(context.env);
   const ticket = await provider.createDirectUpload({ internalUserId: user.id, maxDurationSeconds: MAX_VIDEO_DURATION_SECONDS });
   const id = crypto.randomUUID();
@@ -1639,8 +1658,8 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
       id, user_id, spot_id, video_provider, provider_video_id, captured_at,
       duration_seconds, status, show_uploader, metadata_status,
       metadata_expires_at, is_favorite, terms_version, moderation_status,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      created_at, updated_at, client_file_sha256, client_file_size_bytes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id,
     user.id,
@@ -1652,12 +1671,14 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
     "awaiting_upload",
     showUploader ? 1 : 0,
     complete ? "complete" : "pending",
-    complete ? null : new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString(),
+    new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString(),
     0,
     PUBLIC_MEDIA_TERMS_VERSION,
     "visible",
     now.toISOString(),
     now.toISOString(),
+    input.fileSha256 ?? null,
+    input.fileSha256 ? input.sizeBytes : null,
   ).run();
   return context.json({
     videoId: id,
@@ -1691,6 +1712,7 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
     longitude: number | null;
   }>();
   if (!video) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到影片" }, 404);
+  if (video.metadata_status === "deleting") return context.json({ error: "VIDEO_EXPIRED", message: "影片已進入到期清理" }, 409);
   if (video.provider_video_id !== input.providerVideoId) {
     return context.json({ error: "UPLOAD_MISMATCH", message: "上傳識別碼不相符" }, 409);
   }
@@ -1720,10 +1742,11 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
     ? video.public_at ?? now
     : null;
   await context.env.DB.prepare(
-    `UPDATE videos SET status = ?, duration_seconds = ?, uploaded_at = ?,
-     condition_snapshot_id = COALESCE(?, condition_snapshot_id), public_at = ?, updated_at = ?
-     WHERE id = ? AND user_id = ?`,
-  ).bind(resolved.state, resolved.durationSeconds, now, conditionSnapshotId, publicAt, now, video.id, user.id).run();
+    `UPDATE videos SET status = ?, duration_seconds = ?, uploaded_at = COALESCE(uploaded_at, ?),
+     condition_snapshot_id = COALESCE(?, condition_snapshot_id), public_at = ?, updated_at = ?,
+     metadata_expires_at = CASE WHEN ? = 'ready' AND metadata_status = 'complete' THEN NULL ELSE metadata_expires_at END
+     WHERE id = ? AND user_id = ? AND metadata_status <> 'deleting'`,
+  ).bind(resolved.state, resolved.durationSeconds, now, conditionSnapshotId, publicAt, now, resolved.state, video.id, user.id).run();
   const [observation, historicalRows] = await Promise.all([
     findOwnedObservation(context.env, video.id, user.id),
     findOwnedHistoricalForecasts(context.env, user.id, video.id),
@@ -1784,6 +1807,9 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
     updated_at: string;
   }>();
   if (!current) return context.json({ error: "VIDEO_NOT_FOUND", message: "找不到影片" }, 404);
+  if (current.metadata_status === "deleting") {
+    return context.json({ error: "VIDEO_EXPIRED", message: "影片已進入到期清理" }, 410);
+  }
 
   const now = new Date();
   if (current.metadata_status !== "complete"
@@ -1816,7 +1842,7 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
     input.uploaderNote === undefined ? current.uploader_note : input.uploaderNote,
     input.funReaction === undefined ? current.fun_reaction : input.funReaction,
     complete ? "complete" : "pending",
-    complete ? null : current.metadata_expires_at ?? new Date(new Date(current.created_at).getTime() + 7 * 24 * 60 * 60_000).toISOString(),
+    complete && current.status === "ready" ? null : current.metadata_expires_at ?? new Date(new Date(current.created_at).getTime() + 7 * 24 * 60 * 60_000).toISOString(),
     publicAt,
     now.toISOString(),
     current.id,

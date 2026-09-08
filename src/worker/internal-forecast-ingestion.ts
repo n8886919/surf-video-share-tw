@@ -375,8 +375,9 @@ internalForecastIngestionApi.post("/cwa", async (context) => {
   const snapshots = await Promise.all(parsed.data.snapshots.map((snapshot) =>
     normalizedSnapshot(snapshot, parsed.data.version, receivedAt)
   ));
-  const result = await insertForecastSnapshots(context.env.DB, snapshots);
-  return context.json(result);
+  const result = await insertForecastSnapshots(context.env.DB, snapshots, true);
+  console.log(JSON.stringify({ event: "cwa_ingestion_batch", ...result }));
+  return context.json({ attempted: result.attempted, inserted: result.inserted, duplicates: result.duplicates });
 });
 
 internalForecastIngestionApi.post("/cwa/complete", async (context) => {

@@ -139,7 +139,7 @@ test("renders the product title and language", async () => {
   assert.match(clientBundle, /即時影片（近 2 小時）/);
   assert.doesNotMatch(clientBundle, /所選時間前後 2 小時/);
   assert.match(clientBundle, /timeWindowObservations/);
-  assert.doesNotMatch(clientBundle, /所選預報/);
+  assert.match(clientBundle, /所選預報資料更新時間/);
   assert.match(clientBundle, /CWA 與 MFWAM 綜合相似實拍/);
   assert.match(clientBundle, /次湧浪/);
   assert.match(clientBundle, /風浪/);

@@ -221,6 +221,8 @@ export const videos = sqliteTable(
     providerVideoId: text("provider_video_id").notNull(),
     capturedAt: text("captured_at"),
     uploadedAt: text("uploaded_at"),
+    clientFileSha256: text("client_file_sha256"),
+    clientFileSizeBytes: integer("client_file_size_bytes"),
     durationSeconds: real("duration_seconds"),
     status: text("status").notNull(),
     showUploader: integer("show_uploader", { mode: "boolean" }).notNull(),
@@ -242,6 +244,9 @@ export const videos = sqliteTable(
   },
   (table) => [
     index("videos_spot_captured_at_idx").on(table.spotId, table.capturedAt),
+    index("videos_recent_file_hash_idx")
+      .on(table.clientFileSha256, table.clientFileSizeBytes, table.uploadedAt)
+      .where(sql`${table.clientFileSha256} IS NOT NULL`),
     index("videos_visible_spot_capture_jd_idx")
       .on(table.spotId, sql`julianday(${table.capturedAt})`, table.id)
       .where(sql`${table.metadataStatus} = 'complete' AND ${table.publicAt} IS NOT NULL AND ${table.status} = 'ready' AND ${table.termsVersion} IS NOT NULL AND ${table.moderationStatus} = 'visible'`),
@@ -430,4 +435,14 @@ export const forecastDailyReports = sqliteTable("forecast_daily_reports", {
   claimedAt: text("claimed_at"),
   sentAt: text("sent_at"),
   createdAt: text("created_at").notNull(),
+});
+
+export const forecastRetentionState = sqliteTable("forecast_retention_state", {
+  id: text("id").primaryKey(),
+  cursor: integer("cursor").notNull().default(0),
+  budgetDay: text("budget_day").notNull(),
+  writes: integer("writes").notNull().default(0),
+  leaseToken: text("lease_token").notNull(),
+  leaseUntil: text("lease_until").notNull(),
+  lastHour: text("last_hour").notNull(),
 });

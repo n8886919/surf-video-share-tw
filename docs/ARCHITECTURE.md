@@ -6,6 +6,9 @@ The detailed score formula, weights, coverage, unordered swell assignment, sourc
 
 ## Read path
 
+A debounced freshness preview reuses the exact target SQL without fetching videos or creating search events. It displays retained-row retrieval timestamps beside Search, separately per required source; this is not an upstream issue timestamp or latest check time. Missing/error/stale states remain explicit. Public thumbnail routes proxy raster bytes; no signed URL is returned.
+
+
 The public client selects one of the nineteen active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00, then explicitly presses Search below the date/time controls. Entry, control changes, and tab return do not trigger matching requests. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result. Last-query state survives tab changes within the page, but players are unmounted on leaving Find. Public observation SQL skips playback counts; only owner queries compute them.
 
 For a future target, the API reads only `snapshot_kind = forecast`, requires `issued_at <= queryNow`, limits `valid_at` distance to four hours, and chooses the newest provider/model run. Matching source features are never merged:
@@ -23,6 +26,8 @@ Authenticated owner responses select one row per provider/model with the same hi
 Public thumbnail, playback, sharing, and download URLs stay first-party. Every media route repeats lifecycle and authorization checks before delegating to the video-provider interface. Stream credentials and unsigned provider video IDs never cross the API boundary.
 
 ## Write path
+
+Before requesting a Stream ticket, the browser computes SHA-256 over the full selected file in a dedicated Web Worker using pinned `@noble/hashes`, reading 256 KiB chunks. The worker is terminated after completion, cancellation, error or a 30-second timeout; an unavailable hash does not block upload. An in-memory result is reused only for the exact selected File object and discarded on replacement/unmount. No original video bytes are sent to the application Worker for hashing. Optional client SHA-256 and byte-size claims are stored on the existing video row; a partial composite index supports a rolling 24-hour, cross-account public-duplicate reminder inside the authenticated upload-request route. A fingerprint cannot prove ownership or media identity because video bytes go directly to Stream. The user can open the eligible public video, choose a different file or report a suspected mistake; no overwrite, cross-account asset adoption, permanent hash lock, new Cron, scan of Stream media or historical hash backfill is added.
 
 Upload offers gallery selection and an HTML `capture="environment"` preference. A bounded browser parser may suggest an explicitly zoned QuickTime creation time and, under strict precision/distance rules, a nearby active spot. Raw coordinates never leave component memory. The user confirms only spot and capture time; no condition number is user-entered.
 
@@ -46,14 +51,14 @@ Cloudflare Cron runs every six hours and makes one independent Open-Meteo Marine
 
 | Model | Role | Requested window |
 |---|---|---|
-| `meteofrance_wave` | active match | 168 future hours + 6 recent past hours |
+| `meteofrance_wave` | active match | 126 future hours at Taipei 08:20/20:20; through tomorrow 23:00 at 02:20/14:20; always 6 recent past hours |
 | `ecmwf_wam` | collect-only | 1 future hour + 6 recent past hours |
 | `ncep_gfswave016` | collect-only | 1 future hour + 6 recent past hours |
 | `dwd_gwam` | collect-only | 1 future hour + 6 recent past hours |
 
 Rows whose `valid_at` is earlier than retrieval are labelled `historical_forecast`; all others are `forecast`. This uses the normal live Forecast endpoint with bounded `past_hours=6`. The Worker never invokes Open-Meteo Historical Forecast mode and never fabricates old-video backfill. MFWAM keeps the longer horizon because it serves future matching; collect-only models intentionally keep a bounded horizon to control D1 growth while scheduled runs accumulate video-time coverage.
 
-Open-Meteo model fields are normalized without cross-model assumptions. MFWAM and GFS expose partitioned swell components; GFS may expose a third component. DWD GWAM's `swell_wave_*` is stored as total swell rather than primary swell. ECMWF currently contributes total wave fields. Peak periods are retained when supplied. The upstream model-run timestamp is unavailable, so `issued_at` is service retrieval time and `model_run_at` remains null; a normalized response hash makes identical retries idempotent.
+Open-Meteo model fields are normalized without cross-model assumptions. MFWAM and GFS expose partitioned swell components; GFS may expose a third component. DWD GWAM's `swell_wave_*` is stored as total swell rather than primary swell. ECMWF currently contributes total wave fields. Peak periods are retained when supplied. The upstream model-run timestamp is unavailable, so `issued_at` is service retrieval time and `model_run_at` remains null; a validated MFWAM metadata availability hint plus per-point content/grid/kind hash makes unchanged overlapping points idempotent across a moving window. During metadata failure or the ten-minute replication window, use the whole-response hash fallback. Neither metadata nor a successful check fabricates model_run_at.
 
 CWA computation remains in the outbound-only Home Assistant adapter because the official archive exceeds Workers Free CPU. It reads active coordinates from an HMAC-authenticated endpoint, streams the bounded F-A0020-001 ZIP, keeps three-hourly 0–72-hour rows, selects each spot's reviewed nearest F-A0021-001 location, and submits at most five rows per request with the LocationId in provenance. The Worker revalidates provider/model/spot/time/the nearest tide allowlist, recomputes stable IDs, and writes with `INSERT OR IGNORE`. After every row is accepted, the App sends a separately signed completion request. The Worker first checks the small operational run ledger, then verifies all twenty-five 0–72-hour leads at every active spot through a partial covering run index. It records completion without sending per-run LINE. MFWAM records each scheduled attempt separately and marks it complete only after every spot succeeds; operational slot timestamps never replace upstream model-run timestamps. The existing hourly task sends one combined prior-day CWA/MFWAM count at 09:05 Asia/Taipei, with a persisted message, claim and LINE retry key. See [Operations](OPERATIONS.md#daily-forecast-report-product-028) for counting, rollout and retry semantics.
 

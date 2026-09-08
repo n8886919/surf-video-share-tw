@@ -1,7 +1,7 @@
 import type { AppEnv } from "../db";
 import { LineNotificationError, sendLineNotification } from "../ops-observability";
 
-type ForecastSource = "cwa" | "mfwam";
+type ForecastSource = "cwa" | "mfwam" | "mfwam_far";
 const HOUR_MS = 3_600_000;
 const CLAIM_TIMEOUT_MS = 5 * 60_000;
 
@@ -31,8 +31,8 @@ function taipeiDay(date: Date): string {
 // These are operational counts; Open-Meteo model_run_at remains unknown/null.
 export function expectedForecastSlots(day: string, source: ForecastSource): string[] {
   const start = Date.parse(`${day}T00:00:00+08:00`);
-  return [2, 8, 14, 20].map(hour =>
-    new Date(start + hour * HOUR_MS + (source === "mfwam" ? 20 * 60_000 : 0)).toISOString(),
+  return (source === "mfwam_far" ? [8, 20] : [2, 8, 14, 20]).map(hour =>
+    new Date(start + hour * HOUR_MS + (source !== "cwa" ? 20 * 60_000 : 0)).toISOString(),
   );
 }
 
@@ -47,7 +47,7 @@ async function completedSlots(db: D1Database, day: string, source: ForecastSourc
   const slots = expectedForecastSlots(day, source);
   const row = await db.prepare(
     `SELECT COUNT(*) AS count FROM forecast_update_runs
-     WHERE source = ? AND slot_at IN (?, ?, ?, ?) AND completed_at IS NOT NULL`,
+     WHERE source = ? AND slot_at IN (${slots.map(() => "?").join(",")}) AND completed_at IS NOT NULL`,
   ).bind(source, ...slots).first<{ count: number }>();
   return row?.count ?? 0;
 }
@@ -87,10 +87,15 @@ export async function runDailyForecastReport(
   if (!report) {
     const cwa = await completedSlots(env.DB, day, "cwa");
     const mfwam = await completedSlots(env.DB, day, "mfwam");
+    const farTracking = await env.DB.prepare("SELECT started_at FROM forecast_update_runs WHERE source = 'mfwam_far' ORDER BY slot_at LIMIT 1").first<{ started_at: string }>();
+    const far = farTracking && Date.parse(farTracking.started_at) <= Date.parse(dayStart)
+      ? await completedSlots(env.DB, day, "mfwam_far") : null;
     const message = [
       `昨日預報更新（${day}）`,
       `CWA：應更新 4 次，成功 ${cwa} 次`,
-      `MFWAM：應更新 4 次，成功 ${mfwam} 次`,
+      `MFWAM 近兩天：應更新 4 次，成功 ${mfwam} 次`,
+      far === null ? "MFWAM 後三天：尚未累積完整一天" : `MFWAM 後三天：應更新 2 次，成功 ${far} 次`,
+      "成功指全浪點收錄完成（含相同資料），不是官方發布新版本次數。",
     ].join("\n");
     await env.DB.prepare(
       `INSERT OR IGNORE INTO forecast_daily_reports

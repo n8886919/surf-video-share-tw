@@ -78,7 +78,8 @@ class FakeD1 {
     });
     return {
       all,
-      bind: (...values: unknown[]) => sql.includes("SELECT id FROM spots") ? { all } : { sql, values },
+      bind: (...values: unknown[]) => sql.includes("SELECT id FROM spots") ? { all } : { sql, values,
+        all: async () => ({ results: values.filter(id => this.ids.has(String(id))).map(id => ({ id })) }) },
     };
   }
 
