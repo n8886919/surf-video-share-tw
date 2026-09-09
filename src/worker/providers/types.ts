@@ -8,7 +8,7 @@ export interface UploadTicket {
 }
 
 export interface VideoStatus {
-  state: "pending" | "processing" | "ready" | "error";
+  state: "awaiting_upload" | "pending" | "processing" | "ready" | "error";
   durationSeconds: number | null;
 }
 

@@ -13,6 +13,7 @@ const fixtures: ReturnType<typeof forecastFixture>[] = [];
 afterEach(() => { for (const f of fixtures.splice(0)) f.sqlite.close(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 function fixture() {
+  vi.useFakeTimers(); vi.setSystemTime(now);
   const f = forecastFixture(); fixtures.push(f);
   const env = { ...f.env, APP_ENV: "development", ENABLE_DEV_AUTH: "true", VIDEO_PROVIDER: "mock", CONDITIONS_PROVIDER: "mock" } as AppEnv;
   f.sqlite.exec("INSERT INTO users(id,line_subject,created_at,updated_at) VALUES('other','private-line-subject','2026-09-08','2026-09-08')");
@@ -23,7 +24,7 @@ function fixture() {
       VALUES(?,'other','mock',?,'ready','complete','spot_double-lions',?,'cc0',0,?,?,?,?,1000)`)
       .run(id, `provider_${id}`, uploadedAt, uploadedAt, uploadedAt, uploadedAt, hash);
   };
-  const input = { spotId: "spot_double-lions", capturedAt: null, durationSeconds: 20, sizeBytes: 1000,
+  const input = { spotId: "spot_double-lions", capturedAt: "2026-09-08T00:00:00Z", durationSeconds: 20, sizeBytes: 1000,
     fileName: "wave.mp4", contentType: "video/mp4", fileSha256: hash };
   const call = (body: unknown = input) => api.fetch(new Request("https://example.com/api/v1/videos/upload-request", {
     method: "POST", headers: { "content-type": "application/json", origin: "https://example.com" }, body: JSON.stringify(body),
@@ -32,6 +33,13 @@ function fixture() {
 }
 
 describe("24-hour cross-account upload reminder", () => {
+  it.each([null, undefined, ""])("rejects missing capture time (%s) before provisioning or writing a video", async capturedAt => {
+    const f = fixture();
+    const create = vi.spyOn(MockVideoProvider.prototype, "createDirectUpload");
+    expect((await f.call({ ...f.input, capturedAt })).status).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM videos").get()?.n).toBe(0);
+  });
   it("uses a hash/size/time index and a rolling 24-hour window independent of calendar dates", async () => {
     const f = fixture();
     const cutoff = new Date(now.getTime() - 86_400_000).toISOString();

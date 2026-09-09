@@ -121,7 +121,7 @@ describe("API authorization boundary", () => {
     consoleError.mockRestore();
   });
 
-  it("rejects a future capture time when a pending video's metadata request is modified", async () => {
+  it("rejects the removed capture-time completion field before modifying a pending video", async () => {
     const user = { id: "user_dev_local", display_id: "wave-friend", show_identity_default: 1 };
     const createdAt = new Date().toISOString();
     const currentVideo = {
@@ -164,8 +164,8 @@ describe("API authorization boundary", () => {
       { APP_ENV: "development", ENABLE_DEV_AUTH: "true", DB: db } as AppEnv,
     );
 
-    expect(response.status).toBe(422);
-    await expect(response.json()).resolves.toMatchObject({ message: expect.stringContaining("不可晚於現在") });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ success: false });
     consoleError.mockRestore();
   });
 

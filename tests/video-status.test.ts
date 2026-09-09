@@ -1,7 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveVideoStatus } from "../src/worker/video-status";
+import { CloudflareStreamVideoProvider } from "../src/worker/providers/cloudflare-stream";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("video status resolution", () => {
+  it.each([
+    ["pendingupload", false, -1, "awaiting_upload"],
+    ["queued", false, 0, "pending"],
+    ["inprogress", false, 0, "processing"],
+    ["error", false, 0, "error"],
+    ["ready", true, 20, "ready"],
+  ] as const)("maps Stream %s without mistaking an empty upload for transcoding", async (state, readyToStream, duration, expected) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ success: true, result: { readyToStream, duration, status: { state } } })));
+    const provider = new CloudflareStreamVideoProvider({ accountId: "test", apiToken: "fixture" });
+    const status = await provider.getStatus("video");
+    expect(status.state).toBe(expected);
+    expect(resolveVideoStatus(provider.provider, status, 20).canPublish).toBe(expected === "ready");
+  });
   it("treats a transient zero duration as unavailable while Stream is processing", () => {
     expect(resolveVideoStatus(
       "cloudflare-stream",

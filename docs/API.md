@@ -1,8 +1,14 @@
 # API
 
+`GET /api/v1/me` additionally returns private `avatarUrl: string | null`, an HTTPS image URL obtained from verified LINE login claims. No public video response exposes it.
+
 The Find UI calls `/matches` only after an explicit Search action, not on entry, selection changes, or tab return. It retains only the current page's last query state; this is not a server cache. Public observation queries (including both `/matches` lists and public-video metadata) omit the 90-day playback-count subquery. Owner list/detail queries retain it; playback-event recording and public DTOs are unchanged.
 
 Base path: `/api/v1`.
+
+`GET /spots` includes `publicVideoCount`, counted across complete, ready, public, terms-versioned, moderation-visible videos at that spot; it excludes private/incomplete/failed/delisted records and does not depend on forecast coverage or the selected search time. It uses the same public lifecycle predicate as matching.
+
+Stream `pendingupload` maps to `awaiting_upload`, never `processing`. Owner reconciliation rotates up to five unfinished records by oldest status check; existing seven-day cleanup is unchanged. This fixes misleading processing labels without inventing a successful upload or rewriting historical video data.
 
 `POST /videos/upload-request` accepts optional `fileSha256` (64 lowercase hex characters). After authentication, normal validation and the existing upload rate limit, a supplied fingerprint plus declared byte size is looked up through `videos_recent_file_hash_idx`. Only ready, complete, licensed, moderation-visible public videos from any account with `uploaded_at` in `(requestNow - 24 hours, requestNow]` are eligible. A match returns HTTP 409 `{error: "RECENT_DUPLICATE_UPLOAD", message, duplicate: {videoId}}` before issuing a Stream ticket or inserting another video; the response contains no owner, fingerprint or private media details. There is no continuation override; legacy `duplicateAcknowledged` fields are ignored and cannot bypass a matching supplied fingerprint. Missing fingerprints preserve old clients and the browser's hashing-failure fallback. This is an advisory check of unverified client claims, not an ownership, moderation or abuse-control boundary; it does not guarantee exclusion of simultaneous or altered-file duplicates. Fingerprints are not included in public/owner DTOs or diagnostics. Completion sets `uploaded_at` only once so repeated status confirmations cannot renew the check window.
 
@@ -10,7 +16,7 @@ Base path: `/api/v1`.
 |---|---|---|---|
 | Public | GET | `/health` | Shallow process liveness check |
 | Public | GET | `/readiness` | D1 and required operations-binding readiness check |
-| Public | GET | `/spots` | Active launch spots, with 烏石港 first |
+| Public | GET | `/spots` | Active launch spots, with 烏石港 first and each spot’s publicVideoCount |
 | Public | GET | `/forecast-freshness?spotId=&targetTime=` | Same target-row selection; CWA/MFWAM actual retained `retrieved_at`, missing/stale status; no journey writes, 60-second cache |
 | Public | GET | `/matches?spotId=&targetTime=` | Public forecast context and same-spot videos |
 | Public | GET | `/public-videos/:id` | Return one currently public video for its stable first-party page |
@@ -27,9 +33,9 @@ Base path: `/api/v1`.
 | Signed in | GET | `/videos` | Own complete and pending videos |
 | Signed in | POST | `/videos/:id/share-link` | Create a 24-hour first-party share path for any currently public video |
 | Signed in | POST | `/videos/:id/download` | Prepare or poll an owner-only encoded MP4 download |
-| Signed in | POST | `/videos/upload-request` | Create upload; spot is required and capture time may be null |
+| Signed in | POST | `/videos/upload-request` | Create upload; active spot and capture time are both required |
 | Signed in | POST | `/videos/:id/complete` | Verify media; conditions are best-effort |
-| Signed in | PATCH | `/videos/:id` | Fill metadata, favorite, identity, public supplement, or fun reaction |
+| Signed in | PATCH | `/videos/:id` | Update favorite, identity, public supplement, or fun reaction; no spot/capture edits |
 | Admin | GET | `/admin/reports?status=open` | List up to 100 open or resolved reports with preview metadata and resolution |
 | Admin | POST | `/admin/reports/:id/delist` | Same-origin JSON `{reason}`; atomically delist, resolve open reports and audit |
 | Admin | POST | `/admin/reports/:id/resolve` | `{reason: "test" or "no_violation"}`; preserve video and resolve reports with audit |
@@ -71,7 +77,7 @@ Upload-ticket, playback-token, and owner-download creation use independent rate-
 
 `POST /problem-reports` accepts only a trimmed 5–300 character `message` and `view` in `find | upload | mine`. It does not require authentication and stores no contact detail, user ID, raw LINE subject, or raw client address. Admin list/resolve routes remain authenticated and do not expose reporter identity because none is collected.
 
-`POST /videos/upload-request` requires a valid active `spotId`; the shared contract rejects missing or null spots and `PATCH /videos/:id` does not accept `spotId`. Capture time may be null initially, but both creation and later completion enforce the server-owned 168-hour window, reject future timestamps, and require the actual `Asia/Taipei` capture hour to be 05–19 regardless of browser or file metadata. Capture minutes and seconds are preserved. Requested and provider-verified duration must be 10–60 seconds; a real provider video cannot publish until it reports a positive in-range duration.
+`POST /videos/upload-request` requires a valid active `spotId` and non-null `capturedAt`; the shared contract rejects either missing field before provisioning. `PATCH /videos/:id` strictly rejects `spotId`, `capturedAt` and unknown fields, including requests mixing those fields with permitted edits. Creation enforces the server-owned 168-hour window, reject future timestamps, and require the actual `Asia/Taipei` capture hour to be 05–19 regardless of browser or file metadata. Capture minutes and seconds are preserved. Requested and provider-verified duration must be 10–60 seconds; a real provider video cannot publish until it reports a positive in-range duration.
 
 Public DTOs never include LINE subjects or internal owner IDs. Shared observation, forecast, match-group, public-match, playback, share-link, and owner-download response types live in `packages/api-contract/src/index.ts` and are used by the Worker and React client.
 

@@ -124,6 +124,7 @@ describe("LINE Login", () => {
         iss: "https://access.line.me",
         sub: "U-private-subject",
         name: "浪人小明 🏄",
+        picture: "https://profile.line-scdn.net/test-avatar",
         aud: "2011238358",
         exp: Math.floor(Date.now() / 1000) + 300,
         nonce: "expected-nonce",
@@ -144,6 +145,7 @@ describe("LINE Login", () => {
     const existingUserUpdate = writes.find(({ sql }) => sql.includes("UPDATE users"));
     expect(existingUserUpdate?.values).toEqual([
       "浪人小明 🏄",
+      "https://profile.line-scdn.net/test-avatar",
       expect.any(String),
       "U-private-subject",
     ]);

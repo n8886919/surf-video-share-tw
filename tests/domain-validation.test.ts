@@ -75,7 +75,7 @@ describe("domain validation", () => {
     expect(updateMeSchema.safeParse({ displayId: "浪", showIdentityDefault: false }).success).toBe(false);
   });
 
-  it("requires a spot but allows capture time to remain pending", () => {
+  it("requires both spot and capture time before uploading and rejects later capture edits", () => {
     expect(uploadRequestSchema.safeParse({
       spotId: "spot_donghe",
       capturedAt: null,
@@ -83,7 +83,7 @@ describe("domain validation", () => {
       sizeBytes: 10_000,
       fileName: "surf.mp4",
       contentType: "video/mp4",
-    }).success).toBe(true);
+    }).success).toBe(false);
     expect(uploadRequestSchema.safeParse({
       capturedAt: null,
       durationSeconds: 10,
@@ -92,6 +92,8 @@ describe("domain validation", () => {
       contentType: "video/mp4",
     }).success).toBe(false);
     expect(updateVideoSchema.safeParse({ spotId: "spot_other" }).success).toBe(false);
+    expect(updateVideoSchema.safeParse({ capturedAt: "2026-09-08T00:00:00Z" }).success).toBe(false);
+    expect(updateVideoSchema.safeParse({ capturedAt: null, isFavorite: true }).success).toBe(false);
   });
 
   it("limits subjective input to one reaction and a 100-character supplement", () => {

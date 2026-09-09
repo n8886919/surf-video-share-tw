@@ -189,6 +189,8 @@ export class CloudflareStreamVideoProvider implements VideoProvider {
         ? "ready"
         : state === "error"
           ? "error"
+          : state === "pendingupload"
+            ? "awaiting_upload"
           : state === "queued" || state === "downloading"
             ? "pending"
             : "processing",

@@ -1,5 +1,9 @@
 # Operations
 
+Product `0.33` adds browser-only pre-upload playback and draft navigation protection. No new migration, binding, secret, provider call, or Cloudflare Stream charge is introduced by local previews; video bytes still transfer only after confirmation. Blob URLs are released on replacement/unmount. Native close/reload warnings are best effort on mobile; no persistent local video cache is created.
+
+Product 0.32 adds migration `0022_perfect_korath.sql`, one nullable private account image column. Apply before publishing the new auth/account queries. Existing accounts get a picture on their next LINE login; missing or invalid pictures remain null and never block login. The existing `openid profile` scope suffices; no new permission, secret or provider request is needed. Official reference: [LINE verified ID token picture](https://developers.line.biz/en/reference/line-login/#verify-id-token).
+
 ## Recent duplicate upload check (0.30)
 
 Duplicate reminders use the existing capped client journey event (`upload_step`, stage `ticket`, outcome `duplicate`) rather than being counted as upload failures. Only that fixed outcome and elapsed time are logged; the hash, filename and matched owner are omitted.

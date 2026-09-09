@@ -3,6 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { forecastFreshnessResponseSchema, type ForecastFreshnessResponse } from "../packages/api-contract/src";
 
+export function freshnessAge(iso: string | null, now = Date.now()): string {
+  if (!iso) return "尚無資料";
+  const minutes = Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
+  if (minutes < 1) return "剛剛";
+  if (minutes < 60) return `${minutes}分鐘前`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}小時前`;
+  return `${Math.floor(minutes / (24 * 60))}天前`;
+}
+
 export function ForecastFreshness({ query, active }: { query: string | null; active: boolean }) {
   const cache = useRef(new Map<string, { at: number; data: ForecastFreshnessResponse }>());
   const [result, setResult] = useState<{ query: string; data: ForecastFreshnessResponse | null } | null>(null);
@@ -29,10 +38,7 @@ export function ForecastFreshness({ query, active }: { query: string | null; act
   const data = result?.query === query ? result.data : undefined;
   return <div className="forecast-freshness" aria-label="所選預報資料更新時間" aria-live="polite">
     {data === undefined ? "確認資料更新時間…" : data === null ? "暫時無法確認資料更新時間" : <>
-      <span>所選資料上次收錄（台北時間）</span>
-      {data.sources.map(source => <span key={source.name}>{source.name}：{source.retrievedAt
-        ? `${new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(source.retrievedAt))}${source.stale ? "（較舊）" : ""}`
-        : "尚無資料"}</span>)}
+      資料更新：{data.sources.map(source => `${source.name}（${freshnessAge(source.retrievedAt)}）`).join("、")}
     </>}
   </div>;
 }

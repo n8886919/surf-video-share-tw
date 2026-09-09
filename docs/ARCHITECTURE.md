@@ -1,5 +1,7 @@
 # Architecture
 
+The verified LINE ID token optionally supplies a validated HTTPS `picture`, saved as `users.line_picture_url` and exposed only to the authenticated account through `/me`. No extra profile request or public identity field is added. The client opens project help only after a successful LINE completion plus authenticated `/me`, never merely because a saved session is valid.
+
 React and Hono run as one Cloudflare Worker with a strict `/api/v1` boundary. D1 stores normalized metadata and immutable condition provenance; browsers never read D1 or provider secrets. Video bytes upload directly to Cloudflare Stream.
 
 The detailed score formula, weights, coverage, unordered swell assignment, source roles, and deterministic tie-breaks are authoritative in [Matching algorithm](MATCHING.md). This document describes only system and data-flow boundaries.
@@ -9,7 +11,7 @@ The detailed score formula, weights, coverage, unordered swell assignment, sourc
 A debounced freshness preview reuses the exact target SQL without fetching videos or creating search events. It displays retained-row retrieval timestamps beside Search, separately per required source; this is not an upstream issue timestamp or latest check time. Missing/error/stale states remain explicit. Public thumbnail routes proxy raster bytes; no signed URL is returned.
 
 
-The public client selects one of the nineteen active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00, then explicitly presses Search below the date/time controls. Entry, control changes, and tab return do not trigger matching requests. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result. Last-query state survives tab changes within the page, but players are unmounted on leaving Find. Public observation SQL skips playback counts; only owner queries compute them.
+The public client selects one of the nineteen active spots plus an `Asia/Taipei` calendar-day offset 0–4 and a whole hour 05:00–19:00, then explicitly presses 找影片 below the date/time controls and the single-line retained-data age. Entry, control changes, and tab return do not trigger matching requests. The browser discards stale responses by exact `spotId + targetTime` request ownership; changing a control immediately hides the old result. Last-query state survives tab changes within the page, but players are unmounted on leaving Find. Public observation SQL skips playback counts; only owner queries compute them.
 
 For a future target, the API reads only `snapshot_kind = forecast`, requires `issued_at <= queryNow`, limits `valid_at` distance to four hours, and chooses the newest provider/model run. Matching source features are never merged:
 

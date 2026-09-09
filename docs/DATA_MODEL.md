@@ -16,11 +16,13 @@ erDiagram
   OPS_EVENTS ||--o{ OPS_ANALYSIS_RUNS : summarized_by_window
 ```
 
+`users.line_picture_url` (migration 0022) stores an optional HTTPS image URL from verified LINE claims. It is refreshed or cleared at LINE login and returned only in the authenticated `/me` response; existing accounts remain null until login. It never appears in public observations, uploader identity, or matching.
+
 `users.line_display_name` is the latest LINE-provided display name and remains a private suggestion. It is distinct from the user-confirmed public name in `users.display_id`; public queries never select the LINE subject or LINE display-name suggestion.
 
 Internal testing is capped at 100 `users` rows. Existing LINE subjects remain eligible at capacity; registration uses a conditional insert against the current row count so a rejected user creates no row or session. This is an application policy and requires no additional public identity field.
 
-New uploads require `videos.spot_id`; the column remains nullable only for legacy/schema compatibility and cannot be filled or changed through the current API. `captured_at` may be null during the seven-day private pending period. `metadata_status`, `metadata_expires_at`, and `public_at` make the lifecycle explicit. `terms_version` prevents silently applying CC0 to older uploads. `moderation_status`/`delisted_at` stop a delisted row from being republished by ordinary metadata changes. `is_favorite` is owner-private; `uploader_note`, `fun_reaction`, and the chosen public name may be public only after completion.
+New uploads require both `videos.spot_id` and `captured_at`; both columns remain nullable only for legacy/schema compatibility and cannot be filled or changed through the current API. Existing incomplete records stay private and expire under the original seven-day policy. No migration or backfill is needed. `metadata_status`, `metadata_expires_at`, and `public_at` make the lifecycle explicit. `terms_version` prevents silently applying CC0 to older uploads. `moderation_status`/`delisted_at` stop a delisted row from being republished by ordinary metadata changes. `is_favorite` is owner-private; `uploader_note`, `fun_reaction`, and the chosen public name may be public only after completion.
 
 `video_reports` stores a public report reason and its open/resolved lifecycle. A configured administrator can resolve all open reports for one video and delist it in one D1 batch; a report alone never automatically hides media.
 

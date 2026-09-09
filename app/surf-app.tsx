@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject, type PointerEvent as ReactPointerEvent } from "react";
 import Link from "next/link";
 import type {
   CombinedMatchResponse as CombinedMatch,
@@ -37,6 +37,11 @@ import { AdminPanel } from "./admin/admin-panel";
 import { clientDiagnostic } from "./journey-diagnostics";
 import { hashVideoFile } from "./video-hash";
 import { ForecastFreshness } from "./forecast-freshness";
+import { UploadDialog } from "./upload-dialog";
+import { LocalVideoPreview } from "./local-video-preview";
+import { CaptureTimeInput } from "./capture-time-input";
+import { spotRegion } from "./spot-region";
+import { UploadProgress, transferVideo } from "./upload-progress";
 import { recoverLineLogin, type LoginRecovery } from "./line-login";
 import {
   inspectQuickTimeMetadata,
@@ -50,6 +55,7 @@ const SPOT_ORDER_STORAGE_KEY = "surf-video-share:find-spot-order:v1";
 interface Me {
   id: string;
   suggestedDisplayName: string | null;
+  avatarUrl: string | null;
   displayId: string | null;
   showIdentityDefault: boolean;
   authMode: string;
@@ -65,6 +71,7 @@ interface Spot {
   region: string;
   latitude: number | null;
   longitude: number | null;
+  publicVideoCount: number;
 }
 
 interface UploadTicket {
@@ -133,12 +140,11 @@ export function visibleFindQuery<T>(
 }
 
 function toLocalDateTime(date: Date): string {
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date).replace(" ", "T");
 }
 
 function formatTime(iso: string | null): string {
-  if (!iso) return "待補拍攝時間";
+  if (!iso) return "缺少拍攝時間";
   return new Intl.DateTimeFormat("zh-TW", {
     timeZone: "Asia/Taipei",
     month: "numeric",
@@ -153,15 +159,17 @@ function formatDirection(value: number | null): string {
   return value == null ? "—" : `${Math.round(value)}°`;
 }
 
-function Icon({ name }: { name: "search" | "upload" | "camera" | "user" | "heart" | "wave" | "help" | "more" | "share" | "download" }) {
+function Icon({ name }: { name: "search" | "upload" | "folder" | "camera" | "user" | "heart" | "wave" | "help" | "warning" | "more" | "share" | "download" }) {
   const paths = {
     search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></>,
     upload: <><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M5 14v5h14v-5"/></>,
+    folder: <><path d="M3 9V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v1"/><path d="M3 10h18l-3 10H3z"/></>,
     camera: <><path d="M4 8.5h3l1.4-2h7.2l1.4 2h3v10H4z"/><circle cx="12" cy="13.5" r="3.2"/></>,
     user: <><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.6-4 3-6 7-6s6.4 2 7 6"/></>,
     heart: <path d="M20.8 8.4c0 5-8.8 10.2-8.8 10.2S3.2 13.4 3.2 8.4C3.2 5.8 5 4 7.4 4c1.9 0 3.3 1 4.6 2.6C13.3 5 14.7 4 16.6 4c2.4 0 4.2 1.8 4.2 4.4Z"/>,
     wave: <><path d="M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2"/><path d="M5 10c2.2-4.8 7.3-6.2 11-3.2 1.7 1.4 2.2 3.2 2 5.2"/></>,
     help: <><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 0 1 4.6.9c0 1.7-2.4 2-2.4 3.7"/><path d="M12 17.2h.01"/></>,
+    warning: <><path d="M10.3 4.1a2 2 0 0 1 3.4 0l8 13.8a2 2 0 0 1-1.7 3H4a2 2 0 0 1-1.7-3z"/><path d="M12 9v5m0 3h.01"/></>,
     more: <><path d="M5 12h.01"/><path d="M12 12h.01"/><path d="M19 12h.01"/></>,
     share: <><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/></>,
     download: <><path d="M12 4v11m0 0-4-4m4 4 4-4"/><path d="M5 19h14"/></>,
@@ -174,9 +182,7 @@ function Brand() {
     <div className="brand">
       {/* The supplied logo is a checked-in static brand asset. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand-logo.png" alt="" width="38" height="38" className="brand-logo" />
-      <span>彼日浪影</span>
-      <span className="brand-beta">測試版</span>
+      <img src="/brand-logo.png" alt="彼日浪影" width="38" height="38" className="brand-logo" />
     </div>
   );
 }
@@ -270,29 +276,40 @@ function ProjectHelp({ onClose }: { onClose: () => void }) {
   return <div className="help-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="project-help-title">
       <div className="help-heading"><div><h2 id="project-help-title">操作與專案說明</h2><p>{PROJECT_PURPOSE}</p><small className="project-version">版本 {PROJECT_VERSION}</small></div><button type="button" aria-label="關閉說明" onClick={onClose}>×</button></div>
-      <section><h3>怎麼使用</h3><ol><li>在找浪頁由上至下選浪點、日期與時間，按「搜尋」查看相似條件下的歷史實拍；再次搜尋可更新影片結果。</li><li>上傳 10–60 秒影片並選好浪點；拍攝時間不得晚於現在，缺時間可在七天內補齊。</li><li>在「我的」管理公開名稱、自己的影片、問題回報，以及管理者的檢舉處理。</li></ol></section>
+      <section><h3>怎麼使用</h3><ol><li>在找浪頁由上至下選浪點、日期與時間，按「找影片」查看相似條件下的歷史實拍；再次查詢可更新影片結果。</li><li>先選好浪點與拍攝時間，再上傳 10–60 秒影片；拍攝時間須在七天內且不得晚於現在。上傳時請保持在此頁面。</li><li>點右上角帳號管理公開名稱與自己的影片。遇到問題可點右上角的三角形驚嘆號回報。</li></ol></section>
       <section><h3>Purpose and position</h3><ul>{PROJECT_POSITION.map((item) => <li key={item}>{item}</li>)}</ul></section>
     </section>
   </div>;
 }
 
-function Topbar({ initialHelpOpen = false }: { initialHelpOpen?: boolean }) {
+function Topbar({ initialHelpOpen = false, view = "find", me, onAccount, loginHelpRequest }: { initialHelpOpen?: boolean; view?: View; me: Me | null; onAccount: () => void; loginHelpRequest: number }) {
   const [helpOpen, setHelpOpen] = useState(initialHelpOpen);
+  const [dismissedLoginHelp, setDismissedLoginHelp] = useState(0);
   useEffect(() => {
     if (!initialHelpOpen) return;
     const url = new URL(window.location.href);
     url.searchParams.delete("help");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }, [initialHelpOpen]);
-  return <><header className="topbar"><Brand/><button className="help-button" type="button" aria-label="操作與專案說明" onClick={() => setHelpOpen(true)}><Icon name="help"/></button></header>{helpOpen && <ProjectHelp onClose={() => setHelpOpen(false)}/>}</>;
+  return <><header className="topbar"><Brand/><div className="topbar-actions"><ProblemReport view={view}/><button className="help-button" type="button" aria-label="操作與專案說明" onClick={() => setHelpOpen(true)}><Icon name="help"/></button><AccountButton avatarUrl={me?.avatarUrl ?? null} active={view === "mine"} onClick={onAccount}/></div></header>{(helpOpen || loginHelpRequest > dismissedLoginHelp) && <ProjectHelp onClose={() => { setHelpOpen(false); setDismissedLoginHelp(loginHelpRequest); }}/>}</>;
+}
+
+function AccountButton({ avatarUrl, active, onClick }: { avatarUrl: string | null; active: boolean; onClick: () => void }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  return <button type="button" className={`account-button ${active ? "active" : ""}`} aria-label="我的浪影" aria-pressed={active} onClick={onClick}>
+    <span className="account-avatar">{avatarUrl && avatarUrl !== failedUrl
+      // The verified LINE image is private account chrome, never a public uploader identity.
+      // eslint-disable-next-line @next/next/no-img-element
+      ? <img src={avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setFailedUrl(avatarUrl)}/>
+      : <Icon name="user"/>}</span><span className="account-label">我的浪影</span>
+  </button>;
 }
 
 function BottomNav({ view, onChange }: { view: View; onChange: (view: View) => void }) {
   return (
     <nav className="bottom-nav" aria-label="主要分頁">
-      <button aria-label="找浪" className={view === "find" ? "active" : ""} onClick={() => onChange("find")}><Icon name="search"/></button>
-      <button aria-label="上傳" className={view === "upload" ? "active" : ""} onClick={() => onChange("upload")}><Icon name="upload"/></button>
-      <button aria-label="我的" className={view === "mine" ? "active" : ""} onClick={() => onChange("mine")}><Icon name="user"/></button>
+      <button type="button" aria-label="找浪" aria-current={view === "find" ? "page" : undefined} className={view === "find" ? "active" : ""} onClick={() => onChange("find")}><Icon name="search"/></button>
+      <button type="button" aria-label="上傳" aria-current={view === "upload" ? "page" : undefined} className={view === "upload" ? "active" : ""} onClick={() => onChange("upload")}><Icon name="upload"/></button>
     </nav>
   );
 }
@@ -351,7 +368,6 @@ function ObservationCard({ observation, ownerActions }: {
   };
 }) {
   const [note, setNote] = useState(observation.uploaderNote || "");
-  const [capturedAt, setCapturedAt] = useState(observation.capturedAt ? toLocalDateTime(new Date(observation.capturedAt)) : "");
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportStatus, setReportStatus] = useState<"idle" | "sending" | "sent">("idle");
@@ -378,12 +394,16 @@ function ObservationCard({ observation, ownerActions }: {
   const ownerStatus = observation.moderationStatus === "delisted"
     ? "已下架"
     : pending
-      ? `待補 · ${remainingDays ?? 7} 天`
+      ? `資料不完整 · ${remainingDays ?? 7} 天後清除`
       : !observation.termsVersion
         ? "舊版不公開"
         : observation.status === "ready" && observation.publicAt
           ? null
-          : "處理中";
+          : observation.status === "awaiting_upload"
+            ? "上傳未完成，請重新上傳"
+            : observation.status === "error"
+              ? "影片處理失敗，請重新上傳"
+              : observation.status === "pending" ? "等待轉檔" : "影片轉檔中";
 
   async function patch(values: Record<string, unknown>) {
     if (!ownerActions) return;
@@ -406,16 +426,6 @@ function ObservationCard({ observation, ownerActions }: {
       setReportStatus("idle");
       setError(caught instanceof Error ? caught.message : "檢舉失敗");
     }
-  }
-
-  async function completePendingMetadata() {
-    const parsed = new Date(capturedAt);
-    const now = new Date();
-    if (!isWithinUploadWindow(parsed, now)) {
-      setError("拍攝時間不可晚於現在、必須在 168 小時內，且台北時間須介於 05:00–19:59");
-      return;
-    }
-    await patch({ capturedAt: parsed.toISOString() });
   }
 
   async function prepareDownload() {
@@ -475,7 +485,7 @@ function ObservationCard({ observation, ownerActions }: {
             </>
           : <div className="wave-lines"><span/><span/><span/></div>}
         <div className="owner-card-shade"/>
-        <div className="owner-card-meta"><strong>{observation.spot?.name || "待補浪點"}</strong><span>{formatTime(observation.capturedAt)}</span></div>
+        <div className="owner-card-meta"><strong>{observation.spot?.name || "缺少浪點"}</strong><span>{formatTime(observation.capturedAt)}</span></div>
         {ownerStatus && <span className="owner-card-status">{ownerStatus}</span>}
         <span className="owner-playback-badge">近 90 天播放 · {observation.playbackCount90d ?? 0} 次</span>
         <button className="owner-details-button" type="button" aria-label={detailsOpen ? "收起更多資訊" : "更多資訊"} aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Icon name="more"/></button>
@@ -483,10 +493,7 @@ function ObservationCard({ observation, ownerActions }: {
         {canShareOwnerVideo && <button className="owner-play-button" type="button" aria-label="播放影片" onClick={() => setOwnerPlaybackOpen(true)}><span aria-hidden="true">▶</span></button>}
       </div>
       {detailsOpen && <div className="owner-card-details">
-        {pending && <div className="metadata-editor">
-          <strong>補拍攝時間</strong>
-          {observation.spot ? <><small>浪點：{observation.spot.name}（上傳後不可補選或變更）</small><input type="datetime-local" value={capturedAt} min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} onChange={(event) => setCapturedAt(event.target.value)} /><button className="small-primary" type="button" disabled={!capturedAt} onClick={() => void completePendingMetadata()}>完成補資料</button></> : <small>這支既有影片沒有浪點，無法再補資料；到期後會自動刪除。</small>}
-        </div>}
+        {pending && <p className="field-hint">這支既有影片資料不完整，不會公開；到期後會自動清除。請選好浪點與拍攝時間後重新上傳。</p>}
         <div className="owner-controls">
           <label className="switch-row"><span><strong>這段影片顯示公開名稱</strong></span><input type="checkbox" checked={Boolean(observation.showUploader)} onChange={(event) => void patch({ showUploader: event.target.checked })}/></label>
           <div className="fun-field"><span>那天玩得如何？（公開、選填）</span><div><button type="button" className={observation.funReaction === "fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "fun" ? null : "fun" })}>👍 開心</button><button type="button" className={observation.funReaction === "not_fun" ? "selected" : ""} onClick={() => void patch({ funReaction: observation.funReaction === "not_fun" ? null : "not_fun" })}>👎 不開心</button></div></div>
@@ -505,7 +512,7 @@ function ObservationCard({ observation, ownerActions }: {
         </div>}
         {error && <p className="inline-error">{error}</p>}
       </div>}
-      {ownerPlaybackOpen && <PlaybackModal observation={observation} onClose={() => setOwnerPlaybackOpen(false)}/>}
+      {ownerPlaybackOpen && <PlaybackModal observation={observation} onClose={() => setOwnerPlaybackOpen(false)} allowReport={false}/>}
     </article>;
   }
 
@@ -583,7 +590,7 @@ function ProblemReport({ view }: { view: View }) {
   }
 
   return <>
-    <button className="problem-report-trigger" type="button" onClick={() => setOpen(true)}>問題回報</button>
+    <button className="help-button problem-report-button" type="button" aria-label="問題回報" title="問題回報" onClick={() => setOpen(true)}><Icon name="warning"/></button>
     {open && <div className="problem-report-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
       <section className="problem-report-dialog" role="dialog" aria-modal="true" aria-labelledby="problem-report-title">
         {status === "sent" ? <div className="problem-report-success" aria-live="polite">
@@ -756,7 +763,7 @@ function CandidateThumbnail({ observation }: { observation: Observation }) {
   );
 }
 
-function PlaybackModal({ observation, onClose, searchTraceId }: { observation: Observation; onClose: () => void; searchTraceId?: string }) {
+function PlaybackModal({ observation, onClose, searchTraceId, allowReport = true }: { observation: Observation; onClose: () => void; searchTraceId?: string; allowReport?: boolean }) {
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
@@ -876,7 +883,7 @@ function PlaybackModal({ observation, onClose, searchTraceId }: { observation: O
       </div>
       <div className="playback-modal-footer">
         {observation.uploaderDisplayId && <span>{`id: ${observation.uploaderDisplayId}`}</span>}
-        <div><button type="button" onClick={() => void share()}>分享</button>{reportStatus === "sent" ? <strong>已收到檢舉</strong> : <button type="button" disabled={reportStatus === "sending"} onClick={() => setReportOpen((open) => !open)}>{reportStatus === "sending" ? "送出中…" : "檢舉影片"}</button>}</div>
+        <div><button type="button" onClick={() => void share()}>分享</button>{allowReport && (reportStatus === "sent" ? <strong>已收到檢舉</strong> : <button type="button" disabled={reportStatus === "sending"} onClick={() => setReportOpen((open) => !open)}>{reportStatus === "sending" ? "送出中…" : "檢舉影片"}</button>)}</div>
       </div>
       {reportOpen && <div className="playback-report-reasons" aria-label="檢舉原因">{REPORT_REASONS.map(([reason, label]) => <button type="button" key={reason} onClick={() => void report(reason)}>{label}</button>)}</div>}
       {shareNotice && <p className="playback-share-notice" aria-live="polite">{shareNotice}</p>}
@@ -905,7 +912,6 @@ function CombinedMatchList({ matches, targetTime, searchTraceId }: { matches: Co
               onClick={() => setActiveObservation(match.observation)}
             >
               <CandidateThumbnail observation={match.observation}/>
-              <span className="candidate-thumbnail-date">{formatTime(match.observation.capturedAt)}</span>
               <span className="candidate-thumbnail-score">相似度 {Math.round(match.score * 100)}%</span>
               <span className="candidate-play-icon" aria-hidden="true">▶</span>
             </button>
@@ -947,14 +953,55 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace, admin
   const [currentLoginStatus, setCurrentLoginStatus] = useState(loginStatus);
   const checkLoginRef = useRef<() => void>(() => {});
   const [view, setView] = useState<View>(loginStatus ? "mine" : "find");
+  const uploadNavigation = useRef<"empty" | "draft" | "uploading">("empty");
+  const [pendingView, setPendingView] = useState<View | null>(null);
+  function changeView(next: View) {
+    if (next === view || uploadNavigation.current === "uploading") return;
+    if (view === "upload" && uploadNavigation.current === "draft") { setPendingView(next); return; }
+    setView(next);
+  }
   const [spots, setSpots] = useState<Spot[]>([]);
   const [me, setMe] = useState<Me | null>(null);
+  const [loginHelpRequest, setLoginHelpRequest] = useState(0);
+  const loginHelpShown = useRef(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [authSetupError, setAuthSetupError] = useState<string | null>(null);
   const [observations, setObservations] = useState<Observation[]>([]);
   const [loading, setLoading] = useState(true);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [ownerError, setOwnerError] = useState<string | null>(null);
+  const previousView = useRef(view);
+  useEffect(() => {
+    const returningToFind = previousView.current !== "find" && view === "find";
+    previousView.current = view;
+    if (!returningToFind || adminMode) return;
+    const controller = new AbortController();
+    void api<{ spots: Spot[] }>("/spots", { signal: controller.signal })
+      .then(result => { if (!controller.signal.aborted) setSpots(result.spots); })
+      .catch(() => { /* Keep the last known count when the optional refresh fails. */ });
+    return () => controller.abort();
+  }, [view, adminMode]);
+  const processingIds = observations.filter(item => item.status === "pending" || item.status === "processing").map(item => item.id).sort().join(",");
+
+  useEffect(() => {
+    if (adminMode || view !== "mine" || !me?.id || !processingIds) return;
+    const controller = new AbortController();
+    let attempts = 0;
+    let timer: number;
+    const refresh = async () => {
+      if (document.visibilityState === "hidden") { timer = window.setTimeout(() => void refresh(), 20_000); return; }
+      attempts += 1;
+      try {
+        const own = await api<{ observations: Observation[] }>("/videos", { signal: controller.signal });
+        if (!controller.signal.aborted) { setObservations(own.observations); setOwnerError(null); }
+      } catch {
+        if (!controller.signal.aborted) setOwnerError("暫時無法更新影片狀態，請稍後重新整理。");
+      }
+      if (!controller.signal.aborted && attempts < 6) timer = window.setTimeout(() => void refresh(), 20_000);
+    };
+    timer = window.setTimeout(() => void refresh(), 20_000);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [adminMode, view, me?.id, processingIds]);
 
   useEffect(() => {
     let active = true;
@@ -1007,7 +1054,13 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace, admin
           } catch { /* Navigation preference never grants access. */ }
           setRecovery(undefined);
           setCurrentLoginStatus(undefined);
-          if (completed === "ready") setView("mine");
+          if (completed === "ready") {
+            setView("mine");
+            if (!adminMode && !loginHelpShown.current) {
+              loginHelpShown.current = true;
+              setLoginHelpRequest(request => request + 1);
+            }
+          }
           // Remove stale failure/correlation values without navigating or exposing credentials.
           const url = new URL(window.location.href);
           url.searchParams.delete("login"); url.searchParams.delete("auth_trace");
@@ -1075,11 +1128,16 @@ export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace, admin
   if (fatalError) return <main className="app-shell center-screen"><Brand/><p>{fatalError}</p>{authTrace && <p className="auth-diagnostic-id">診斷編號：{authTrace}</p>}</main>;
   return (
     <main className="app-shell">
-      <Topbar initialHelpOpen={initialHelpOpen}/>
+      <Topbar initialHelpOpen={initialHelpOpen} view={view} me={me} onAccount={() => changeView("mine")} loginHelpRequest={loginHelpRequest}/>
       <FindView spots={spots} active={view === "find"}/>
-      {view === "upload" && (me ? <UploadView spots={spots} me={me} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={currentLoginStatus} authTrace={currentTrace} recovery={recovery} onCheck={() => checkLoginRef.current()}/></div>)}
+      {view === "upload" && (me ? <UploadView spots={spots} me={me} navigationRef={uploadNavigation} onComplete={(observation) => { setObservations((current) => [observation, ...current]); setView("mine"); }}/> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={currentLoginStatus} authTrace={currentTrace} recovery={recovery} onCheck={() => checkLoginRef.current()}/></div>)}
       {view === "mine" && (me ? <><MineView me={me} spots={spots} observations={observations} onPatch={patchObservation} onMeChange={setMe}/>{ownerError && <p role="status">{ownerError}</p>}</> : authChecked && <div className="screen"><LoginRequired setupError={authSetupError} loginStatus={currentLoginStatus} authTrace={currentTrace} recovery={recovery} onCheck={() => checkLoginRef.current()}/></div>)}
-      <BottomNav view={view} onChange={setView}/>
+      <BottomNav view={view} onChange={changeView}/>
+      {pendingView && <UploadDialog title="影片尚未上傳" onClose={() => setPendingView(null)}>
+        <p>離開後需要重新選擇影片。要繼續編輯，還是放棄並離開？</p>
+        <div className="upload-dialog-actions"><button type="button" className="small-primary" onClick={() => setPendingView(null)}>繼續編輯</button>
+          <button type="button" onClick={() => { uploadNavigation.current = "empty"; setView(pendingView); setPendingView(null); }}>放棄並離開</button></div>
+      </UploadDialog>}
     </main>
   );
 }
@@ -1090,7 +1148,7 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
   onSelect: (spotId: string) => void;
 }) {
   const choices = useMemo(
-    () => spots.map((spot) => ({ id: spot.id, name: spot.name, selectable: true })),
+    () => spots.map((spot) => ({ id: spot.id, name: spot.name, region: spot.region, count: spot.publicVideoCount, selectable: true })),
     [spots],
   );
   const defaultIds = useMemo(() => choices.map((choice) => choice.id), [choices]);
@@ -1283,6 +1341,7 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
     ><button
         type="button"
         draggable={false}
+        data-region={spotRegion(choice.region)}
         className={`${choice.id === selectedSpotId ? "selected" : ""} ${draggingId === choice.id ? "dragging" : ""}`}
         aria-pressed={choice.selectable ? choice.id === selectedSpotId : undefined}
         aria-disabled={!choice.selectable}
@@ -1298,7 +1357,7 @@ function FindSpotStrip({ spots, selectedSpotId, onSelect }: {
           }
           if (choice.selectable) onSelect(choice.id);
         }}
-      >{choice.name}</button></span>)}
+      ><span>{choice.name}</span><small aria-hidden="true">{choice.count ?? "—"} 段影片</small></button></span>)}
   </div>;
 }
 
@@ -1390,12 +1449,12 @@ function FindView({ spots, active }: { spots: Spot[]; active: boolean }) {
       <FindSpotStrip spots={spots} selectedSpotId={selectedSpotId} onSelect={setSpotId}/>
       <label className="range-field day-range-field"><div className="day-discrete-slider"><div className="day-segment-track" aria-hidden="true">{dayCells.map((cell, offset) => <span key={offset} className={`${offset <= COMPOSITE_FORECAST_DAY_OFFSET_MAX ? "multi-source" : "mfwam-only"} ${offset === effectiveDayOffset ? "selected" : ""} ${offset < minimumDayOffset ? "unavailable" : ""}`}><strong>{cell.date}</strong><small>{cell.weekday}</small></span>)}</div><input aria-label="預報日期，離散五日" aria-valuetext={`${dayCells[effectiveDayOffset]?.date} ${dayCells[effectiveDayOffset]?.weekday}`} type="range" min="0" max={FORECAST_DAY_OFFSET_MAX} step="1" value={effectiveDayOffset} onChange={(event) => { const nextDay = Math.max(Number(event.target.value), minimumDayOffset); setDayOffset(nextDay); setHour((current) => Math.max(current, firstSelectableForecastHour(nextDay, now) ?? FORECAST_HOUR_MIN)); }}/></div><div className="forecast-window-legend"><span className="multi-source"><i/>第 1–3 天：CWA＋MFWAM</span><span className="mfwam-only"><i/>第 4–5 天：MFWAM-only</span></div></label>
       <label className="range-field"><span>時間 <output>{String(effectiveHour).padStart(2, "0")}:00</output></span><input type="range" min={minimumHour} max={FORECAST_HOUR_MAX} step="1" value={effectiveHour} onChange={(event) => setHour(Number(event.target.value))}/></label>
-      <button className="find-search-button" type="button" disabled={!requestPath || queryState.loading} onClick={search}><Icon name="search"/>{queryState.loading ? "搜尋中…" : "搜尋"}</button>
       <ForecastFreshness query={requestPath} active={active}/>
+      <button className="find-search-button" type="button" disabled={!requestPath || queryState.loading} onClick={search}><Icon name="search"/>{queryState.loading ? "搜尋中…" : "找影片"}</button>
     </div>
     {loading && <div className="progress-message"><span className="spinner"/>比對中</div>}
     {error && <div className="error-message">{error}</div>}
-    {!hasSearched && <p className="find-search-hint" role="status">{queryState.queryKey ? "條件已變更，請按搜尋。" : "選好浪點、日期與時間後，按搜尋查看影片。"}</p>}
+    {!hasSearched && queryState.queryKey && <p className="find-search-hint" role="status">條件已變更，請按找影片。</p>}
     {active && hasSearched && <section className="result-section"><div className="section-heading"><h2>相似歷史實拍</h2><small>{loading ? "查詢中" : matches.length ? `${matches.length} 段` : "累積中"}</small></div>
       {matches.length
         ? <CombinedMatchList searchTraceId={results.searchTraceId} matches={matches} targetTime={targetTime}/>
@@ -1410,13 +1469,18 @@ function FindView({ spots, active }: { spots: Spot[]; active: boolean }) {
   </div>;
 }
 
-function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComplete: (observation: Observation) => void }) {
-  const initialSpot = typeof window !== "undefined" ? localStorage.getItem("lastSpotId") || "" : "";
-  const [spotId, setSpotId] = useState(initialSpot || spots[0]?.id || "");
+function UploadView({ spots, me, onComplete, navigationRef }: { spots: Spot[]; me: Me; onComplete: (observation: Observation) => void; navigationRef: RefObject<"empty" | "draft" | "uploading"> }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const [spotId, setSpotId] = useState("");
   const [capturedAt, setCapturedAt] = useState("");
-  const [captureTimeHint, setCaptureTimeHint] = useState("選擇影片後會顯示時間提示來源，送出前請確認");
-  const [spotHint, setSpotHint] = useState(initialSpot ? "上次使用的浪點，請確認" : "預設浪點，請確認");
+  const [captureTimeHint, setCaptureTimeHint] = useState("");
+  const [spotHint, setSpotHint] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [inspecting, setInspecting] = useState(false);
   const [duration, setDuration] = useState<number | null>(null);
   const [showUploader, setShowUploader] = useState(() => Boolean(me.displayId));
   const [uploadGuideOpen, setUploadGuideOpen] = useState(false);
@@ -1431,20 +1495,24 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
   const uploadAbort = useRef<AbortController | null>(null);
   const selectionId = useRef(0);
   const [progress, setProgress] = useState<string | null>(null);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => () => { uploadAbort.current?.abort(); previewAbort.current?.abort(); selectionId.current += 1; }, []);
+  useEffect(() => () => { uploadAbort.current?.abort(); previewAbort.current?.abort(); selectionId.current += 1; navigationRef.current = "empty"; }, [navigationRef]);
+  useEffect(() => {
+    if ((!file && !inspecting) || progress) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [file, inspecting, progress]);
 
   async function inspectVideo(selected: File) {
-    const selectedId = ++selectionId.current;
-    setFile(null); setDuration(null); setDuplicateVideoId(null);
+    const selectedId = selectionId.current;
     previewAbort.current?.abort(); setDuplicatePreview(null); setPreviewLoading(false);
     setHashNotice(null); fileHash.current = null;
     if (selected.size > MAX_UPLOAD_BYTES) throw new Error("影片不可超過 200 MB");
     if (!selected.type.startsWith("video/")) throw new Error("請選擇影片檔案");
     setError(null);
-    setFile(null);
-    setDuration(null);
     const metadataPromise = inspectQuickTimeMetadata(selected).catch(() => ({
       recordedAt: null,
       containerCreatedAt: null,
@@ -1452,12 +1520,15 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
       bytesRead: 0,
     }));
     const url = URL.createObjectURL(selected);
+    const metadataVideo = document.createElement("video");
+    let timeout: number | undefined;
     try {
       const durationPromise = new Promise<number>((resolve, reject) => {
-        const video = document.createElement("video");
+        const video = metadataVideo;
         video.preload = "metadata";
         video.onloadedmetadata = () => resolve(video.duration);
         video.onerror = () => reject(new Error("無法讀取影片長度"));
+        timeout = window.setTimeout(() => reject(new Error("讀取影片逾時，請重新選擇")), 20_000);
         video.src = url;
       });
       const [seconds, metadata] = await Promise.all([durationPromise, metadataPromise]);
@@ -1468,17 +1539,30 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
       setCaptureTimeHint(prefill.captureTimeLabel);
       setSpotId(prefill.spotId);
       setSpotHint(prefill.spotLabel);
+      setDuplicateVideoId(null);
       setFile(selected);
       setDuration(seconds);
-    } finally { URL.revokeObjectURL(url); }
+    } finally {
+      window.clearTimeout(timeout);
+      metadataVideo.onloadedmetadata = metadataVideo.onerror = null;
+      metadataVideo.removeAttribute("src"); metadataVideo.load();
+      URL.revokeObjectURL(url);
+    }
   }
 
   function chooseVideo(selected: File | undefined) {
     if (!selected || uploadBusy.current) return;
+    const selectedId = ++selectionId.current;
+    navigationRef.current = "draft"; setInspecting(true);
+    let accepted = false;
     const traceId = crypto.randomUUID(); const startedAt = Date.now();
-    void inspectVideo(selected).catch((caught) => {
+    void inspectVideo(selected).then(() => { accepted = true; }).catch((caught) => {
+      if (selectedId !== selectionId.current) return;
       clientDiagnostic("upload_failed", traceId, { stage: "selection", outcome: "failed", durationMs: Math.min(3_600_000, Date.now() - startedAt) });
       setError((caught instanceof Error ? caught.message : "無法讀取影片") + "（診斷編號：" + traceId + "）");
+    }).finally(() => {
+      if (selectedId !== selectionId.current) return;
+      setInspecting(false); navigationRef.current = accepted || file ? "draft" : "empty";
     });
   }
 
@@ -1499,18 +1583,19 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (uploadBusy.current) return;
+    if (uploadBusy.current || inspecting) return;
     if (!file || duration == null) return setError("請先選擇影片");
     if (!spotId) return setError("請先選擇浪點");
-    if (capturedAt) {
-      const parsed = new Date(capturedAt);
+    if (!capturedAt) return setError("請先填寫拍攝時間");
+    {
+      const parsed = new Date(`${capturedAt}+08:00`);
       const now = new Date();
       if (!isWithinUploadWindow(parsed, now)) return setError("拍攝時間不可晚於現在、必須在 168 小時內，且台北時間須介於 05:00–19:59");
     }
-    uploadBusy.current = true;
+    uploadBusy.current = true; navigationRef.current = "uploading";
     previewAbort.current?.abort(); setDuplicatePreview(null);
     const controller = new AbortController(); uploadAbort.current = controller;
-    setError(null); setProgress("檢查是否重複上傳…");
+    setError(null); setUploadPercent(null); setProgress("檢查是否重複上傳…");
     const traceId = crypto.randomUUID(); const startedAt = Date.now();
     let stage: "ticket" | "transfer" | "completion" = "ticket";
     let diagnosticVideoId: string | undefined;
@@ -1521,27 +1606,22 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
       fileHash.current = { file, value: hash };
       if (!hash) setHashNotice("本次未能檢查重複檔案，仍可正常上傳。");
       setProgress("建立上傳連結…");
-      const ticket = await api<UploadTicket>("/videos/upload-request", { method: "POST", signal: controller.signal, body: JSON.stringify({ spotId, capturedAt: capturedAt ? new Date(capturedAt).toISOString() : null, durationSeconds: duration, sizeBytes: file.size, fileName: file.name, contentType: file.type, showUploader, ...(hash ? { fileSha256: hash } : {}) }) });
+      const ticket = await api<UploadTicket>("/videos/upload-request", { method: "POST", signal: controller.signal, body: JSON.stringify({ spotId, capturedAt: new Date(`${capturedAt}+08:00`).toISOString(), durationSeconds: duration, sizeBytes: file.size, fileName: file.name, contentType: file.type, showUploader, ...(hash ? { fileSha256: hash } : {}) }) });
       diagnosticVideoId = ticket.videoId;
       stage = "transfer";
       try { localStorage.setItem("lastSpotId", spotId); } catch { /* A blocked preference must not stop an upload. */ }
       if (ticket.uploadMethod === "POST" && ticket.uploadUrl) {
-        setProgress("影片上傳中…");
-        const form = new FormData(); form.append("file", file);
-        const upload = await fetch(ticket.uploadUrl, { method: "POST", body: form, signal: controller.signal });
-        if (!upload.ok) throw new Error("影片上傳失敗，請再試一次");
+        setProgress("正在傳送影片…"); setUploadPercent(0);
+        await transferVideo(ticket.uploadUrl, file, controller.signal, setUploadPercent);
       }
       clientDiagnostic("upload_step", traceId, { stage, outcome: "success", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: diagnosticVideoId });
       stage = "completion";
-      setProgress("確認影片狀態…");
-      let complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", signal: controller.signal, body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
-      for (let attempt = 0; attempt < 4 && (complete.observation.status === "pending" || complete.observation.status === "processing"); attempt += 1) {
-        setProgress("影片轉檔中…");
-        await new Promise((resolve) => window.setTimeout(resolve, 1_500));
-        complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", signal: controller.signal, body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
-      }
+      setProgress("影片已傳送，正在確認接收狀態…"); setUploadPercent(100);
+      const complete = await api<{ observation: Observation }>(`/videos/${ticket.videoId}/complete`, { method: "POST", signal: controller.signal, body: JSON.stringify({ providerVideoId: ticket.providerVideoId }) });
+      if (controller.signal.aborted) return;
       clientDiagnostic(complete.observation.status === "error" ? "upload_failed" : "upload_step", traceId, { stage,
         outcome: complete.observation.status === "error" ? "failed" : "success", durationMs: Math.min(3_600_000, Date.now() - startedAt), videoId: diagnosticVideoId });
+      navigationRef.current = "empty";
       onComplete(complete.observation);
     } catch (caught) {
       if (controller.signal.aborted) return;
@@ -1558,54 +1638,44 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
       setError((caught instanceof Error ? caught.message : "上傳失敗") + "（診斷編號：" + traceId + "）"); setProgress(null);
     } finally {
       uploadBusy.current = false;
+      if (navigationRef.current === "uploading") navigationRef.current = "draft";
+      setProgress(null);
       if (uploadAbort.current === controller) uploadAbort.current = null;
     }
   }
 
   return <div className="screen upload-screen">
     <form onSubmit={submit} className="upload-form">
+      <div className="public-notice"><p>{PUBLIC_MEDIA_NOTICE}{" "}<button className="rights-help-inline" type="button" aria-label="查看人物入鏡與權利說明" aria-haspopup="dialog" onClick={() => setRightsHelpOpen(true)}>更多</button></p></div>
+      <label className="switch-row upload-name"><span><strong>顯示公開名稱</strong><small>{me.displayId || "先到右上角我的浪影確認公開名稱"}</small></span><input type="checkbox" disabled={!me.displayId} checked={showUploader} onChange={(event) => setShowUploader(event.target.checked)}/></label>
       <section className="upload-source-card" aria-labelledby="upload-source-title">
-        <div className="upload-source-heading">
-          <h1 id="upload-source-title">上傳影片</h1>
-          <div className="upload-duration-help">
-            <p>7天內,10-60秒的浪況或衝浪影片</p>
-            <button
-              className="upload-confidence-help"
-              type="button"
-              aria-label="了解上傳影片如何成為浪況參考"
-              aria-expanded={uploadGuideOpen}
-              aria-controls="upload-confidence-guide"
-              onClick={() => setUploadGuideOpen((open) => !open)}
-            ><Icon name="help"/></button>
-          </div>
-        </div>
-        {uploadGuideOpen && <p className="upload-confidence-guide" id="upload-confidence-guide">
-          系統會以影片的拍攝時間與浪點，比對 CWA 與 MFWAM 浪況。若一般預報流程稍後提供該時段的近期歷史預報，會優先使用它；其他模型只保存與顯示，不影響相似度。之後有人搜尋到相似預報時，這段實拍就可能成為他的浪況參考。
-        </p>}
+        <div className="upload-source-heading"><h1 id="upload-source-title">上傳浪影</h1><button className="upload-confidence-help" type="button" aria-label="了解上傳影片如何成為浪況參考" aria-haspopup="dialog" onClick={() => setUploadGuideOpen(true)}>說明</button></div>
+        <div className="upload-duration-help"><p>7天內,10-60秒的浪況或衝浪影片</p></div>
         <div className="upload-source-picker" role="group" aria-label="影片來源">
-          <label title="選擇影片"><input aria-label="選擇影片" type="file" accept="video/*" disabled={Boolean(progress)} onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="upload"/></label>
-          <label title="錄影"><input aria-label="錄影" type="file" accept="video/*" capture="environment" disabled={Boolean(progress)} onChange={(event) => chooseVideo(event.target.files?.[0])}/><Icon name="camera"/></label>
+          <label title="選擇影片"><input aria-label="選擇影片" type="file" accept="video/*" disabled={Boolean(progress)} onChange={(event) => { chooseVideo(event.target.files?.[0]); event.target.value = ""; }}/><Icon name="folder"/></label>
+          <label title="錄影"><input aria-label="錄影" type="file" accept="video/*" capture="environment" disabled={Boolean(progress)} onChange={(event) => { chooseVideo(event.target.files?.[0]); event.target.value = ""; }}/><Icon name="camera"/></label>
         </div>
-        {file && duration != null
-          ? <div className="selected-video-summary"><strong>{file.name}</strong><small>{duration.toFixed(1)} 秒 · {(file.size / 1_000_000).toFixed(1)} MB</small></div>
-          : null}
+        {inspecting && <p role="status" className="upload-source-help">讀取影片…</p>}
+        {file && duration != null && <><LocalVideoPreview file={file}/><div className="selected-video-summary"><strong>{file.name}</strong><small>{duration.toFixed(1)} 秒 · {(file.size / 1_000_000).toFixed(1)} MB</small></div></>}
       </section>
-      <div className="two-fields"><label><span>浪點</span><select required value={spotId} onChange={(event) => { setSpotId(event.target.value); setSpotHint("已手動選擇；上傳後不可變更"); }}>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select><small className="field-hint">{spotHint}</small></label><label><span>拍攝時間</span><input type="datetime-local" min={toLocalDateTime(new Date(new Date().getTime() - 7 * 86_400_000))} max={toLocalDateTime(new Date())} value={capturedAt} onChange={(event) => { setCapturedAt(event.target.value); setCaptureTimeHint("已手動調整，送出前請確認"); }}/><small className="field-hint">{captureTimeHint}</small></label></div>
-      <p className="pending-help">浪點上傳後不可補選或變更；拍攝時間可在 7 天內補齊，補齊前影片不公開。</p>
-      <label className="switch-row"><span><strong>顯示公開名稱</strong><small>{me.displayId || "先到「我的」確認公開名稱"}</small></span><input type="checkbox" disabled={!me.displayId} checked={showUploader} onChange={(event) => setShowUploader(event.target.checked)}/></label>
-      <div className="public-notice">
-        <div className="public-notice-heading">
-          <strong>公開提醒</strong>
-        </div>
-        <p>{PUBLIC_MEDIA_NOTICE}{" "}<button
-            className="rights-help-inline"
-            type="button"
-            aria-label="查看人物入鏡與權利說明"
-            aria-expanded={rightsHelpOpen}
-            aria-controls="upload-people-rights-help"
-            onClick={() => setRightsHelpOpen((open) => !open)}
-          >{rightsHelpOpen ? "收合" : "更多"}</button></p>
-        {rightsHelpOpen && <section className="rights-help-panel" id="upload-people-rights-help" aria-labelledby="upload-people-rights-title">
+      <div className="two-fields upload-fields">
+        <div><select aria-label="浪點" required value={spotId} onChange={(event) => { setSpotId(event.target.value); setSpotHint("已手動選擇"); }}><option value="">浪點</option>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select>{spotHint && <small className="field-hint">{spotHint}</small>}</div>
+        <div><CaptureTimeInput value={capturedAt} min={toLocalDateTime(new Date(now.getTime() - 7 * 86_400_000))} max={toLocalDateTime(now)} onChange={value => { setCapturedAt(value); setCaptureTimeHint("已手動調整，送出前請確認"); }}/>{captureTimeHint && <small className="field-hint">{captureTimeHint}</small>}</div>
+      </div>
+      {error && <div className="error-message">{error}</div>}
+      {hashNotice && <p className="field-hint" role="status">{hashNotice}</p>}
+      {duplicateVideoId && <section className="duplicate-upload-notice" aria-label="重複影片提醒" role="status">
+        <p>最近 24 小時已有相同檔案的公開影片，可以先查看，避免重複上傳。</p>
+        <button type="button" className="secondary" disabled={previewLoading || Boolean(progress)} onClick={() => void previewDuplicate()}>{previewLoading ? "載入影片…" : "查看已有影片"}</button>
+        <p>請從上方重新選擇其他影片。若判斷有誤，請回報問題並附上影片編號：{duplicateVideoId}</p>
+      </section>}
+      {!duplicateVideoId && <button className="submit-button upload-submit" aria-label="確認上傳" aria-describedby="upload-final-reminder" disabled={inspecting || !file || !spotId || !capturedAt || !isWithinUploadWindow(new Date(`${capturedAt}+08:00`), now) || Boolean(progress)}><span>{progress ? "處理中" : "確認上傳"}</span><small id="upload-final-reminder">浪點與拍攝時間上傳後不可變更</small></button>}
+    </form>
+    {uploadGuideOpen && <UploadDialog title="上傳浪影說明" onClose={() => setUploadGuideOpen(false)}>
+      <p>系統會以影片的拍攝時間與浪點，比對 CWA 與 MFWAM 浪況。若一般預報流程稍後提供該時段的近期歷史預報，會優先使用它；其他模型只保存與顯示，不影響相似度。之後有人搜尋到相似預報時，這段實拍就可能成為他的浪況參考。</p>
+      <p>影片最多 200 MB。選好影片可先在裝置上預覽，按「確認上傳」才開始傳送。</p>
+    </UploadDialog>}
+        {rightsHelpOpen && <UploadDialog title="人物入鏡與公開授權" onClose={() => setRightsHelpOpen(false)}><section className="rights-help-panel" id="upload-people-rights-help" aria-labelledby="upload-people-rights-title">
           <h2 id="upload-people-rights-title">人物入鏡怎麼判斷？</h2>
           <ul>
             <li>海灘或海面的廣角浪況畫面中，人物只是附帶入鏡時，本服務不要求逐一取得每個人的同意。</li>
@@ -1625,19 +1695,9 @@ function UploadView({ spots, me, onComplete }: { spots: Spot[]; me: Me; onComple
             </ul>
           </div>
           <p className="rights-help-disclaimer">這是上傳判斷提示與官方資料整理，不是對個案的法律保證或法律意見。</p>
-        </section>}
-      </div>
-      {error && <div className="error-message">{error}</div>}{progress && <div className="progress-message"><span className="spinner"/>{progress}</div>}
-      {hashNotice && <p className="field-hint" role="status">{hashNotice}</p>}
-      {duplicateVideoId && <section className="duplicate-upload-notice" aria-label="重複影片提醒" role="status">
-        <p>最近 24 小時已有相同檔案的公開影片，可以先查看，避免重複上傳。</p>
-        <button type="button" className="secondary" disabled={previewLoading || Boolean(progress)} onClick={() => void previewDuplicate()}>{previewLoading ? "載入影片…" : "查看已有影片"}</button>
-        <p>請從上方重新選擇其他影片。若判斷有誤，請回報問題並附上影片編號：{duplicateVideoId}</p>
-      </section>}
-      {!duplicateVideoId && <button className="submit-button" disabled={!file || !spotId || Boolean(progress)}>{progress ? "處理中" : "上傳影片"}</button>}
-    </form>
+        </section></UploadDialog>}
     {duplicatePreview && <PlaybackModal observation={duplicatePreview} onClose={() => setDuplicatePreview(null)}/>}
-    <ProblemReport view="upload"/>
+    {progress && <UploadProgress step={progress} percent={uploadPercent}/>}
   </div>;
 }
 
@@ -1647,7 +1707,7 @@ function MineView({ me, spots, observations, onPatch, onMeChange }: { me: Me; sp
   const [displayId, setDisplayId] = useState(me.displayId || me.suggestedDisplayName || "");
   const [profileBusy, setProfileBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const filtered = useMemo(() => observations.filter((item) => filter === "all" || filter === "pending" && item.metadataStatus === "pending" || item.spot?.id === filter), [filter, observations]);
+  const filtered = useMemo(() => observations.filter((item) => filter === "all" || item.spot?.id === filter), [filter, observations]);
   async function saveProfile(nextDisplayId: string | null) {
     setError(null);
     setProfileBusy(true);
@@ -1667,16 +1727,16 @@ function MineView({ me, spots, observations, onPatch, onMeChange }: { me: Me; sp
     }
   }
 
-  return <div className="screen mine-screen"><div className="page-title mine-title"><div><h1>我的</h1><p>{observations.length} 段影片</p></div></div>
+  return <div className="screen mine-screen">
     <section className="profile-panel">
       <button className="public-id-edit" type="button" aria-label="編輯公開名稱" onClick={() => setEditingDisplayId((open) => !open)}><span>公開名稱: {me.displayId || "未設定"}</span><b aria-hidden="true">✎</b></button>
       {editingDisplayId && <div className="display-id-editor"><label htmlFor="display-id-input"><span>公開名稱</span></label><div><input id="display-id-input" value={displayId} minLength={2} maxLength={24} onChange={(event) => setDisplayId(event.target.value)} placeholder="例如 浪人小明"/><button className="small-primary" type="button" disabled={profileBusy} onClick={() => { const nextId = displayId.trim() || null; void saveProfile(nextId).then((saved) => { if (saved) setEditingDisplayId(false); }); }}>儲存</button></div>{!me.displayId && me.suggestedDisplayName && <p>已從 LINE 私下預填；只有儲存後才會成為本站公開名稱。</p>}</div>}
       {me.authMode === "line" && <form action="/api/v1/auth/logout" method="post"><button className="logout-button">登出 LINE</button></form>}
-      <ProblemReport view="mine"/>
       {error && <p className="inline-error">{error}</p>}
     </section>
     {me.isAdmin && <a className="admin-entry" href="/admin">管理後台</a>}
-    <div className="filter-row"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button><button className={filter === "pending" ? "active" : ""} onClick={() => setFilter("pending")}>待補</button>{spots.map((spot) => <button key={spot.id} className={filter === spot.id ? "active" : ""} onClick={() => setFilter(spot.id)}>{spot.name}</button>)}</div>
+    <div className="filter-row"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button>{spots.map((spot) => <button key={spot.id} data-region={spotRegion(spot.region)} aria-pressed={filter === spot.id} className={filter === spot.id ? "active" : ""} onClick={() => setFilter(spot.id)}>{spot.name}</button>)}</div>
+    <p className="filtered-video-count" role="status">{filtered.length} 段影片</p>
     {filtered.length ? <div className="record-list">{filtered.map((item) => <ObservationCard key={item.id} observation={item} ownerActions={{ spots, onPatch }}/>)}</div> : <div className="info-state"><Icon name="wave"/><p>這個篩選還沒有影片。</p></div>}
   </div>;
 }

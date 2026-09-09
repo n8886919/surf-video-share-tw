@@ -40,6 +40,7 @@ export interface AppEnv {
 export interface UserRow {
   id: string;
   line_display_name: string | null;
+  line_picture_url: string | null;
   display_id: string | null;
   show_identity_default: number;
 }
@@ -66,6 +67,7 @@ const schemaStatements = [
     id TEXT PRIMARY KEY NOT NULL,
     line_subject TEXT NOT NULL,
     line_display_name TEXT,
+    line_picture_url TEXT,
     display_id TEXT,
     show_identity_default INTEGER DEFAULT 0 NOT NULL,
     created_at TEXT NOT NULL,
@@ -415,7 +417,7 @@ export async function getOrCreateDevUser(env: AppEnv): Promise<UserRow | null> {
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).bind("user_dev_local", "dev-only-subject", "Wave Friend", "wave-friend", 1, now, now).run();
   return env.DB.prepare(
-    `SELECT id, line_display_name, display_id, show_identity_default FROM users WHERE id = ?`,
+    `SELECT id, line_display_name, line_picture_url, display_id, show_identity_default FROM users WHERE id = ?`,
   ).bind("user_dev_local").first<UserRow>();
 }
 

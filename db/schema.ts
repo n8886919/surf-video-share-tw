@@ -35,6 +35,7 @@ export const users = sqliteTable(
     id: text("id").primaryKey(),
     lineSubject: text("line_subject").notNull(),
     lineDisplayName: text("line_display_name"),
+    linePictureUrl: text("line_picture_url"),
     displayId: text("display_id"),
     showIdentityDefault: integer("show_identity_default", { mode: "boolean" })
       .notNull()

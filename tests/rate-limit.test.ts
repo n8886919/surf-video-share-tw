@@ -34,6 +34,7 @@ describe("cost-bearing route limits", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           spotId: "spot_wushi-harbor-north",
+          capturedAt: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10) + "T04:00:00Z",
           durationSeconds: 20,
           sizeBytes: 1024,
           fileName: "first-user.mp4",
@@ -83,6 +84,7 @@ describe("cost-bearing route limits", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           spotId: "spot_wushi-harbor-north",
+          capturedAt: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10) + "T04:00:00Z",
           durationSeconds: 20,
           sizeBytes: 1024,
           fileName: "first-user.mp4",
@@ -132,6 +134,7 @@ describe("cost-bearing route limits", () => {
         },
         body: JSON.stringify({
           spotId: "spot_wushi-harbor-north",
+          capturedAt: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10) + "T04:00:00Z",
           durationSeconds: 20,
           sizeBytes: 1024,
           fileName: "first-user.mp4",

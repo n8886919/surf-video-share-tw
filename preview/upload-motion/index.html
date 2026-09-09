@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#071b20" />
+    <title>彼日浪影 · 上傳動畫預覽</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="masthead">
+        <a class="brand" href="#" aria-label="彼日浪影動畫預覽"><img id="brand-logo" alt="" width="32" height="32" /><span>彼日浪影</span></a>
+        <span class="preview-label"><i></i>LOCAL MOTION STUDY <span>02</span></span>
+      </header>
+      <section class="theatre" aria-labelledby="title">
+        <div class="intro"><span class="eyebrow">彼日浪影 · 動畫草稿 02</span><h1 id="title">一起出浪。</h1></div>
+        <div class="canvas-wrap"><canvas id="ocean" aria-label="浪從左往右進場並向右轉正，Logo 握手隨鏡頭拉遠露出相連的兩位衝浪者，再分向左右滑出" role="img"></canvas></div>
+        <div class="upload-status"><span class="status-dot"></span><span id="status" role="status">等待湧浪</span><span id="percentage">0<span>%</span></span></div>
+        <div class="upload-track" aria-hidden="true"><div id="upload-fill"></div></div>
+        <p class="simulation-note">模擬上傳 · 此預覽不會上傳任何影片</p>
+      </section>
+      <section class="editor" aria-label="動畫預覽控制">
+        <div class="transport"><div class="playback"><button id="play" aria-label="暫停動畫">Ⅱ</button><button id="replay" aria-label="重播動畫">↺</button><output id="time">00.0 / 17.0s</output></div><div class="speed"><button data-speed="0.5" aria-pressed="false">0.5×</button><button data-speed="1" aria-pressed="true">1×</button><button data-speed="1.5" aria-pressed="false">1.5×</button></div></div>
+        <input id="timeline" aria-label="動畫時間軸" type="range" min="0" max="17" step="0.01" value="0" />
+        <div class="chapters"><button data-time="0">01 <span>背景</span></button><button data-time="2.15">02 <span>向右進浪</span></button><button data-time="5.8">03 <span>相握</span></button><button data-time="7.9">04 <span>向右轉</span></button><button data-time="10.3">05 <span>拉遠</span></button><button data-time="13.8">06 <span>雙開</span></button></div>
+      </section>
+      <footer><span>同一道浪，兩個方向。</span><a href="https://github.com/LottieFiles/motion-design-skill" target="_blank" rel="noopener noreferrer">Motion skill · LottieFiles ↗</a></footer>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

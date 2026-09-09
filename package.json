@@ -1,6 +1,6 @@
 {
   "name": "surf-video-share-tw",
-  "version": "0.30.0",
+  "version": "0.33.0",
   "private": true,
   "packageManager": "pnpm@11.19.0",
   "engines": {
@@ -9,6 +9,7 @@
   "scripts": {
     "install:ci": "pnpm install --frozen-lockfile",
     "dev": "vite",
+    "preview:upload-motion": "node ops/preview-upload-motion.mjs",
     "build": "vinext build",
     "start": "vinext start",
     "typecheck": "tsc --noEmit",

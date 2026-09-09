@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+// Private account image from verified LINE claims; never part of public observations.
+export const lineAvatarUrlSchema = z.string().url().startsWith("https://").max(2048);
+
 // Diagnostic correlation only: never accepted as authentication or authorization.
 export const authTraceSchema = z.string().regex(/^[a-f0-9]{32}$/);
 export const authDisplayModeSchema = z.enum(["browser", "standalone", "unknown"]);
@@ -283,7 +286,7 @@ export const uploadDuplicateResponseSchema = z.object({
 
 export const uploadRequestSchema = z.object({
   spotId: z.string().min(1),
-  capturedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  capturedAt: z.string().datetime({ offset: true }),
   durationSeconds: z.number().min(MIN_VIDEO_DURATION_SECONDS).max(MAX_VIDEO_DURATION_SECONDS),
   sizeBytes: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   fileName: z.string().min(1).max(255),
@@ -298,12 +301,11 @@ export const completeUploadSchema = z.object({
 });
 
 export const updateVideoSchema = z.object({
-  capturedAt: z.string().datetime({ offset: true }).nullable().optional(),
   showUploader: z.boolean().optional(),
   isFavorite: z.boolean().optional(),
   uploaderNote: z.string().trim().max(100).nullable().optional(),
   funReaction: z.enum(["fun", "not_fun"]).nullable().optional(),
-}).refine((value) => Object.keys(value).length > 0, "至少提供一個更新欄位");
+}).strict().refine((value) => Object.keys(value).length > 0, "至少提供一個更新欄位");
 
 export const matchQuerySchema = z.object({
   spotId: z.string().min(1),

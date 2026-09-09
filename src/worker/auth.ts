@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { lineCompletionSchema, type LineCompletion } from "../../packages/api-contract/src";
+import { lineAvatarUrlSchema, lineCompletionSchema, type LineCompletion } from "../../packages/api-contract/src";
 import { MAX_REGISTERED_USERS } from "../../packages/domain/src";
 import type { AppEnv, UserRow } from "./db";
 import { getOrCreateDevUser } from "./db";
@@ -19,6 +19,7 @@ const verifiedIdTokenSchema = z.object({
   iss: z.literal("https://access.line.me"),
   sub: z.string().min(1),
   name: z.string().min(1).optional(),
+  picture: lineAvatarUrlSchema.nullish().catch(null),
   aud: z.string().min(1),
   exp: z.number().int(),
   nonce: z.string().min(1),
@@ -213,34 +214,36 @@ async function getOrCreateLineUser(
   env: AppEnv,
   lineSubject: string,
   lineDisplayName: string | null,
+  linePictureUrl: string | null,
 ): Promise<UserRow> {
   const now = new Date().toISOString();
   await env.DB.prepare(
     `UPDATE users
-     SET line_display_name = COALESCE(?, line_display_name), updated_at = ?
+     SET line_display_name = COALESCE(?, line_display_name), line_picture_url = ?, updated_at = ?
      WHERE line_subject = ?`,
-  ).bind(lineDisplayName, now, lineSubject).run();
+  ).bind(lineDisplayName, linePictureUrl, now, lineSubject).run();
   const existingUser = await env.DB.prepare(
-    `SELECT id, line_display_name, display_id, show_identity_default FROM users WHERE line_subject = ?`,
+    `SELECT id, line_display_name, line_picture_url, display_id, show_identity_default FROM users WHERE line_subject = ?`,
   ).bind(lineSubject).first<UserRow>();
   if (existingUser) return existingUser;
 
   await env.DB.prepare(
     `INSERT INTO users
-     (id, line_subject, line_display_name, display_id, show_identity_default, created_at, updated_at)
-     SELECT ?, ?, ?, NULL, 0, ?, ?
+     (id, line_subject, line_display_name, line_picture_url, display_id, show_identity_default, created_at, updated_at)
+     SELECT ?, ?, ?, ?, NULL, 0, ?, ?
      WHERE (SELECT COUNT(*) FROM users) < ?
      ON CONFLICT(line_subject) DO NOTHING`,
   ).bind(
     crypto.randomUUID(),
     lineSubject,
     lineDisplayName,
+    linePictureUrl,
     now,
     now,
     MAX_REGISTERED_USERS,
   ).run();
   const user = await env.DB.prepare(
-    `SELECT id, line_display_name, display_id, show_identity_default FROM users WHERE line_subject = ?`,
+    `SELECT id, line_display_name, line_picture_url, display_id, show_identity_default FROM users WHERE line_subject = ?`,
   ).bind(lineSubject).first<UserRow>();
   if (!user) throw new RegistrationCapacityError();
   return user;
@@ -360,7 +363,7 @@ async function finishLineLoginCore(request: Request, env: AppEnv, diagnostic?: A
     let user: UserRow;
     diagnostic?.step("user", "started");
     try {
-      user = await getOrCreateLineUser(env, verified.data.sub, verified.data.name?.trim() || null);
+      user = await getOrCreateLineUser(env, verified.data.sub, verified.data.name?.trim() || null, verified.data.picture ?? null);
     } catch (error) {
       if (error instanceof RegistrationCapacityError) {
         diagnostic?.step("user", "capacity");
@@ -464,7 +467,7 @@ export async function getAuthenticatedUser(request: Request, env: AppEnv): Promi
   const sessionHash = await hmacHex(config.sessionSecret, sessionToken);
   const now = new Date().toISOString();
   const user = await env.DB.prepare(
-    `SELECT u.id, u.line_display_name, u.display_id, u.show_identity_default
+    `SELECT u.id, u.line_display_name, u.line_picture_url, u.display_id, u.show_identity_default
      FROM auth_sessions a
      JOIN users u ON u.id = a.user_id
      WHERE a.id_hash = ? AND a.expires_at > ?`,

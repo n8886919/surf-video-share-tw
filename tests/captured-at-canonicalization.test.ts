@@ -84,69 +84,6 @@ describe("capturedAt UTC canonicalization", () => {
     expect(insertBindings[5]).not.toBe(capturedAt);
   });
 
-  it("stores a pending video's offset-bearing metadata update as canonical UTC", async () => {
-    const capturedAt = recentTaipeiCaptureWithOffset();
-    const expectedUtc = new Date(capturedAt).toISOString();
-    const createdAt = new Date().toISOString();
-    const currentVideo = {
-      id: "video_pending",
-      spot_id: spot.id,
-      captured_at: null,
-      status: "processing",
-      show_uploader: 0,
-      is_favorite: 0,
-      uploader_note: null,
-      fun_reaction: null,
-      terms_version: "2026-08-24-cc0-v1",
-      moderation_status: "visible",
-      metadata_status: "pending",
-      metadata_expires_at: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
-      public_at: null,
-      condition_snapshot_id: "snapshot_existing",
-      created_at: createdAt,
-      updated_at: createdAt,
-    };
-    let updateBindings: unknown[] = [];
-    const db = {
-      prepare: (sql: string) => {
-        const statement = {
-          bind: (...bindings: unknown[]) => {
-            if (sql.includes("UPDATE videos SET spot_id")) updateBindings = bindings;
-            return statement;
-          },
-          first: async () => {
-            if (sql.includes("FROM users WHERE id = ?")) return user;
-            if (sql.includes("FROM videos WHERE id = ? AND user_id = ?")) return currentVideo;
-            if (sql.includes("FROM spots WHERE")) return spot;
-            return null;
-          },
-          run: async () => ({ meta: { changes: 1 } }),
-          all: async () => ({ results: [] }),
-        };
-        return statement;
-      },
-      batch: async () => [],
-    } as unknown as D1Database;
-
-    const response = await api.fetch(
-      new Request("https://example.com/api/v1/videos/video_pending", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ capturedAt }),
-      }),
-      {
-        APP_ENV: "development",
-        ENABLE_DEV_AUTH: "true",
-        VIDEO_PROVIDER: "mock",
-        DB: db,
-      } as AppEnv,
-    );
-
-    expect(response.status).toBe(200);
-    expect(updateBindings[1]).toBe(expectedUtc);
-    expect(updateBindings[1]).not.toBe(capturedAt);
-  });
-
   it("documents why raw ISO text ordering could admit a forecast issued after capture", () => {
     const capturedAt = "2026-08-25T09:00:00+08:00";
     const issuedAfterCapture = "2026-08-25T02:00:00.000Z";

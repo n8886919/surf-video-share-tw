@@ -860,7 +860,7 @@ async function reconcileOwnerProcessingVideos(env: AppEnv, userId: string) {
     `SELECT id, provider_video_id, video_provider, duration_seconds,
             metadata_status, public_at, terms_version, moderation_status, updated_at FROM videos
      WHERE user_id = ? AND status IN ('awaiting_upload', 'pending', 'processing')
-       AND metadata_status <> 'deleting' LIMIT 5`,
+       AND metadata_status <> 'deleting' ORDER BY updated_at, id LIMIT 5`,
   ).bind(userId).all<{
     id: string;
     provider_video_id: string;
@@ -999,7 +999,11 @@ api.post("/diagnostics", async context => {
 api.get("/spots", async (context) => {
   await ensureDevelopmentDatabase(context.env);
   const result = await context.env.DB.prepare(
-    `SELECT id, slug, name_en, name_zh, region, latitude, longitude
+    `SELECT id, slug, name_en, name_zh, region, latitude, longitude,
+       (SELECT COUNT(*) FROM videos v WHERE v.spot_id = spots.id
+          AND v.metadata_status = 'complete' AND v.status = 'ready'
+          AND v.public_at IS NOT NULL AND v.terms_version IS NOT NULL
+          AND v.moderation_status = 'visible') AS public_video_count
      FROM spots WHERE active = 1
      ORDER BY CASE slug
        WHEN 'wushi-harbor-north' THEN 0
@@ -1022,7 +1026,7 @@ api.get("/spots", async (context) => {
        WHEN 'wanli' THEN 17
        WHEN 'waipu-fishing-harbor' THEN 18
        ELSE 19 END, name_en`,
-  ).all<SpotRow>();
+  ).all<SpotRow & { public_video_count: number }>();
   return context.json({
     spots: result.results.map((spot) => ({
       id: spot.id,
@@ -1033,6 +1037,7 @@ api.get("/spots", async (context) => {
       region: spot.region,
       latitude: spot.latitude,
       longitude: spot.longitude,
+      publicVideoCount: spot.public_video_count,
     })),
   });
 });
@@ -1519,6 +1524,7 @@ api.get("/me", (context) => {
   return context.json({
     id: user.id,
     suggestedDisplayName: user.line_display_name,
+    avatarUrl: user.line_picture_url ?? null,
     displayId: user.display_id,
     showIdentityDefault: Boolean(user.show_identity_default),
     authMode: context.get("authMode"),
@@ -1630,8 +1636,8 @@ api.post("/videos/:id/download", async (context) => {
 api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), async (context) => {
   const user = context.get("user");
   const input = context.req.valid("json");
-  const capturedAt = input.capturedAt ? canonicalUtcTimestamp(input.capturedAt) : null;
-  if (capturedAt) assertWithinUploadWindow(capturedAt);
+  const capturedAt = canonicalUtcTimestamp(input.capturedAt);
+  assertWithinUploadWindow(capturedAt);
   const spot = await findActiveSpot(context.env, input.spotId);
   if (!spot) return context.json({ error: "SPOT_NOT_FOUND", message: "找不到浪點" }, 404);
 
@@ -1651,7 +1657,6 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
   const ticket = await provider.createDirectUpload({ internalUserId: user.id, maxDurationSeconds: MAX_VIDEO_DURATION_SECONDS });
   const id = crypto.randomUUID();
   const now = new Date();
-  const complete = Boolean(spot && capturedAt);
   const showUploader = input.showUploader ?? Boolean(user.show_identity_default);
   await context.env.DB.prepare(
     `INSERT INTO videos (
@@ -1670,7 +1675,7 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
     input.durationSeconds,
     "awaiting_upload",
     showUploader ? 1 : 0,
-    complete ? "complete" : "pending",
+    "complete",
     new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString(),
     0,
     PUBLIC_MEDIA_TERMS_VERSION,
@@ -1683,7 +1688,7 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
   return context.json({
     videoId: id,
     ...ticket,
-    metadataStatus: complete ? "complete" : "pending",
+    metadataStatus: "complete",
     limits: { maxBytes: MAX_UPLOAD_BYTES, maxDurationSeconds: MAX_VIDEO_DURATION_SECONDS },
   }, 201);
 });
@@ -1815,14 +1820,13 @@ api.patch("/videos/:id", zValidator("json", updateVideoSchema), async (context) 
   if (current.metadata_status !== "complete"
     && current.metadata_expires_at
     && current.metadata_expires_at <= now.toISOString()) {
-    return context.json({ error: "VIDEO_EXPIRED", message: "這支待補影片已超過七天期限" }, 410);
+    return context.json({ error: "VIDEO_EXPIRED", message: "這支未完成影片已超過七天期限" }, 410);
   }
 
-  const requestedCapturedAt = input.capturedAt === undefined ? current.captured_at : input.capturedAt;
-  const capturedAt = requestedCapturedAt ? canonicalUtcTimestamp(requestedCapturedAt) : null;
+  const capturedAt = current.captured_at ? canonicalUtcTimestamp(current.captured_at) : null;
   if (capturedAt) assertWithinUploadWindow(capturedAt, new Date(current.created_at));
   const spot = await findActiveSpot(context.env, current.spot_id);
-  if (!spot) return context.json({ error: "SPOT_NOT_FOUND", message: "這支影片沒有有效浪點，無法補資料" }, 409);
+  if (!spot) return context.json({ error: "SPOT_NOT_FOUND", message: "這支影片沒有有效浪點，請重新上傳" }, 409);
   const complete = Boolean(capturedAt);
   const publicAt = complete
     && current.status === "ready"
