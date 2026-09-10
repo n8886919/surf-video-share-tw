@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { api } from "../src/worker/api";
 import type { AppEnv } from "../src/worker/db";
+import { forecastFixture } from "./helpers/forecast-fixture";
 import {
   recordOpsEvent,
   runHourlyOpsAnalysis,
@@ -20,6 +21,30 @@ function readinessDb(ok = true): D1Database {
 const LINE_USER_ID = `U${"a".repeat(32)}`;
 
 describe("operations observability", () => {
+  it.each(["provider.thumbnail_lookup_failed", "api.unhandled_error"])("replaces severity-only AI advice using actual events: %s", async code => {
+    const f = forecastFixture();
+    try {
+      const now = new Date();
+      const occurred = new Date(now.getTime() - 1000).toISOString();
+      f.sqlite.prepare(`INSERT INTO ops_events
+        (id,event_code,severity,source,fingerprint,occurred_at,created_at) VALUES (?,?,?,?,?,?,?)`)
+        .run("advisory-fixture", code, "error", "provider", code, occurred, occurred);
+      const aiRun = vi.fn().mockResolvedValue({ response: {
+        severity: "watch", summaryZh: "觀察到一次錯誤。", patterns: [], recommendedChecks: ["normal", " WATCH ", "正常。"],
+      } });
+      const line = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+      await runHourlyOpsAnalysis({ ...f.env, AI: { run: aiRun } } as unknown as AppEnv, now, line);
+      expect(line).toHaveBeenCalledOnce();
+      const message = String(line.mock.calls[0][1]?.body);
+      const expected = code.startsWith("provider.thumbnail") ? "檢查縮圖讀取是否恢復" : "依事件代碼與發生時間核對維運紀錄";
+      expect(message).toContain(expected);
+      expect(message).not.toContain("1. normal");
+      const stored = f.sqlite.prepare("SELECT recommended_checks_json FROM ops_analysis_runs").get();
+      expect(String(stored?.recommended_checks_json)).toContain(expected);
+      expect(String(stored?.recommended_checks_json)).not.toContain("normal");
+    } finally { f.sqlite.close(); }
+  });
+
   it("redacts credentials and URLs before storing summaries", () => {
     const summary = sanitizeOpsSummary(
       "Bearer line-token failed at https://example.com/path?token=secret&code=private",

@@ -1,6 +1,6 @@
 {
   "name": "surf-video-share-tw",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "private": true,
   "packageManager": "pnpm@11.19.0",
   "engines": {
@@ -13,7 +13,7 @@
     "build": "vinext build",
     "start": "vinext start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --configLoader runner",
     "test:site": "pnpm build && pnpm test:site:built",
     "test:site:built": "node --test tests/rendered-html.test.mjs tests/line-login-browser.test.mjs tests/thumbnail-runtime.test.mjs",
     "test:browser": "pnpm build && pnpm test:browser:built",

@@ -408,6 +408,7 @@ async function analyzeAggregates(env: AppEnv, rows: OpsAggregateRow[]): Promise<
           "不可假設不存在的使用者資料、秘密或外部狀態。",
           "normal 表示沒有值得注意的模式；watch 表示需人工留意；urgent 表示可能影響登入、上傳、播放、資料庫或排程。",
           "輸出繁體中文並嚴格符合 JSON schema。",
+          "recommendedChecks 每項須是具體的繁體中文檢查動作；沒有建議時回傳空陣列，不可填 normal、watch 或 urgent。",
         ].join(" "),
       },
       {
@@ -459,7 +460,16 @@ async function analyzeAggregates(env: AppEnv, rows: OpsAggregateRow[]): Promise<
     max_tokens: 700,
     temperature: 0.1,
   });
-  return analysisSchema.parse(extractAiResponse(result));
+  const analysis = analysisSchema.parse(extractAiResponse(result));
+  const checks = [...new Set(analysis.recommendedChecks)].filter(check =>
+    /\p{Script=Han}/u.test(check) && !/^(?:normal|watch|urgent|正常|無|無需檢查)[.!。！]?$/iu.test(check),
+  );
+  if (!checks.length && analysis.severity !== "normal") {
+    checks.push(rows.some(row => row.event_code === "provider.thumbnail_lookup_failed")
+      ? "檢查縮圖讀取是否恢復，並核對同時段是否仍有縮圖錯誤。"
+      : "依事件代碼與發生時間核對維運紀錄，確認影響範圍與是否持續發生。");
+  }
+  return { ...analysis, recommendedChecks: checks };
 }
 
 /** Silence is not recovery. Only a successful matching task/route supplies evidence. */

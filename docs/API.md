@@ -6,6 +6,8 @@ The Find UI calls `/matches` only after an explicit Search action, not on entry,
 
 Base path: `/api/v1`.
 
+`GET /forecast-collection-status` is a public, read-only operations probe with no query parameters. Its shared Zod response is `{checkedAt, near: {slotAt, completedAt}, far: {slotAt, completedAt}}`; timestamps are UTC ISO, and missing completions are null. The server selects the latest six-hour near and twelve-hour far slots whose fifteen-minute completion grace has elapsed. HTTP 200 requires both completions; missing, partial, stale or future-dated completion evidence returns 503. D1 failure returns 503 `{error: "FORECAST_COLLECTION_STATUS_UNAVAILABLE"}`. Every response is `Cache-Control: no-store`. Two indexed one-minute ledger ranges include legacy second offsets; the endpoint never queries forecast history, provider APIs, identities or private logs, and writes no diagnostics. Completed unchanged data qualifies; `issuedAt` is not a collection heartbeat.
+
 `GET /spots` includes `publicVideoCount`, counted across complete, ready, public, terms-versioned, moderation-visible videos at that spot; it excludes private/incomplete/failed/delisted records and does not depend on forecast coverage or the selected search time. It uses the same public lifecycle predicate as matching.
 
 Stream `pendingupload` maps to `awaiting_upload`, never `processing`. Owner reconciliation rotates up to five unfinished records by oldest status check; existing seven-day cleanup is unchanged. This fixes misleading processing labels without inventing a successful upload or rewriting historical video data.
@@ -16,6 +18,7 @@ Stream `pendingupload` maps to `awaiting_upload`, never `processing`. Owner reco
 |---|---|---|---|
 | Public | GET | `/health` | Shallow process liveness check |
 | Public | GET | `/readiness` | D1 and required operations-binding readiness check |
+| Public | GET | `/forecast-collection-status` | Latest due near/far MFWAM all-spot completion; 200 only when both complete, otherwise 503; no-store |
 | Public | GET | `/spots` | Active launch spots, with 烏石港 first and each spot’s publicVideoCount |
 | Public | GET | `/forecast-freshness?spotId=&targetTime=` | Same target-row selection; CWA/MFWAM actual retained `retrieved_at`, missing/stale status; no journey writes, 60-second cache |
 | Public | GET | `/matches?spotId=&targetTime=` | Public forecast context and same-spot videos |

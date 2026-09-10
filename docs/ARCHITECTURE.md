@@ -1,5 +1,7 @@
 # Architecture
 
+Product 0.34 keeps forecast snapshots immutable while separating collection liveness from retained snapshot age. The public `/api/v1/forecast-collection-status` exposes only due near/far slot and completion timestamps from two bounded indexed ledger reads, without identity, provider data, private logs, or writes. GitHub checks its HTTP status independently of Cloudflare notification delivery. The server applies the existing fifteen-minute grace. Daily reports and the probe share valid-slot normalization and deduplication; legacy seconds remain readable without a migration or history rewrite. CWA model-run identities remain exact and independent.
+
 The verified LINE ID token optionally supplies a validated HTTPS `picture`, saved as `users.line_picture_url` and exposed only to the authenticated account through `/me`. No extra profile request or public identity field is added. The client opens project help only after a successful LINE completion plus authenticated `/me`, never merely because a saved session is valid.
 
 React and Hono run as one Cloudflare Worker with a strict `/api/v1` boundary. D1 stores normalized metadata and immutable condition provenance; browsers never read D1 or provider secrets. Video bytes upload directly to Cloudflare Stream.

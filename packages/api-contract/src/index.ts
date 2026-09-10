@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+const forecastCollectionSlotSchema = z.object({
+  slotAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+});
+
+/** Public operational timestamps only; no provider responses or private logs. */
+export const forecastCollectionStatusSchema = z.object({
+  checkedAt: z.string().datetime(),
+  near: forecastCollectionSlotSchema,
+  far: forecastCollectionSlotSchema,
+});
+export type ForecastCollectionStatus = z.infer<typeof forecastCollectionStatusSchema>;
+
 // Private account image from verified LINE claims; never part of public observations.
 export const lineAvatarUrlSchema = z.string().url().startsWith("https://").max(2048);
 

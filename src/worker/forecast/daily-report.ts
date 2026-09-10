@@ -1,7 +1,8 @@
 import type { AppEnv } from "../db";
 import { LineNotificationError, sendLineNotification } from "../ops-observability";
+import { canonicalForecastSlot, type ForecastSource } from "./schedule";
+import { readCompletedForecastSlots } from "./update-runs";
 
-type ForecastSource = "cwa" | "mfwam" | "mfwam_far";
 const HOUR_MS = 3_600_000;
 const CLAIM_TIMEOUT_MS = 5 * 60_000;
 
@@ -12,7 +13,9 @@ export async function recordForecastUpdate(
   completed: boolean,
   now = new Date(),
 ): Promise<void> {
-  const slot = new Date(slotAt).toISOString();
+  // CWA records the exact supplied model identity; only our Cron slots jitter.
+  const slot = source === "cwa" ? new Date(slotAt).toISOString() : canonicalForecastSlot(source, slotAt);
+  if (!slot) return;
   await db.prepare(
     `INSERT INTO forecast_update_runs (run_key, source, slot_at, started_at, completed_at)
      VALUES (?, ?, ?, ?, ?)
@@ -45,11 +48,7 @@ interface DailyReportRow {
 
 async function completedSlots(db: D1Database, day: string, source: ForecastSource): Promise<number> {
   const slots = expectedForecastSlots(day, source);
-  const row = await db.prepare(
-    `SELECT COUNT(*) AS count FROM forecast_update_runs
-     WHERE source = ? AND slot_at IN (${slots.map(() => "?").join(",")}) AND completed_at IS NOT NULL`,
-  ).bind(source, ...slots).first<{ count: number }>();
-  return row?.count ?? 0;
+  return (await readCompletedForecastSlots(db, source, slots)).size;
 }
 
 /** Called by the existing hourly :05 task. Retry only during the same Taipei day. */

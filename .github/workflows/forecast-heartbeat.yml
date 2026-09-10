@@ -17,54 +17,20 @@ jobs:
     name: Verify fresh production forecast
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    outputs:
-      issued_at: ${{ steps.forecast.outputs.issued_at }}
     env:
       BASE_URL: https://surf-video-share-tw.nolanasd123.workers.dev
     steps:
-      - id: forecast
-        name: Verify the latest MFWAM run through the public API
+      - name: Verify completed near and far MFWAM collection slots
         shell: bash
         run: |
           set -euo pipefail
-
-          spots="$(curl --fail --silent --show-error --max-time 20 \
-            "${BASE_URL}/api/v1/spots")"
-          spot_id="$(jq -er '.spots[] | select(.slug == "wushi-harbor-north") | .id' <<<"${spots}")"
-          target_time="$(TZ=Asia/Taipei date --date='tomorrow 08:00' '+%Y-%m-%dT%H:00:00+08:00')"
-          encoded_target="$(jq -rn --arg value "${target_time}" '$value | @uri')"
-          matches="$(curl --fail --silent --show-error --max-time 20 \
-            "${BASE_URL}/api/v1/matches?spotId=${spot_id}&targetTime=${encoded_target}")"
-          issued_at="$(jq -er \
-            '[.forecasts[] | select(.provider == "open-meteo" and .model == "meteofrance_wave")][0].issuedAt' \
-            <<<"${matches}")"
-
-          issued_epoch="$(date --date="${issued_at}" '+%s')"
-          now_epoch="$(date '+%s')"
-          six_hours_seconds=21600
-          ingestion_minute_offset_seconds=1200
-          ingestion_grace_seconds=900
-
-          # GitHub schedule events can start hours late. Verify the latest Cloudflare
-          # :20 UTC ingestion slot that should be complete instead of comparing the
-          # forecast with the delayed runner's wall clock.
-          expected_slot_epoch="$((
-            ((now_epoch - ingestion_minute_offset_seconds) / six_hours_seconds)
-            * six_hours_seconds
-            + ingestion_minute_offset_seconds
-          ))"
-          if (( now_epoch - expected_slot_epoch < ingestion_grace_seconds )); then
-            expected_slot_epoch="$((expected_slot_epoch - six_hours_seconds))"
-          fi
-          expected_slot_at="$(date --utc --date="@${expected_slot_epoch}" '+%Y-%m-%dT%H:%M:%SZ')"
-
-          if (( issued_epoch < expected_slot_epoch - 300 || issued_epoch > now_epoch + 300 )); then
-            echo "Latest MFWAM run ${issued_at} does not cover expected ingestion slot ${expected_slot_at}."
-            exit 1
-          fi
-
-          echo "issued_at=${issued_at}" >>"${GITHUB_OUTPUT}"
-          echo "MFWAM run ${issued_at} verified for expected ingestion slot ${expected_slot_at}."
+          # The Worker verifies all-spot completion with fifteen minutes of grace.
+          # Unchanged snapshots retain their original time and still count as collected.
+          status="$(curl --fail --silent --show-error --max-time 20 \
+            "${BASE_URL}/api/v1/forecast-collection-status")"
+          # An HTML fallback or incomplete response must never count as healthy.
+          jq -e 'select([.checkedAt, .near.slotAt, .near.completedAt, .far.slotAt, .far.completedAt]
+            | all(type == "string" and length > 0))' <<<"${status}"
 
   notify:
     name: Alert owner only when the forecast check fails

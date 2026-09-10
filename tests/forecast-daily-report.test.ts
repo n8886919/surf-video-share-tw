@@ -49,10 +49,51 @@ describe("daily forecast reporting", () => {
     const body = JSON.parse(String(line.mock.calls[0][1]?.body));
     expect(body.messages[0].text).toBe("昨日預報更新（2026-09-08）\nCWA：應更新 4 次，成功 4 次\nMFWAM 近兩天：應更新 4 次，成功 3 次\nMFWAM 後三天：尚未累積完整一天\n成功指全浪點收錄完成（含相同資料），不是官方發布新版本次數。");
     expect(value.queries.some(sql => sql.includes("forecast_snapshots"))).toBe(false);
-    const plan = value.sqlite.prepare(`EXPLAIN QUERY PLAN SELECT COUNT(*) FROM forecast_update_runs
-      WHERE source = ? AND slot_at IN (?, ?, ?, ?) AND completed_at IS NOT NULL`)
-      .all("mfwam", ...expectedForecastSlots(yesterday, "mfwam"));
+    const readQuery = value.queries.find(sql => sql.includes("SELECT slot_at, completed_at"));
+    const plan = value.sqlite.prepare(`EXPLAIN QUERY PLAN ${readQuery}`)
+      .all("mfwam", "2026-09-07T18:20:00.000Z", "2026-09-08T12:21:00.000Z");
     expect(JSON.stringify(plan)).toContain("SEARCH forecast_update_runs USING INDEX forecast_update_runs_source_slot_idx");
+  });
+
+  it("counts legacy Cron seconds and canonical replays once without changing stored history", async () => {
+    at(reportTime);
+    const value = await trackedFixture(3, 0);
+    await recordForecastUpdate(value.db, "mfwam_far", "2026-09-07T00:20:05Z", true, new Date("2026-09-07T00:20:10Z"));
+    const insert = value.sqlite.prepare(`INSERT INTO forecast_update_runs
+      (run_key, source, slot_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?)`);
+    for (const [index, slot] of expectedForecastSlots(yesterday, "mfwam").entries()) {
+      const jittered = new Date(Date.parse(slot) + [5000, 49123, 2000, 59999][index]).toISOString();
+      insert.run(`legacy:${slot}`, "mfwam", jittered, jittered, jittered);
+      if (new Date(slot).getUTCHours() % 12 === 0) insert.run(`far:${slot}`, "mfwam_far", jittered, jittered, jittered);
+      if (index === 0) await recordForecastUpdate(value.db, "mfwam", slot, true);
+      await recordForecastUpdate(value.db, "mfwam", jittered, false); // A later failure cannot erase success.
+    }
+    insert.run("off-minute", "mfwam", "2026-09-08T06:21:00.000Z", "ignored", "ignored");
+    insert.run("off-far-hour", "mfwam_far", "2026-09-08T06:20:02.000Z", "ignored", "ignored");
+    const before = value.sqlite.prepare("SELECT * FROM forecast_update_runs ORDER BY run_key").all();
+    const line = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    await runDailyForecastReport(value.env, reportTime, line);
+    const text = String(line.mock.calls[0][1]?.body);
+    expect(text).toContain("CWA：應更新 4 次，成功 3 次");
+    expect(text).toContain("MFWAM 近兩天：應更新 4 次，成功 4 次");
+    expect(text).toContain("MFWAM 後三天：應更新 2 次，成功 2 次");
+    expect(value.sqlite.prepare("SELECT * FROM forecast_update_runs ORDER BY run_key").all()).toEqual(before);
+  });
+
+  it("canonicalizes only valid MFWAM schedule minutes and preserves actual attempt times", async () => {
+    const value = fixture();
+    const now = new Date("2026-09-09T06:20:51.234Z");
+    await recordForecastUpdate(value.db, "mfwam", "2026-09-09T06:20:49.123Z", false, now);
+    await recordForecastUpdate(value.db, "mfwam", "2026-09-09T06:20:02.000Z", true, now);
+    for (const slot of ["invalid", "2026-09-09T06:21:00Z", "2026-09-09T07:20:00Z"]) {
+      await recordForecastUpdate(value.db, "mfwam", slot, true, now);
+    }
+    await recordForecastUpdate(value.db, "mfwam_far", "2026-09-09T06:20:05Z", true, now);
+    await recordForecastUpdate(value.db, "cwa", "2026-09-09T06:00:05Z", true, now);
+    expect(value.sqlite.prepare("SELECT source,slot_at,started_at,completed_at FROM forecast_update_runs").all()).toEqual([
+      { source: "mfwam", slot_at: "2026-09-09T06:20:00.000Z", started_at: now.toISOString(), completed_at: now.toISOString() },
+      { source: "cwa", slot_at: "2026-09-09T06:00:05.000Z", started_at: now.toISOString(), completed_at: now.toISOString() },
+    ]);
   });
 
   it("reports zero when no slot completed and tracking already existed", async () => {

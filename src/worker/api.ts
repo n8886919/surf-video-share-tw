@@ -54,6 +54,7 @@ import {
 import { cleanupExpiredPendingVideos } from "./video-lifecycle";
 import { resolveVideoStatus } from "./video-status";
 import { TARGET_FORECAST_SQL } from "./forecast/target";
+import { readForecastCollectionStatus } from "./forecast/collection-status";
 import { proxyThumbnail } from "./thumbnail";
 import { findRecentPublicDuplicate } from "./upload-duplicate";
 import { internalForecastIngestionApi } from "./internal-forecast-ingestion";
@@ -925,6 +926,18 @@ api.use("*", async (context, next) => {
 });
 
 api.get("/health", (context) => context.json({ ok: true }));
+
+// No client-selected range, snapshots, private logs, session or diagnostic writes.
+api.get("/forecast-collection-status", async context => {
+  const headers = { "cache-control": "no-store" };
+  try {
+    const status = await readForecastCollectionStatus(context.env.DB, new Date());
+    return context.json(status, status.near.completedAt && status.far.completedAt ? 200 : 503, headers);
+  } catch {
+    console.error(JSON.stringify({ event: "forecast_collection_status_unavailable" }));
+    return context.json({ error: "FORECAST_COLLECTION_STATUS_UNAVAILABLE" }, 503, headers);
+  }
+});
 api.get("/readiness", async (context) => {
   const checkedAt = new Date().toISOString();
   const ok = await checkOpsReadiness(context.env);
