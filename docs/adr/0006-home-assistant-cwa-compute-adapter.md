@@ -52,8 +52,9 @@ Adding 外埔 advances new batches to `cwa-forecast-ingestion-v4` while the Work
 also accepts persisted v3 batches for a safe Worker-first rollout. Adding
 白沙灣 advances new batches to `cwa-forecast-ingestion-v5`, adds the nearest
 新北市石門區 `65000220` mapping, and freezes v4 validators/mappings for pending
-retries. Drain pending rows and completion before stopping the installed old
-App and activating the twentieth spot; see the coordinated rollout in
+retries. Drain pending rows and completion, then update during the known idle
+interval before the next attempt; stop the old App only if that interval cannot
+be maintained. See the coordinated rollout in
 `OPERATIONS.md`. Both
 repositories generate JSON Schema from their live Zod batch validator and
 assert the same SHA-256
