@@ -1,6 +1,18 @@
 # Project state
 
-Updated: 2026-09-10
+Updated: 2026-09-12
+
+## Product 0.35 — Baishawan prepared locally, not deployed
+
+The owner requested 白沙灣 at `25.284457106306995,121.52043233444185`. The existing `baishawan` checklist row is now active in source, retaining its existing English name and North region. Data-only migration `0023_activate_baishawan.sql` upserts this twentieth spot without changing forecasts or videos. The public API appends it after the existing nineteen spots; the uptime allowlist, product version, tests and current documentation are synchronized.
+
+The official [CWA F-A0021-001 location table](https://opendata.cwa.gov.tw/opendatadoc/Forecast/F-A0021-001.pdf), checked September 12, identifies 新北市石門區 `65000220` at `25.2936,121.5314` as the nearest listed tide forecast point, approximately 1.50 km away by great-circle distance. This is nearby forecast data, not an on-site observation. Contract `cwa-forecast-ingestion-v5` adds that exact mapping in both this repository and sibling `surf-video-share-tw-cwa-ingestor`; App `0.6.0` emits v5. The Worker and App retain frozen v1/v2/v3/v4 validators for persisted retries. Both repositories verify JSON Schema SHA-256 `e71c847399bbb0013cb8a00d36cd11f9f60d95d4529c703cd680c699b3c9fb53` and mapping SHA-256 `ceaa1a52fa85b851595abe38edfabf31164a36a89f32764ce71b50b468d116a3`. The App's existing 128-batch limit accommodates twenty spots × twenty-five leads as 100 five-row batches.
+
+Full `pnpm verify` passed: lint/typecheck, 52 files / 356 unit/integration tests, migration drift, production build, five built-runtime/site tests and all 32 browser tests. App `npm run verify` passed typecheck, 9 files / 34 tests and build. Local migration 0023 applied successfully. Tests verify the twenty-spot public API, replay-safe spot migration, retained forecasts, correct Baishawan tide ingestion, rejection of a wrong LocationId before writes, unchanged v4 fingerprints and the expanded App batch workload. Main verification log: ignored `outputs/baishawan-verify.log`. A broken local `@noble/hashes` dependency junction was repaired against its existing package directory before verification; no dependency versions or main pnpm lockfile were changed.
+
+No Git publication, production migration/deployment, installed HA update, artificial ingestion, historical backfill or LINE message was performed. The recorded deployed release remains 0.34. Before activating the twentieth spot in production, confirm the installed old App has finished its nineteen-spot run with no pending row batches or completion, then stop it. Deploy the v5-compatible Worker and migration, publish the matching uptime workflow, then update/start App `0.6.0` and observe real twenty-spot collection. An old pending completion cannot satisfy the newly expanded all-active-spot coverage and would retry with 409; never clear pending state or fabricate coverage to bypass it. This workspace still has no installed Supervisor connection. See `OPERATIONS.md` for the coordinated rollout.
+
+The owner supplied the installed App's September 12 logs: its 20:20 Taipei attempt completed at 20:21:46 with 19 spots, 475 attempted/inserted snapshots, no duplicates and `resumedPending=false`; its next attempt was scheduled for September 13 02:20 Taipei. In the App runner, this success event occurs after pending rows and the completion acknowledgement are persisted as drained. The log establishes that run's completion, but does not establish that the App is stopped. A read-only preflight using the existing Wrangler OAuth session confirmed all required secret names and deployed bindings, enabled query-string redaction, and only migration 0023 pending. Current Cloudflare version is `4338befe-738f-456c-b3f9-779ee1b34c2f` at 100%; main and ingestor remote heads still match the local base commits. Evidence: ignored `outputs/release-035-preflight.json`. Production activation remains pending confirmation that the installed App is stopped.
 
 ## Product 0.34 — deployed
 
@@ -330,7 +342,9 @@ The Home Assistant App `0.3.0` release passed `npm run verify`: typecheck, 9 tes
 
 ## Next task
 
-Verify the naturally prepared September 11 09:05 Taipei daily report after Product 0.34: compare its near/far counts with actual September 10 ledger completions, check that the next normal MFWAM run uses canonical slot seconds, and retain the true CWA count without inventing missing model coverage.
+Coordinate the prepared Product 0.35 / HA App 0.6.0 Baishawan rollout: first obtain confirmation that the installed old App has completed its pending nineteen-spot run and is stopped, then deploy the Worker/migration and matching uptime workflow before updating/starting the App; verify twenty active spots and one real CWA run with Baishawan tide provenance `65000220`.
+
+Deferred by the owner's Baishawan request: verify the naturally prepared September 11 09:05 Taipei daily report after Product 0.34 against September 10 near/far ledger completions, normal MFWAM canonical slot seconds and the true CWA count. This acceptance check has not been claimed complete.
 
 Deferred pilot observation: the first eligible September 10 09:05 daily report was inspected and its MFWAM counting defects are addressed by the deployed 0.34 release above. After deployment, verify the next naturally prepared report against real near/far ledger completions; do not resend the frozen September 9 report or manufacture 4/4 CWA coverage. Then compare three complete post-release UTC days and 7–14 days of real find/watch/upload use against ROADMAP's gates. The first three full UTC days are September 9–11, available after September 12 08:00 Taipei. Use the manual read-only ops/observe-production.mjs report; no recurring Codex automation or artificial ingestion/report completion has been created.
 

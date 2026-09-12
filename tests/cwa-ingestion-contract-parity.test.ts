@@ -4,8 +4,10 @@ import { z } from "zod";
 import {
   CWA_FORECAST_INGESTION_CONTRACT,
   CWA_TIDE_LOCATION_BY_SPOT_ID,
+  CWA_TIDE_LOCATION_BY_SPOT_ID_V4,
   acceptedCwaForecastIngestionBatchSchema,
   cwaForecastIngestionBatchSchema,
+  cwaForecastIngestionV4BatchSchema,
   cwaForecastIngestionV3BatchSchema,
   cwaForecastIngestionV2BatchSchema,
 } from "../packages/api-contract/src";
@@ -55,7 +57,7 @@ function legacySnapshot() {
 }
 
 describe("Home Assistant CWA ingestion contract parity", () => {
-  it("pins the complete v4 structural contract and tide mapping fingerprints", () => {
+  it("pins the complete v5 structural contract and tide mapping fingerprints", () => {
     const fingerprint = createHash("sha256")
       .update(JSON.stringify(z.toJSONSchema(cwaForecastIngestionBatchSchema)))
       .digest("hex");
@@ -63,20 +65,20 @@ describe("Home Assistant CWA ingestion contract parity", () => {
       .update(JSON.stringify(CWA_TIDE_LOCATION_BY_SPOT_ID))
       .digest("hex");
     expect(CWA_FORECAST_INGESTION_CONTRACT).toEqual({
-      version: "cwa-forecast-ingestion-v4",
+      version: "cwa-forecast-ingestion-v5",
       jsonSchemaSha256: fingerprint,
       tideMappingSha256: tideMappingFingerprint,
     });
   });
 
   it("pins refinements that JSON Schema cannot represent", () => {
-    expect(cwaForecastIngestionBatchSchema.safeParse({ version: 4, snapshots: [snapshot()] }).success).toBe(true);
+    expect(cwaForecastIngestionBatchSchema.safeParse({ version: 5, snapshots: [snapshot()] }).success).toBe(true);
     expect(cwaForecastIngestionBatchSchema.safeParse({
-      version: 4,
+      version: 5,
       snapshots: [{ ...snapshot(), leadHours: 4 }],
     }).success).toBe(false);
     expect(cwaForecastIngestionBatchSchema.safeParse({
-      version: 4,
+      version: 5,
       snapshots: [{ ...snapshot(), waveHeight: null, waveDirection: null, wavePeriod: null }],
     }).success).toBe(false);
   });
@@ -100,5 +102,24 @@ describe("Home Assistant CWA ingestion contract parity", () => {
       version: 3,
       snapshots: [snapshot()],
     }).success).toBe(true);
+  });
+
+  it("keeps the v4 wire schema and mapping frozen for persisted retries", () => {
+    expect(createHash("sha256").update(JSON.stringify(CWA_TIDE_LOCATION_BY_SPOT_ID_V4)).digest("hex"))
+      .toBe("196d6e0a139fe9d2eab525232e801ef5613a01b1c064f2e28b273e2d4177eb4e");
+    expect(createHash("sha256").update(JSON.stringify(z.toJSONSchema(cwaForecastIngestionV4BatchSchema))).digest("hex"))
+      .toBe("e09dbdb3ec07aa1d865cb2654181d5b7b2c6b42542cc308d0d9c936e9e5128f0");
+    expect(cwaForecastIngestionV4BatchSchema.safeParse({ version: 4, snapshots: [snapshot()] }).success).toBe(true);
+  });
+
+  it("allows Shimen tide provenance only in the new Baishawan contract", () => {
+    const value = snapshot();
+    const baishawan = { ...value, spotId: "spot_baishawan", provenance: {
+      ...value.provenance,
+      tide: { ...value.provenance.tide, locationId: "65000220" },
+    } };
+    expect(CWA_TIDE_LOCATION_BY_SPOT_ID.spot_baishawan).toBe("65000220");
+    expect(cwaForecastIngestionBatchSchema.safeParse({ version: 5, snapshots: [baishawan] }).success).toBe(true);
+    expect(cwaForecastIngestionV4BatchSchema.safeParse({ version: 4, snapshots: [baishawan] }).success).toBe(false);
   });
 });

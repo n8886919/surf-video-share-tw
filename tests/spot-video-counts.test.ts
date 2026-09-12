@@ -1,9 +1,28 @@
 import { afterEach, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { api } from "../src/worker/api";
 import { forecastFixture } from "./helpers/forecast-fixture";
 
 const fixtures: ReturnType<typeof forecastFixture>[] = [];
 afterEach(() => { for (const f of fixtures.splice(0)) f.sqlite.close(); });
+
+it("activates Baishawan once with owner coordinates and exposes twenty spots in the existing order", async () => {
+  const f = forecastFixture(); fixtures.push(f);
+  // Reapplying the data-only migration must neither duplicate the spot nor modify forecasts.
+  f.seedCwaRun();
+  const before = f.sqlite.prepare("SELECT COUNT(*) AS count FROM forecast_snapshots").get();
+  f.sqlite.exec(readFileSync(new URL("../drizzle/0023_activate_baishawan.sql", import.meta.url), "utf8"));
+  expect(f.sqlite.prepare("SELECT COUNT(*) AS count FROM forecast_snapshots").get()).toEqual(before);
+  const response = await api.fetch(new Request("https://example.com/api/v1/spots"), f.env);
+  const body = await response.json() as { spots: Array<{ id: string; slug: string }> };
+  expect(response.status).toBe(200);
+  expect(body.spots).toHaveLength(20);
+  expect(body.spots.at(-1)).toMatchObject({ id: "spot_baishawan", slug: "baishawan" });
+  const row = f.sqlite.prepare("SELECT name_zh, latitude, longitude, coordinate_source, created_at FROM spots WHERE id = 'spot_baishawan'").get();
+  expect(row).toMatchObject({ name_zh: "白沙灣", latitude: 25.284457106306995,
+    longitude: 121.52043233444185, coordinate_source: "User-supplied coordinates" });
+  expect(row?.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T.+Z$/u);
+});
 
 it("counts all public videos at each active spot without counting private, unfinished, unlicensed or delisted records", async () => {
   const f = forecastFixture(); fixtures.push(f);

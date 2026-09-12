@@ -162,6 +162,13 @@
       "when": 1788955027058,
       "tag": "0022_perfect_korath",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1789227143499,
+      "tag": "0023_activate_baishawan",
+      "breakpoints": true
     }
   ]
 }

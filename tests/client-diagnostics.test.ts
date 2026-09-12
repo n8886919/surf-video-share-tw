@@ -8,7 +8,7 @@ it("client diagnostics validate fixed fields and remain fire-and-forget when the
   expect(() => clientDiagnostic('upload_failed',traceId,{stage:'transfer',outcome:'failed',durationMs:123})).not.toThrow();
   await Promise.resolve();
   const body=JSON.parse(fetchMock.mock.calls[0][1].body);
-  expect(body).toEqual({event:'upload_failed',traceId,details:{stage:'transfer',outcome:'failed',durationMs:123,version:'0.34'}});
+  expect(body).toEqual({event:'upload_failed',traceId,details:{stage:'transfer',outcome:'failed',durationMs:123,version:'0.35'}});
   expect(fetchMock.mock.calls[0][1]).toMatchObject({credentials:'same-origin',keepalive:true});
   clientDiagnostic('upload_failed','bad-id',{stage:'transfer',outcome:'failed',durationMs:123});
   expect(fetchMock).toHaveBeenCalledOnce();

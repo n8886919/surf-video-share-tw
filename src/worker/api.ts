@@ -1038,6 +1038,7 @@ api.get("/spots", async (context) => {
        WHEN 'green-bay' THEN 16
        WHEN 'wanli' THEN 17
        WHEN 'waipu-fishing-harbor' THEN 18
+       WHEN 'baishawan' THEN 19
        ELSE 19 END, name_en`,
   ).all<SpotRow & { public_video_count: number }>();
   return context.json({

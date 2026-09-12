@@ -1,6 +1,6 @@
 slug,name_en,name_zh,region,latitude,longitude,coordinate_source,source_notes,active
 shalun,Shalun,,North,,,,,false
-baishawan,Baishawan,,North,,,,,false
+baishawan,Baishawan,白沙灣,North,25.284457106306995,121.52043233444185,User-supplied coordinates,User supplied in product request on 2026-09-12,true
 restaurants,Restaurants,,North,,,,,false
 jinshan,Jinshan,,North,,,,,false
 zhongjiao-bay,中角灣,中角灣,North,25.239770,121.633917,User-supplied coordinates,User supplied in product request on 2026-08-31,true

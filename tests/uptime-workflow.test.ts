@@ -22,6 +22,7 @@ const activeSpotSlugs = [
   "green-bay",
   "wanli",
   "waipu-fishing-harbor",
+  "baishawan",
 ] as const;
 
 describe("production uptime workflow", () => {
@@ -38,12 +39,12 @@ describe("production uptime workflow", () => {
     expect(workflow).not.toContain('${message}\\n${run_url}');
   });
 
-  it("checks all nineteen active spots in the public API order", () => {
+  it("checks all twenty active spots in the public API order", () => {
     const orderedSlugBlock = activeSpotSlugs
       .map((slug) => '              "' + slug + '"')
       .join(",\n");
     expect(workflow).toContain(orderedSlugBlock);
-    expect(workflow).toContain("十九個浪點");
+    expect(workflow).toContain("二十個浪點");
     expect(workflow).not.toContain("健康、就緒、八個浪點");
   });
 });

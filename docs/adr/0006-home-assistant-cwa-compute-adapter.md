@@ -49,8 +49,13 @@ by the initial multi-location `cwa-forecast-ingestion-v2`. The nearest-location
 release advances new batches to `cwa-forecast-ingestion-v3` while the Worker
 temporarily accepts persisted v1 and v2 batches under their legacy mappings.
 Adding 外埔 advances new batches to `cwa-forecast-ingestion-v4` while the Worker
-also accepts persisted v3 batches for a safe Worker-first rollout. Both
-repositories generate JSON Schema from their live v4 Zod batch validator and
+also accepts persisted v3 batches for a safe Worker-first rollout. Adding
+白沙灣 advances new batches to `cwa-forecast-ingestion-v5`, adds the nearest
+新北市石門區 `65000220` mapping, and freezes v4 validators/mappings for pending
+retries. Drain pending rows and completion before stopping the installed old
+App and activating the twentieth spot; see the coordinated rollout in
+`OPERATIONS.md`. Both
+repositories generate JSON Schema from their live Zod batch validator and
 assert the same SHA-256
 fingerprint, plus a separate canonical SHA-256 fingerprint for the complete
 spot-to-LocationId mapping. Separate parity assertions cover the three-hour

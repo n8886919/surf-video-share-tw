@@ -296,6 +296,29 @@ describe("internal forecast ingestion API", () => {
   });
 
   it.each([
+    [5, "65000220", 200],
+    [5, "I04100", 422],
+    [4, "65000220", 422],
+  ])("validates Baishawan tide provenance before writing (v%s, %s)", async (version, locationId, status) => {
+    const db = new FakeD1({
+      id: "spot_baishawan", slug: "baishawan",
+      latitude: 25.284457106306995, longitude: 121.52043233444185,
+    });
+    const snapshot = validSnapshot();
+    snapshot.spotId = "spot_baishawan";
+    snapshot.provenance.tide.locationId = String(locationId);
+    const response = await post({ version, snapshots: [snapshot] }, env(db));
+    expect(response.status).toBe(status);
+    expect(db.writes).toBe(status === 200 ? 1 : 0);
+    if (status === 200) {
+      expect(db.lastValues?.slice(33, 36)).toEqual([0.2, -0.31, "falling"]);
+      expect(JSON.parse(String(db.lastValues?.[41]))).toMatchObject({
+        tide: { dataset: "F-A0021-001", locationId: "65000220", datum: "AboveLocalMSL" },
+      });
+    }
+  });
+
+  it.each([
     ["wrong provider", { ...validSnapshot(), provider: "open-meteo" }],
     ["wrong model", { ...validSnapshot(), model: "other" }],
     ["invalid lead", { ...validSnapshot(), leadHours: 4 }],

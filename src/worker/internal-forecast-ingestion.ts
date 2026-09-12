@@ -3,6 +3,7 @@ import {
   acceptedCwaForecastIngestionBatchSchema,
   cwaForecastIngestionCompletionSchema,
   CWA_TIDE_LOCATION_BY_SPOT_ID,
+  CWA_TIDE_LOCATION_BY_SPOT_ID_V4,
   CWA_TIDE_LOCATION_BY_SPOT_ID_V3,
   CWA_TIDE_LOCATION_BY_SPOT_ID_V2,
   type AcceptedCwaForecastIngestionSnapshot,
@@ -233,7 +234,7 @@ async function completeCwaRun(
 
 function hasValidTideMapping(
   snapshot: AcceptedCwaForecastIngestionSnapshot,
-  contractVersion: 1 | 2 | 3 | 4,
+  contractVersion: 1 | 2 | 3 | 4 | 5,
 ): boolean {
   if (snapshot.provenance.tide === null || contractVersion === 1) return true;
   const expected = contractVersion === 2
@@ -244,6 +245,10 @@ function hasValidTideMapping(
     ? CWA_TIDE_LOCATION_BY_SPOT_ID_V3[
       snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID_V3
     ]
+    : contractVersion === 4
+    ? CWA_TIDE_LOCATION_BY_SPOT_ID_V4[
+      snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID_V4
+    ]
     : CWA_TIDE_LOCATION_BY_SPOT_ID[
       snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID
     ];
@@ -252,7 +257,7 @@ function hasValidTideMapping(
 
 async function normalizedSnapshot(
   snapshot: AcceptedCwaForecastIngestionSnapshot,
-  contractVersion: 1 | 2 | 3 | 4,
+  contractVersion: 1 | 2 | 3 | 4 | 5,
   receivedAt: string,
 ): Promise<ForecastSnapshotInput> {
   const issuedAt = new Date(snapshot.issuedAt).toISOString();
@@ -265,6 +270,10 @@ async function normalizedSnapshot(
     : contractVersion === 3
     ? CWA_TIDE_LOCATION_BY_SPOT_ID_V3[
       snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID_V3
+    ]
+    : contractVersion === 4
+    ? CWA_TIDE_LOCATION_BY_SPOT_ID_V4[
+      snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID_V4
     ]
     : CWA_TIDE_LOCATION_BY_SPOT_ID[
       snapshot.spotId as keyof typeof CWA_TIDE_LOCATION_BY_SPOT_ID
