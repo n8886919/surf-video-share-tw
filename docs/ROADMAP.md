@@ -19,7 +19,7 @@ For ordinary isolated work in this phase, use targeted tests plus `pnpm typechec
 
 ## Milestone A — product vertical slice
 
-Complete: public spot/time matching, twenty configured Taiwan spots (Baishawan awaits the coordinated rollout recorded in PROJECT_STATE.md), immutable-spot 10–60 second upload, seven-day capture-time completion, public Stream lifecycle, three-tab mobile UI, versioned CC0 notice, owner feedback, reporting, and administrator delisting.
+Complete: public spot/time matching, twenty active Taiwan spots, immutable-spot 10–60 second upload, seven-day capture-time completion, public Stream lifecycle, three-tab mobile UI, versioned CC0 notice, owner feedback, reporting, and administrator delisting.
 
 ## Milestone B — independent forecast history
 
