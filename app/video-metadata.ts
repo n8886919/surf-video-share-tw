@@ -248,8 +248,12 @@ export function selectCaptureTimeHint(
   now = new Date(),
   windowHours = 168,
 ): CaptureTimeHint | null {
-  if (withinUploadWindow(metadata.recordedAt, now, windowHours)) {
-    return { date: metadata.recordedAt, source: "recording-metadata", label: "影片原始拍攝時間（含時區），請確認" };
+  if (metadata.recordedAt) {
+    // A known invalid recording time must not be replaced by a newer export or
+    // modification time just because that weaker timestamp passes validation.
+    return withinUploadWindow(metadata.recordedAt, now, windowHours)
+      ? { date: metadata.recordedAt, source: "recording-metadata", label: "影片原始拍攝時間（含時區），請確認" }
+      : null;
   }
   if (withinUploadWindow(metadata.containerCreatedAt, now, windowHours)) {
     return { date: metadata.containerCreatedAt, source: "container-created", label: "影片容器建立時間（較弱提示），請確認" };
@@ -295,8 +299,10 @@ export function resolveUploadPrefill(
   const timeHint = selectCaptureTimeHint(metadata, lastModified, now);
   const suggestedSpotId = suggestSpotFromLocation(spots, metadata.location);
   return {
-    capturedAt: timeHint?.date ?? null,
-    captureTimeLabel: timeHint?.label || "未找到 168 小時內且為台北時間 05:00–19:59 的可信時間，請手動填寫",
+    capturedAt: timeHint?.source === "file-last-modified" ? null : timeHint?.date ?? null,
+    captureTimeLabel: timeHint?.source === "file-last-modified"
+      ? "僅找到檔案最後修改時間，不能代表拍攝時間，請手動選擇"
+      : timeHint?.label || "未找到 168 小時內且為台北時間 05:00–19:59 的可信時間，請手動填寫",
     spotId: suggestedSpotId || currentSpotId,
     spotLabel: suggestedSpotId
       ? "依影片內嵌位置建議浪點，請確認；位置本身不會送出或保存"

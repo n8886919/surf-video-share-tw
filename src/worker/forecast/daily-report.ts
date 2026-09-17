@@ -91,10 +91,10 @@ export async function runDailyForecastReport(
       ? await completedSlots(env.DB, day, "mfwam_far") : null;
     const message = [
       `昨日預報更新（${day}）`,
-      `CWA：應更新 4 次，成功 ${cwa} 次`,
+      `CWA 模型批次：應收錄 4 批，完整收錄 ${cwa} 批`,
       `MFWAM 近兩天：應更新 4 次，成功 ${mfwam} 次`,
       far === null ? "MFWAM 後三天：尚未累積完整一天" : `MFWAM 後三天：應更新 2 次，成功 ${far} 次`,
-      "成功指全浪點收錄完成（含相同資料），不是官方發布新版本次數。",
+      "CWA 同一模型批次只算一次；MFWAM 成功指全浪點收錄完成（含相同資料）。",
     ].join("\n");
     await env.DB.prepare(
       `INSERT OR IGNORE INTO forecast_daily_reports

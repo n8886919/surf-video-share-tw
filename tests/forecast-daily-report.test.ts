@@ -47,7 +47,7 @@ describe("daily forecast reporting", () => {
     await runDailyForecastReport(value.env, reportTime, line);
     expect(line).toHaveBeenCalledTimes(1);
     const body = JSON.parse(String(line.mock.calls[0][1]?.body));
-    expect(body.messages[0].text).toBe("昨日預報更新（2026-09-08）\nCWA：應更新 4 次，成功 4 次\nMFWAM 近兩天：應更新 4 次，成功 3 次\nMFWAM 後三天：尚未累積完整一天\n成功指全浪點收錄完成（含相同資料），不是官方發布新版本次數。");
+    expect(body.messages[0].text).toBe("昨日預報更新（2026-09-08）\nCWA 模型批次：應收錄 4 批，完整收錄 4 批\nMFWAM 近兩天：應更新 4 次，成功 3 次\nMFWAM 後三天：尚未累積完整一天\nCWA 同一模型批次只算一次；MFWAM 成功指全浪點收錄完成（含相同資料）。");
     expect(value.queries.some(sql => sql.includes("forecast_snapshots"))).toBe(false);
     const readQuery = value.queries.find(sql => sql.includes("SELECT slot_at, completed_at"));
     const plan = value.sqlite.prepare(`EXPLAIN QUERY PLAN ${readQuery}`)
@@ -74,7 +74,7 @@ describe("daily forecast reporting", () => {
     const line = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
     await runDailyForecastReport(value.env, reportTime, line);
     const text = String(line.mock.calls[0][1]?.body);
-    expect(text).toContain("CWA：應更新 4 次，成功 3 次");
+    expect(text).toContain("CWA 模型批次：應收錄 4 批，完整收錄 3 批");
     expect(text).toContain("MFWAM 近兩天：應更新 4 次，成功 4 次");
     expect(text).toContain("MFWAM 後三天：應更新 2 次，成功 2 次");
     expect(value.sqlite.prepare("SELECT * FROM forecast_update_runs ORDER BY run_key").all()).toEqual(before);
@@ -96,12 +96,41 @@ describe("daily forecast reporting", () => {
     ]);
   });
 
+  it("counts repeated CWA completions as one model batch regardless of follow-up time", async () => {
+    at(reportTime);
+    const value = await trackedFixture(3, 4);
+    const slot = expectedForecastSlots(yesterday, "cwa")[1];
+    for (const time of ["2026-09-08T07:20:00Z", "2026-09-08T08:20:00Z"]) {
+      await recordForecastUpdate(value.db, "cwa", slot, true, new Date(time));
+    }
+    const line = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    await runDailyForecastReport(value.env, reportTime, line);
+    expect(String(line.mock.calls[0][1]?.body)).toContain("CWA 模型批次：應收錄 4 批，完整收錄 3 批");
+    expect(value.sqlite.prepare("SELECT COUNT(*) AS count FROM forecast_update_runs WHERE source = 'cwa'").get()?.count).toBe(3);
+  });
+
+  it("keeps an existing old-wording report frozen during retry", async () => {
+    at(reportTime);
+    const value = await trackedFixture(3, 4);
+    const line = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 503 }));
+    await expect(runDailyForecastReport(value.env, reportTime, line)).rejects.toThrow("503");
+    const oldMessage = "昨日預報更新（2026-09-08）\nCWA：應更新 4 次，成功 3 次\n成功指全浪點收錄完成（含相同資料），不是官方發布新版本次數。";
+    value.sqlite.prepare("UPDATE forecast_daily_reports SET message = ?").run(oldMessage);
+    const retryKey = value.sqlite.prepare("SELECT retry_key FROM forecast_daily_reports").get()?.retry_key;
+    const retryAt = new Date("2026-09-09T10:05:00+08:00"); at(retryAt);
+    line.mockResolvedValue(new Response(null, { status: 200 }));
+    await runDailyForecastReport(value.env, retryAt, line);
+    expect(JSON.parse(String(line.mock.calls[1][1]?.body)).messages[0].text).toBe(oldMessage);
+    expect(new Headers(line.mock.calls[1][1]?.headers).get("X-Line-Retry-Key")).toBe(retryKey);
+  });
+
   it("reports zero when no slot completed and tracking already existed", async () => {
     at(reportTime);
     const value = await trackedFixture(0, 0);
     const line = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
     await runDailyForecastReport(value.env, reportTime, line);
-    expect(String(line.mock.calls[0][1]?.body).match(/成功 0 次/gu)).toHaveLength(2);
+    expect(String(line.mock.calls[0][1]?.body)).toContain("CWA 模型批次：應收錄 4 批，完整收錄 0 批");
+    expect(String(line.mock.calls[0][1]?.body)).toContain("MFWAM 近兩天：應更新 4 次，成功 0 次");
   });
 
   it("skips the partial launch day instead of fabricating historical failure counts", async () => {

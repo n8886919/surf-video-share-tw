@@ -177,4 +177,27 @@ describe("bounded client video metadata", () => {
     });
     expect(Object.keys(prefill)).not.toContain("location");
   });
+
+  it("leaves capture time empty when only a recent file modification timestamp exists", () => {
+    const now = new Date("2026-09-13T06:23:00Z");
+    const prefill = resolveUploadPrefill({ recordedAt: null, containerCreatedAt: null, location: null, bytesRead: 0 },
+      new Date("2026-09-13T06:15:00Z").getTime(), "double-lions", [], now);
+    expect(prefill.capturedAt).toBeNull();
+    expect(prefill.captureTimeLabel).toContain("不能代表拍攝時間");
+  });
+
+  it.each(["2026-09-06T06:22:59.999Z", "2026-09-13T06:23:00.001Z", "2026-09-12T12:00:00Z"])(
+    "does not replace an ineligible original recording time %s with a recent export timestamp", capturedAt => {
+      const now = new Date("2026-09-13T06:23:00Z");
+      const prefill = resolveUploadPrefill({ recordedAt: new Date(capturedAt), containerCreatedAt: new Date("2026-09-13T06:15:00Z"), location: null, bytesRead: 0 },
+        now.getTime(), "double-lions", [], now);
+      expect(prefill.capturedAt).toBeNull();
+    });
+
+  it("still prefills an eligible recording time at exactly 168 hours and a container time when no recording time exists", () => {
+    const now = new Date("2026-09-13T06:23:00Z");
+    const boundary = new Date("2026-09-06T06:23:00Z");
+    expect(resolveUploadPrefill({ recordedAt: boundary, containerCreatedAt: now, location: null, bytesRead: 0 }, now.getTime(), "", [], now).capturedAt).toEqual(boundary);
+    expect(resolveUploadPrefill({ recordedAt: null, containerCreatedAt: now, location: null, bytesRead: 0 }, now.getTime(), "", [], now).capturedAt).toEqual(now);
+  });
 });

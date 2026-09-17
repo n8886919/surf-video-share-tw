@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 
 /** Optional upload help and draft protection; never an extra consent step. */
-export function UploadDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function UploadDialog({ title, onClose, children, showCloseButton = true }: { title: string; onClose: () => void; children: ReactNode; showCloseButton?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -20,7 +20,7 @@ export function UploadDialog({ title, onClose, children }: { title: string; onCl
       const box = event.currentTarget.getBoundingClientRect();
       if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) onClose();
     }}>
-    <div className="upload-dialog-heading"><h2 id={titleId}>{title}</h2><button type="button" onClick={onClose} aria-label="關閉視窗">×</button></div>
+    <div className="upload-dialog-heading"><h2 id={titleId}>{title}</h2>{showCloseButton && <button type="button" onClick={onClose} aria-label="關閉視窗">×</button>}</div>
     {children}
   </dialog>;
 }

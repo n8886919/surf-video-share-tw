@@ -252,7 +252,6 @@ select:focus, input:focus { border-color: var(--sea); box-shadow: 0 0 0 3px rgba
 .target-forecast-visual { padding-inline: 4px; }
 .target-forecast-visual strong { font-size: 11px; white-space: nowrap; }
 .two-fields > * { min-width: 0; }
-.two-fields input[type="datetime-local"] { min-width: 0; padding-inline: 8px; font-size: 12px; }
 .filtered-video-count { margin: -5px 0 15px; color: var(--soft); font-size: 12px; }
 /* Region colors apply only to Find/My buttons; keep order, sizing and layout. */
 button[data-region="north"] { --region-ink: #355989; --region-fill: #e4ecf7; --region-selected: #cadcf4; }
@@ -269,12 +268,12 @@ button[data-region="southwest"] { --region-ink: #825324; --region-fill: #f6ebd9;
 .upload-confidence-help { min-height: 32px; }
 .upload-fields { grid-template-columns: minmax(0,2fr) minmax(0,3fr); gap: 10px; }
 .upload-fields select { height: 58px; font-size: 14px; padding-inline: 10px; }
-.capture-time-field { position: relative; display: block; height: 58px; border: 1px solid #c9dad6; border-radius: 14px; background: white; }
+.capture-time-field { position: relative; display: block; width: 100%; height: 58px; padding: 0; border: 1px solid #c9dad6; border-radius: 14px; background: white; cursor: pointer; }
 .capture-time-field:focus-within { outline: 3px solid #08718340; outline-offset: 2px; }
 .capture-time-field > .capture-time-display { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; gap: 4px; margin: 0; padding: 0 10px; color: var(--ink); font-size: 14px; font-weight: 400; pointer-events: none; }
-.capture-time-field input[type="datetime-local"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; font-size: 16px; cursor: pointer; }
-.capture-time-field:focus-within > .capture-time-display { visibility: hidden; }
-.capture-time-field:focus-within input[type="datetime-local"] { opacity: 1; font-size: 12px; }
+.capture-time-options { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; }
+.capture-time-options .capture-date-option { grid-column: 1 / -1; }
+.capture-time-options select { font-size: 16px; }
 .upload-submit { height: auto; min-height: 74px; padding: 12px 8px; border: 1.5px solid var(--sea); border-bottom-width: 3px; border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font-size: 17px; }
 .upload-submit small { font-size: 11px; font-weight: 400; line-height: 1.5; }
 .upload-submit:disabled { color: #35565d; background: #bfd5d0; border-color: #bfd5d0; }

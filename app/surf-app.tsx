@@ -1477,6 +1477,7 @@ function UploadView({ spots, me, onComplete, navigationRef }: { spots: Spot[]; m
   }, []);
   const [spotId, setSpotId] = useState("");
   const [capturedAt, setCapturedAt] = useState("");
+  const captureTimeManuallySet = useRef(false);
   const [captureTimeHint, setCaptureTimeHint] = useState("");
   const [spotHint, setSpotHint] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -1535,8 +1536,14 @@ function UploadView({ spots, me, onComplete, navigationRef }: { spots: Spot[]; m
       if (selectedId !== selectionId.current) return;
       if (!Number.isFinite(seconds) || seconds < MIN_VIDEO_DURATION_SECONDS || seconds > MAX_VIDEO_DURATION_SECONDS) throw new Error("影片長度必須為 10–60 秒");
       const prefill = resolveUploadPrefill(metadata, selected.lastModified, spotId, spots);
-      setCapturedAt(prefill.capturedAt ? toLocalDateTime(prefill.capturedAt) : "");
-      setCaptureTimeHint(prefill.captureTimeLabel);
+      // Read the live ref after both asynchronous reads: manual input may have
+      // changed since selection began, and must also survive file replacement.
+      if (!captureTimeManuallySet.current) {
+        setCapturedAt(prefill.capturedAt ? toLocalDateTime(prefill.capturedAt) : "");
+        setCaptureTimeHint(prefill.captureTimeLabel);
+      } else {
+        setCaptureTimeHint("保留手選拍攝時間，請確認與這支影片相符");
+      }
       setSpotId(prefill.spotId);
       setSpotHint(prefill.spotLabel);
       setDuplicateVideoId(null);
@@ -1660,7 +1667,7 @@ function UploadView({ spots, me, onComplete, navigationRef }: { spots: Spot[]; m
       </section>
       <div className="two-fields upload-fields">
         <div><select aria-label="浪點" required value={spotId} onChange={(event) => { setSpotId(event.target.value); setSpotHint("已手動選擇"); }}><option value="">浪點</option>{spots.map((spot) => <option key={spot.id} value={spot.id}>{spot.name}</option>)}</select>{spotHint && <small className="field-hint">{spotHint}</small>}</div>
-        <div><CaptureTimeInput value={capturedAt} min={toLocalDateTime(new Date(now.getTime() - 7 * 86_400_000))} max={toLocalDateTime(now)} onChange={value => { setCapturedAt(value); setCaptureTimeHint("已手動調整，送出前請確認"); }}/>{captureTimeHint && <small className="field-hint">{captureTimeHint}</small>}</div>
+        <div><CaptureTimeInput value={capturedAt} now={now} onChange={value => { captureTimeManuallySet.current = true; setCapturedAt(value); setCaptureTimeHint("已手動調整，送出前請確認"); }}/>{captureTimeHint && <small className="field-hint">{captureTimeHint}</small>}</div>
       </div>
       {error && <div className="error-message">{error}</div>}
       {hashNotice && <p className="field-hint" role="status">{hashNotice}</p>}
