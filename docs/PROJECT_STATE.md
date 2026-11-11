@@ -22,7 +22,11 @@ The real Stream API returned `upload.cloudflarestream.com`; the adapter now allo
 
 Production preflight confirms the three new secret names and enabled query-string redaction. A read-only dry run of the proposed 0.41 retention policy scanned 4,000 forecasts and found 2,000 eligible candidates in that bounded page; zero rows were deleted or written (4,029 rows read including protection/state reads). This is not a whole-database estimate. The owner explicitly approved this policy and deployment of the current branch on 2026-11-11 after reviewing these bounds. The 0.41 retention approval gate is satisfied.
 
-**Next task:** Ask the owner to send a 10–60 second video to @792vlmeo and leave it unconfirmed; verify the real signed event, card, preserved metadata and private Messaging API-to-Stream transfer before testing public confirmation with a suitable surf contribution.
+Real phone acceptance on 2026-11-11 reached private draft creation and actual Messaging API content retrieval. A local diagnostic streamed those bytes through the production transfer adapter into a private Stream asset; it became ready (15.8 seconds) and was deleted, without confirming the draft or creating a public observation. The received file is byte-identical to the earlier Manager download and still has no supported recording timestamp or GPS. This verifies the provider adapters, not the confirmed production transfer queue. The owner reports no card after multiple sends; receipt alone is not end-to-end acceptance. The actual persisted draft passes domain validation and LINE's real card-validation endpoint. Main and the handoff branch were promoted to `719eaae`; its GitHub CI passed.
+
+A bounded reply-diagnostics fix is deployed as Worker `131262e2-c573-4e1f-ad9a-fb7dab14c132`: non-token HTTP 400 errors no longer silently acknowledge an event, and reply outcomes/errors emit fixed classifications without provider bodies or identities. Full `pnpm verify` passed 427 unit/integration tests, five built-runtime tests and 43 Chromium tests; health/readiness and webhook activation passed after deployment, with free push usage still 0/200. The cause of missing cards is not yet established. The owner has been asked to send a short text message to obtain a fresh reply token and recover the existing card while live diagnostics are attached.
+
+**Next task:** Capture the next real text-message reply outcome, fix the missing LINE card, and verify physical-phone delivery before attempting a suitable public surf contribution.
 
 ## Product 0.41 development handoff
 

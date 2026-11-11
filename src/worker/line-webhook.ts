@@ -88,6 +88,7 @@ export async function handleLineEvents(env: AppEnv, payload: ReturnType<typeof l
         || now.getTime() - event.timestamp > WEEK || event.timestamp > now.getTime() + 300_000) continue;
       const reply = async (messages: unknown[]) => {
         if (event.replyToken) await replyToLine(env.LINE_UPLOAD_CHANNEL_ACCESS_TOKEN!, event.replyToken, messages);
+        else console.warn("LINE_REPLY_TOKEN_MISSING");
       };
       if (!["message", "postback", "unsend"].includes(event.type)) {
         if (event.type === "follow") await reply([text("直接傳送 10–60 秒的浪況影片，選好拍攝時間與浪點後，按「確認上傳」。")]);
@@ -183,7 +184,9 @@ export async function handleLineEvents(env: AppEnv, payload: ReturnType<typeof l
       await enqueueLineDraft(env, row);
       await reply([draftCard(row, spots, env.PUBLIC_SITE_ORIGIN!)]);
     }
-  } catch {
+  } catch (error) {
+    // Classification only: exception bodies may contain private database/provider values.
+    console.warn("LINE_EVENT_FAILED", error instanceof Error ? error.name : "UnknownError");
     throw new Error("LINE_EVENT_RETRY");
   }
 }
