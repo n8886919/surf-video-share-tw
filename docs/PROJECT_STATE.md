@@ -26,9 +26,9 @@ Real phone acceptance on 2026-11-11 reached private draft creation and actual Me
 
 A bounded reply-diagnostics fix (`f8bf73b`, promoted to main and the handoff branch) exposed `TypeError` on every attempt to recover a card from a real text message. The root cause is `redirect: "error"`, which Node accepts but Cloudflare Workers rejects before issuing a request. All three affected adapters (LINE content, LINE reply and Stream transfer) now use `manual` and explicitly reject unsuccessful responses. A real workerd regression first reproduced the unsupported-mode failure, then passed success and redirect-rejection cases for all three adapters, without forwarding tokens/video bytes to redirect destinations. It is included in the regular release checks.
 
-The runtime fix is deployed as Worker `ab7a3169-bb2e-4ff2-b848-7601f71570bf`. Full `pnpm verify` passed 427 unit/integration tests, six built-runtime tests and 43 Chromium tests (`work/line-worker-runtime-verify.log`). Post-deploy health/readiness, active webhook and query-string redaction checks passed; free push usage remains 0/200. The owner has been asked to send one short text message to verify physical-phone delivery of the recovered card. No confirmation/publication was performed.
+The runtime fix (`814ce53`, pushed to main and the handoff branch) is deployed as Worker `ab7a3169-bb2e-4ff2-b848-7601f71570bf`. Full `pnpm verify` passed 427 unit/integration tests, six built-runtime tests and 43 Chromium tests (`work/line-worker-runtime-verify.log`). Post-deploy health/readiness, active webhook and query-string redaction checks passed; free push usage remains 0/200. The owner sent a real text message and confirmed that the card arrived on their phone; production queue logs independently recorded `LINE_REPLY_ACCEPTED` without exceptions. The latest draft remains unconfirmed, with no selected capture fields. The owner has been asked to check the spot/time controls without confirming or entering fabricated test metadata. No confirmation/publication was performed.
 
-**Next task:** Verify the recovered card arrives on the owner's phone after the runtime fix, then exercise its spot/time buttons without publishing the test video.
+**Next task:** Verify the LINE spot/time controls on the owner's phone without publishing the test video.
 
 ## Product 0.41 development handoff
 

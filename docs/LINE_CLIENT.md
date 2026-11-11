@@ -1,6 +1,6 @@
 # LINE client — implementation brief
 
-Updated: 2026-11-11. Signed webhook, durable drafts and queued transfer are deployed after owner approval. Real phone messages create private drafts, and actual Messaging API content passed a private Stream adapter test. A Workers-incompatible redirect mode caused missing replies and is now fixed/deployed; physical-phone delivery and confirmed production queue acceptance remain pending.
+Updated: 2026-11-11. Signed webhook, durable drafts and queued transfer are deployed after owner approval. Real phone messages create private drafts, and actual Messaging API content passed a private Stream adapter test. A Workers-incompatible redirect mode caused missing replies and is now fixed/deployed. The owner confirms the recovered card arrived on their phone, corroborated by successful production reply logs. Physical-phone spot/time interaction and confirmed production transfer acceptance remain pending.
 
 ## Implementation and first sample
 
