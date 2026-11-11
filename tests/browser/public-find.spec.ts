@@ -237,6 +237,40 @@ async function mockPublicApi(page: Page, delayedSpotId?: string) {
   });
 }
 
+for (const [orientation, width, height] of [["portrait", 90, 160], ["landscape", 160, 90]] as const) {
+  test(`${orientation} thumbnails stay inside the card and crop from the center`, async ({ page }) => {
+    await mockPublicApi(page);
+    const thumbnailUrl = `data:image/svg+xml,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><path fill="#e33" d="M0 0h${width}v${height}H0z"/><path fill="#098" d="M0 ${height / 3}h${width}v${height / 3}H0z"/></svg>`,
+    )}`;
+    await page.route("**/api/v1/matches?**", async route => {
+      const response = matchesResponse(route.request().url(), spots[0].id, spots[0].name);
+      for (const item of [...response.observations, ...response.timeWindowObservations]) {
+        Object.assign(item.video, { thumbnailUrl });
+      }
+      await fulfillJson(route, 200, response);
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "找影片", exact: true }).click();
+    const cards = page.locator(".candidate-thumbnail");
+    await expect(cards).toHaveCount(3);
+    for (const card of await cards.all()) {
+      const img = card.locator("img");
+      await img.scrollIntoViewIfNeeded();
+      await expect.poll(() => img.evaluate(node => (node as HTMLImageElement).naturalHeight)).toBe(height);
+      const frame = (await card.boundingBox())!;
+      const rendered = (await img.boundingBox())!;
+      expect(rendered.x).toBeCloseTo(frame.x, 0);
+      expect(rendered.y).toBeCloseTo(frame.y, 0);
+      expect(rendered.width).toBeCloseTo(frame.width, 0);
+      expect(rendered.height).toBeCloseTo(frame.height, 0);
+      await expect(img).toHaveCSS("object-fit", "cover");
+      await expect(img).toHaveCSS("object-position", "50% 50%");
+    }
+    await page.screenshot({ path: `outputs/thumbnail-${orientation}-center.png`, fullPage: true });
+  });
+}
+
 test("selected forecast freshness is independent of Search and discards stale selection responses", async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-09-08T08:20:00Z"));
   await mockPublicApi(page);

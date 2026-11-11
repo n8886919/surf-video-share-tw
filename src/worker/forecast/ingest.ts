@@ -1,7 +1,7 @@
 import type { AppEnv } from "../db";
 import { recordForecastUpdate } from "./daily-report";
 import {
-  fetchOpenMeteoMarineModel,
+  fetchOpenMeteoMarineModelBatch,
   OPEN_METEO_WAVE_MODELS,
   type OpenMeteoWaveModel,
 } from "./open-meteo";
@@ -35,8 +35,10 @@ async function ingestOpenMeteoModel(
   forecastHours?: number,
   sourceVersion?: string,
 ): Promise<ForecastProviderResult> {
-  const results = await Promise.allSettled(spots.map(async (spot) => {
-    const snapshots = await fetchOpenMeteoMarineModel(spot, retrievedAt, model, fetchImpl, { forecastHours, sourceVersion });
+  const fetched = await fetchOpenMeteoMarineModelBatch(spots, retrievedAt, model, fetchImpl, { forecastHours, sourceVersion });
+  const results = await Promise.allSettled(fetched.map(async (result) => {
+    if (result.status === "rejected") throw result.reason;
+    const snapshots = result.value;
     if (!snapshots.length) throw new Error(`Open-Meteo returned no usable ${model} forecasts`);
     if (model === "meteofrance_wave" && !hasHourlyCoverage(snapshots, retrievedAt, forecastHours ?? 126)) {
       throw new Error("MFWAM response does not cover the requested hourly collection window");

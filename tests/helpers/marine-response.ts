@@ -6,3 +6,12 @@ export function marineResponse(url: URL, now = new Date()) {
     wave_height: Array(count).fill(1), wave_direction: Array(count).fill(90), wave_period: Array(count).fill(8),
   } };
 }
+
+export function marineBatchResponse(url: URL, now = new Date()) {
+  const latitudes = url.searchParams.get("latitude")!.split(",").map(Number);
+  const longitudes = url.searchParams.get("longitude")!.split(",").map(Number);
+  const responses = latitudes.map((latitude, index) => ({
+    ...marineResponse(url, now), latitude, longitude: longitudes[index], location_id: index,
+  }));
+  return responses.length === 1 ? responses[0] : responses;
+}

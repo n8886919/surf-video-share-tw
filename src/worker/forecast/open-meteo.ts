@@ -277,17 +277,16 @@ export async function parseOpenMeteoEcmwfWam(
   return parseOpenMeteoMarineModel(payload, spot, retrievedAt, "ecmwf_wam");
 }
 
-export async function fetchOpenMeteoMarineModel(
-  spot: ForecastSpot,
-  retrievedAt: string,
+async function fetchMarineResponses(
+  spots: ForecastSpot[],
   model: OpenMeteoWaveModel,
-  fetchImpl: typeof fetch = fetch,
-  options: { forecastHours?: number; sourceVersion?: string } = {},
-): Promise<ForecastSnapshotInput[]> {
+  fetchImpl: typeof fetch,
+  options: { forecastHours?: number },
+): Promise<unknown[]> {
   const config = modelConfig(model);
   const url = new URL(OPEN_METEO_MARINE_URL);
-  url.searchParams.set("latitude", String(spot.latitude));
-  url.searchParams.set("longitude", String(spot.longitude));
+  url.searchParams.set("latitude", spots.map(spot => spot.latitude).join(","));
+  url.searchParams.set("longitude", spots.map(spot => spot.longitude).join(","));
   url.searchParams.set("hourly", hourlyVariables.join(","));
   url.searchParams.set("models", model);
   url.searchParams.set("forecast_hours", String(options.forecastHours ?? config.forecastHours));
@@ -295,19 +294,67 @@ export async function fetchOpenMeteoMarineModel(
   url.searchParams.set("timezone", "GMT");
   url.searchParams.set("cell_selection", "sea");
 
-  let response = await fetchImpl(url, {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(30_000),
-  });
-  // One immediate retry for transient server failure. Never retry 4xx/rate limits in a loop.
-  if ([502, 503, 504].includes(response.status) && !response.headers.has("retry-after")) {
-    await response.body?.cancel();
-    response = await fetchImpl(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+  // At most two requests per model, including a timeout while reading the body.
+  // Four models use eight fetches at worst, leaving room for cleanup and alerts.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const signal = AbortSignal.timeout(30_000);
+    try {
+      const response = await fetchImpl(url, { headers: { accept: "application/json" }, signal });
+      if (!response.ok) {
+        const retryable = [502, 503, 504].includes(response.status) && !response.headers.has("retry-after");
+        await response.body?.cancel();
+        if (attempt === 0 && retryable) continue;
+        throw new Error(`Open-Meteo ${config.displayName} returned HTTP ${response.status}`);
+      }
+      const payload: unknown = await response.json();
+      const responses = Array.isArray(payload) ? payload : [payload];
+      if (responses.length !== spots.length) {
+        throw new Error(`Open-Meteo returned ${responses.length} locations for ${spots.length} requested spots`);
+      }
+      return responses;
+    } catch (error) {
+      if (attempt === 0 && signal.aborted) continue;
+      throw error;
+    }
   }
-  if (!response.ok) {
-    throw new Error(`Open-Meteo ${config.displayName} returned HTTP ${response.status}`);
+  throw new Error("Open-Meteo request attempts exhausted");
+}
+
+export async function fetchOpenMeteoMarineModelBatch(
+  spots: ForecastSpot[],
+  retrievedAt: string,
+  model: OpenMeteoWaveModel,
+  fetchImpl: typeof fetch = fetch,
+  options: { forecastHours?: number; sourceVersion?: string } = {},
+): Promise<PromiseSettledResult<ForecastSnapshotInput[]>[]> {
+  if (!spots.length) return [];
+  let responses: unknown[];
+  try {
+    responses = await fetchMarineResponses(spots, model, fetchImpl, options);
+  } catch (reason) {
+    return spots.map(() => ({ status: "rejected", reason }));
   }
-  return parseOpenMeteoMarineModel(await response.json(), spot, retrievedAt, model, options);
+  // The multi-coordinate API returns locations in request order. Validate its
+  // optional location ID too, and keep malformed locations isolated by spot.
+  return Promise.allSettled(spots.map(async (spot, index) => {
+    const { location_id: locationId } = z.object({ location_id: z.number().int().nonnegative().optional() }).parse(responses[index]);
+    if (locationId !== undefined && locationId !== index) {
+      throw new Error("Open-Meteo returned an unexpected location order");
+    }
+    return parseOpenMeteoMarineModel(responses[index], spot, retrievedAt, model, options);
+  }));
+}
+
+export async function fetchOpenMeteoMarineModel(
+  spot: ForecastSpot,
+  retrievedAt: string,
+  model: OpenMeteoWaveModel,
+  fetchImpl: typeof fetch = fetch,
+  options: { forecastHours?: number; sourceVersion?: string } = {},
+): Promise<ForecastSnapshotInput[]> {
+  const [result] = await fetchOpenMeteoMarineModelBatch([spot], retrievedAt, model, fetchImpl, options);
+  if (result.status === "rejected") throw result.reason;
+  return result.value;
 }
 
 export async function fetchOpenMeteoEcmwfWam(

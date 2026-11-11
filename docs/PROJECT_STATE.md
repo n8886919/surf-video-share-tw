@@ -1,5 +1,11 @@
 # Project state
 
+## Product 0.41 development handoff
+
+This branch preserves the 0.41 work in progress, including batched Open-Meteo collection, the capped scheduled video cleanup, centered thumbnail cropping, and the proposed fixed-capture forecast retention policy. The retention change needs owner approval before release. The pre-release dry run and reviewed deployment procedure are in [Operations](OPERATIONS.md).
+
+**Next task:** Obtain approval for the proposed retention policy before promoting this branch. Keep the original incident evidence and rollback data in the private handoff archive.
+
 Updated: 2026-09-17
 
 ## Product 0.37 deployed / CWA App 0.6.2 published

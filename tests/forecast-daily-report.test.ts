@@ -1,4 +1,4 @@
-import { marineResponse } from "./helpers/marine-response";
+import { marineBatchResponse } from "./helpers/marine-response";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { expectedForecastSlots, recordForecastUpdate, runDailyForecastReport } from "../src/worker/forecast/daily-report";
 import { runScheduledForecastIngestion } from "../src/worker/forecast/ingest";
@@ -212,14 +212,14 @@ describe("daily forecast reporting", () => {
 describe("scheduled MFWAM success accounting", () => {
   it.each(["complete", "partial", "failed"])("counts only complete MFWAM slots: %s", async status => {
     const value = fixture();
-    let mfwamCalls = 0;
     const line = vi.fn<typeof fetch>(async input => {
       const url = new URL(String(input));
       expect(url.host).not.toBe("api.line.me");
       if (url.searchParams.get("models") === "meteofrance_wave") {
-        mfwamCalls++;
-        if (status === "failed" || (status === "partial" && mfwamCalls === 1)) return new Response(null, { status: 500 });
-        return Response.json(marineResponse(url));
+        if (status === "failed") return new Response(null, { status: 500 });
+        const response = marineBatchResponse(url);
+        if (status === "partial" && Array.isArray(response)) response[0].hourly.wave_height[0] = null;
+        return Response.json(response);
       }
       // Collect-only failures cannot turn a complete MFWAM run into a failure.
       return new Response(null, { status: 500 });

@@ -1,5 +1,7 @@
 # Product
 
+相似歷史實拍與近兩小時影片卡片的縮圖固定填滿卡片、置中裁切；直式影片顯示畫面中央，原始比例不變，避免圖片撐高卡片內部而只露出上方。播放、原始影片及供應商縮圖參數不變。
+
 Before uploading, check for the same original file among all accounts' public videos uploaded within the previous 24 hours. A match presents「最近 24 小時已有相同檔案的公開影片，可以先查看，避免重複上傳。」with「查看已有影片」and instructions to select a different file or report a suspected mistake with the displayed public video ID. Viewing revalidates public metadata and opens the existing rate-limited player in the upload screen; closing it preserves the chosen file and fields, without requiring a share token or creating an export link. No override button or automatic overwrite is provided. This is an exact-file check based on an unverified client claim, not visual similarity detection or an ownership determination. Other accounts' private, pending, failed, expired and delisted videos are excluded. Old videos without a stored original-file fingerprint cannot be matched; changing the filename alone still matches, while edits/re-encoding can change the fingerprint. Hashing failure leaves the core upload flow available. The 24-hour window is measured from the first server-recorded upload completion, not capture time, calendar midnight or the most recent status check.
 
 上傳前填妥浪點與拍攝日期時間（以 `Asia/Taipei` 處理，拍攝時間欄位開啟日期／時／分下拉選擇，時分固定以 24 小時制顯示）；移除預設浪點與尚未選檔時的時間來源提示。檢查檔案、取得票券、直接傳送影片與確認接收期間，以原生 modal dialog 阻擋底層點擊及鍵盤操作、模糊遮罩和離頁提醒保護流程。進度條的百分比只來自實際傳送位元組；檢查與建票階段不捏造百分比。交付伺服器後回到「我的」，轉檔可繼續進行；我的頁對轉檔影片最多每 20 秒重查一次、共六次，離頁即停止。自己影片的播放視窗不提供檢舉按鈕，公開搜尋影片仍保留檢舉。

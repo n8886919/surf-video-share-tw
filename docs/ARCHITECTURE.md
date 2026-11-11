@@ -51,7 +51,7 @@ Playback feedback is event-based: a signed one-use token is accepted only after 
 
 ## Forecast path
 
-Cloudflare Cron runs every six hours and makes one independent Open-Meteo Marine request per active spot and model:
+Cloudflare Cron runs every six hours and makes one independent multi-coordinate Open-Meteo Marine request per model for all active spots:
 
 | Model | Role | Requested window |
 |---|---|---|
@@ -67,6 +67,8 @@ Open-Meteo model fields are normalized without cross-model assumptions. MFWAM an
 CWA computation remains in the outbound-only Home Assistant adapter because the official archive exceeds Workers Free CPU. It reads active coordinates from an HMAC-authenticated endpoint, streams the bounded F-A0020-001 ZIP, keeps three-hourly 0–72-hour rows, selects each spot's reviewed nearest F-A0021-001 location, and submits at most five rows per request with the LocationId in provenance. The Worker revalidates provider/model/spot/time/the nearest tide allowlist, recomputes stable IDs, and writes with `INSERT OR IGNORE`. After every row is accepted, the App sends a separately signed completion request. The Worker first checks the small operational run ledger, then verifies all twenty-five 0–72-hour leads at every active spot through a partial covering run index. It records completion without sending per-run LINE. MFWAM records each scheduled attempt separately and marks it complete only after every spot succeeds; operational slot timestamps never replace upstream model-run timestamps. The existing hourly task sends one combined prior-day CWA/MFWAM count at 09:05 Asia/Taipei, with a persisted message, claim and LINE retry key. See [Operations](OPERATIONS.md#daily-forecast-report-product-028) for counting, rollout and retry semantics.
 
 Every provider/model/run/valid row is immutable. D1 never averages models or overwrites an older snapshot when a provider changes.
+
+Product 0.41 retains all recent/future forecast rows until their `valid_at` is older than eight days. Older rows remain while any stored video at that spot needs them in its fixed capture ±4-hour neighbourhood, across all statuses and all independently stored models. The retired seven-day capture-edit window is not kept: upload fixes spot/capture time before issuing the Stream ticket, and metadata updates cannot change either. Unknown/invalid dates remain conservative. The hourly task rechecks live video protection in its DELETE, scans at most 4,000 rowids, deletes at most 2,000 rows and observes a 25,000-write UTC-day cleanup ceiling with a 1,000 reserve. This bounds current collection/history growth without a new index, provider or schedule; backlog clearance and actual account-wide Free usage remain operational checks.
 
 ## Operations boundary
 

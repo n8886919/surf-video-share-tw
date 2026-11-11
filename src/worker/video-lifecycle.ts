@@ -146,7 +146,9 @@ export async function runScheduledExpiredVideoCleanup(
   scheduledAt: Date,
 ): Promise<ExpiredVideoCleanupSummary> {
   try {
-    const summary = await cleanupExpiredPendingVideos(env, scheduledAt);
+    // Each complete upload can need a status read plus deletion. Reserve the
+    // shared invocation's remaining external requests for forecasts and alerts.
+    const summary = await cleanupExpiredPendingVideos(env, scheduledAt, { limit: 10 });
     const log = JSON.stringify({ event: "expired_video_cleanup", scheduledAt: scheduledAt.toISOString(), ...summary });
     if (summary.failed) console.warn(log);
     else console.log(log);

@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppEnv } from "../src/worker/db";
 import { CloudflareStreamVideoProvider } from "../src/worker/providers/cloudflare-stream";
 import type { VideoProvider } from "../src/worker/providers/types";
-import { cleanupExpiredPendingVideos } from "../src/worker/video-lifecycle";
+import { cleanupExpiredPendingVideos, runScheduledExpiredVideoCleanup } from "../src/worker/video-lifecycle";
 
 interface TestVideo {
   id: string;
   video_provider: string;
   provider_video_id: string;
-  metadata_status: "pending" | "deleting";
+  metadata_status: "pending" | "deleting" | "complete";
   updated_at: string;
 }
 
@@ -18,7 +18,7 @@ function lifecycleDatabase(videos: TestVideo[], claimableIds = videos.map((video
   const db = {
     prepare: (sql: string) => ({
       bind: (...values: unknown[]) => ({
-        all: async () => ({ results: videos }),
+        all: async () => ({ results: videos.slice(0, Number(values.at(-1))) }),
         run: async () => {
           const videoId = String(values[1] ?? values[0]);
           if (sql.includes("UPDATE videos SET metadata_status = 'deleting'")) {
@@ -53,6 +53,19 @@ afterEach(() => {
 });
 
 describe("expired pending video cleanup", () => {
+  it("reserves forecast and alert requests when scheduled cleanup needs both status reads and deletes", async () => {
+    const videos = Array.from({ length: 12 }, (_, index) => ({ ...video(`video_${index}`), metadata_status: "complete" as const }));
+    const fixture = lifecycleDatabase(videos);
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => new Response(null, { status: init?.method === "DELETE" ? 204 : 404 }));
+    vi.stubGlobal("fetch", fetcher);
+    const summary = await runScheduledExpiredVideoCleanup({
+      DB: fixture.db, VIDEO_PROVIDER: "cloudflare-stream", CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_STREAM_API_TOKEN: "fixture-token",
+    } as AppEnv, new Date("2026-09-24T12:20:00Z"));
+    expect(summary).toMatchObject({ selected: 10, deleted: 10, failed: 0 });
+    expect(fetcher).toHaveBeenCalledTimes(20);
+    expect(fixture.deletions).toEqual(videos.slice(0, 10).map(video => video.id));
+  });
+
   it("claims and deletes expired videos across users", async () => {
     const fixture = lifecycleDatabase([video("video_1"), video("video_2")]);
     const provider = { deleteVideo: vi.fn().mockResolvedValue(undefined) } as unknown as VideoProvider;
