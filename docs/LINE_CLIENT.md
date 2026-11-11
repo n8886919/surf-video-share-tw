@@ -1,6 +1,6 @@
 # LINE client — implementation brief
 
-Updated: 2026-11-11. Signed webhook, durable drafts and queued transfer are implemented; credentials and queues are configured, while production intake remains disabled pending the existing release gate and real Messaging API acceptance.
+Updated: 2026-11-11. Signed webhook, durable drafts and queued transfer are deployed after owner approval. Credentials/queues are configured, the official webhook test passes and chat intake is enabled. Real phone-event/content acceptance remains pending.
 
 ## Implementation and first sample
 
@@ -26,7 +26,7 @@ The new public-facing Official Account is **彼日浪影**, **@792vlmeo**, on th
 
 The owner requested a warm yellow background for the system-notification account's avatar to distinguish the two accounts. `assets/line/ops-avatar.png` was generated from the existing Logo, uploaded, published and visually verified on 2026-11-11. The prompt is recorded alongside the asset. The customer-facing account uses the original teal variant.
 
-The owner subsequently authorized a dedicated Messaging token, now verified and installed in Cloudflare Secrets. Both queues exist with one-day retention. No upload webhook, production bot processing, LIFF app, rich menu or broadcast is enabled. Account/token configuration is not an end-to-end bot test. Keep channel secrets, raw LINE subjects and contact email out of this public repository.
+The owner subsequently authorized a dedicated Messaging token, now verified and installed in Cloudflare Secrets. Both queues have one-day retention. The upload webhook, redelivery and error statistics are enabled; stock greeting/automatic replies are off, with manual chat retained. No LIFF app, rich menu, paid push or broadcast is enabled. Account/token configuration and the signed empty-event test do not establish end-to-end video acceptance. Keep channel secrets, raw LINE subjects and contact email out of this public repository.
 
 For a smooth shared identity, map signed Messaging events and verified Login identities through the same existing internal user service. LINE issues the same user ID for channels under the same Provider; do not create a second user table or trust a client-submitted subject. Missing identities must receive an explicit recovery flow instead of being guessed. Existing user limits and consent still apply.
 

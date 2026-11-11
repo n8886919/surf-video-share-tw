@@ -27,7 +27,7 @@
   },
   "vars": {
     "APP_ENV": "production",
-    "LINE_UPLOAD_ENABLED": "false",
+    "LINE_UPLOAD_ENABLED": "true",
     "AUTH_DIAGNOSTICS_UNTIL": "2026-09-14T00:00:00.000Z",
     "ADMIN_USER_ID": "2129bb4a-1100-4271-a4a6-559957cde120",
     "LINE_CHANNEL_ID": "2011238358",

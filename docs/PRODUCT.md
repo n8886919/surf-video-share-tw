@@ -1,6 +1,6 @@
 # Product
 
-## LINE client pilot (disabled until acceptance)
+## LINE client pilot (enabled; phone acceptance pending)
 
 LINE is another client of the shared service. Send a 10–60 second video in one-to-one chat, select missing capture time/spot or correct suggestions through native buttons, then press **確認上傳**. The card discloses public CC0 contribution; there is no silence-based submission or next-upload correction window. Unknown recording metadata remains unknown. Confirmation fixes both fields. **查看進度** returns progress without counted push messages; **我的影片** opens the same account's web view. A non-video message recovers the latest card. Existing registration limits and web LINE Login remain. Watermarked sharing and recommendations await real upload acceptance. See [LINE client](LINE_CLIENT.md).
 
