@@ -27,7 +27,8 @@ export async function getLineVideoContent(
   if (!accessToken) throw new Error("LINE_CONTENT_NOT_CONFIGURED");
   const response = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
     headers: { authorization: `Bearer ${accessToken}` },
-    redirect: "error",
+    // Workers supports manual/follow only; non-200 responses below are rejected.
+    redirect: "manual",
     signal: signal ?? AbortSignal.timeout(60_000),
   });
   if (response.status !== 200) {

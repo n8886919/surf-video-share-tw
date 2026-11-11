@@ -33,7 +33,7 @@ export async function transferToStream(uploadUrl: string, source: ReadableStream
   try {
     const response = await fetch(url, {
       method: "POST", headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
-      body, signal, redirect: "error",
+      body, signal, redirect: "manual",
       // Node test runtime requires duplex; Workers ignores this standard fetch extension.
       ...{ duplex: "half" },
     });

@@ -1,7 +1,7 @@
 /** Reply-only MVP: no paid push and no automatic bulk messaging. */
 export async function replyToLine(token: string, replyToken: string, messages: readonly unknown[]): Promise<void> {
   const response = await fetch("https://api.line.me/v2/bot/message/reply", {
-    method: "POST", redirect: "error", signal: AbortSignal.timeout(8_000),
+    method: "POST", redirect: "manual", signal: AbortSignal.timeout(8_000),
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ replyToken, messages }),
   });

@@ -78,7 +78,7 @@ describe("LINE authenticated content boundary", () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(new Uint8Array([1, 2]), { headers: { "content-type": "video/mp4" } }));
     vi.stubGlobal("fetch", fetcher);
     const result = await getLineVideoContent("123", "fixture");
-    expect(fetcher).toHaveBeenCalledWith("https://api-data.line.me/v2/bot/message/123/content", expect.objectContaining({ redirect: "error", headers: { authorization: "Bearer fixture" } }));
+    expect(fetcher).toHaveBeenCalledWith("https://api-data.line.me/v2/bot/message/123/content", expect.objectContaining({ redirect: "manual", headers: { authorization: "Bearer fixture" } }));
     expect(result.state).toBe("ready");
     if (result.state === "ready") expect(new Uint8Array(await new Response(result.body).arrayBuffer())).toEqual(new Uint8Array([1, 2]));
     await expect(getLineVideoContent("https://attacker.example", "fixture")).rejects.toThrow("LINE_MESSAGE_ID_INVALID");

@@ -1,6 +1,6 @@
 # LINE client — implementation brief
 
-Updated: 2026-11-11. Signed webhook, durable drafts and queued transfer are deployed after owner approval. Real phone messages create private drafts, and actual Messaging API content passed a private Stream adapter test. The owner reports missing reply cards; physical-phone delivery and confirmed production queue acceptance remain pending.
+Updated: 2026-11-11. Signed webhook, durable drafts and queued transfer are deployed after owner approval. Real phone messages create private drafts, and actual Messaging API content passed a private Stream adapter test. A Workers-incompatible redirect mode caused missing replies and is now fixed/deployed; physical-phone delivery and confirmed production queue acceptance remain pending.
 
 ## Implementation and first sample
 
@@ -15,6 +15,8 @@ Metadata prefill uses a best-effort two-second/four-MiB prefix inspection. Expli
 One owner-provided video was received and downloaded through Official Account Manager with the owner's assistance. It had no supported explicit recording timestamp or GPS, and its container time did not match the owner's stated capture time. A subsequent real Messaging API retrieval is byte-identical to that Manager download; the full file also has no supported recording timestamp or GPS. This does not establish whether Google Photos, LINE, or another step changed the timestamp, nor a percentage success rate. A private diagnostic streamed the actual API bytes through the production adapter into Stream, verified ready status (15.8 seconds), and deleted the asset. The draft remains unconfirmed and no public observation was created; this is not yet acceptance of the confirmed production transfer queue.
 
 Reply failures must be observable without logging tokens, recipients, source messages or provider bodies. Only LINE's explicit `Invalid reply token` HTTP 400 rejection is treated as an expired/consumed token; other HTTP 400 errors retry rather than silently acknowledge the event. Operational logs contain fixed classifications and HTTP status only. There is no paid push fallback.
+
+The first real text recovery exposed a runtime `TypeError` before the LINE request was sent. Workers does not implement Fetch's `redirect: "error"`; all three LINE content/reply/Stream-transfer adapters now use `manual` and reject non-success HTTP responses explicitly. A real workerd regression reproduces the old failure and exercises successful requests plus redirect rejection for all three adapters, including preventing token/video forwarding to a redirect destination. This is part of `pnpm verify`; Node-only mocked fetch and local real-provider checks are insufficient for Worker runtime compatibility. See [Workers Request redirect modes](https://developers.cloudflare.com/workers/runtime-apis/request/).
 
 `node ops/compare-line-video-metadata.mjs "received.mp4"` reports presence only. Supply `"original.mp4" "received.mp4"` to compare preservation. The tool reads bounded metadata, omits file names, timestamps and coordinates from its output, and never uploads files. Exact sample details and logs belong only in ignored local work files.
 
