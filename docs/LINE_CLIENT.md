@@ -1,6 +1,6 @@
 # LINE client — implementation brief
 
-Updated: 2026-11-11. Signed webhook, durable drafts and queued transfer are implemented locally; production intake remains disabled pending credentials and real transfer acceptance.
+Updated: 2026-11-11. Signed webhook, durable drafts and queued transfer are implemented; credentials and queues are configured, while production intake remains disabled pending the existing release gate and real Messaging API acceptance.
 
 ## Implementation and first sample
 
@@ -16,7 +16,7 @@ One owner-provided video was received and downloaded through Official Account Ma
 
 `node ops/compare-line-video-metadata.mjs "received.mp4"` reports presence only. Supply `"original.mp4" "received.mp4"` to compare preservation. The tool reads bounded metadata, omits file names, timestamps and coordinates from its output, and never uploads files. Exact sample details and logs belong only in ignored local work files.
 
-Validation uses migrated SQLite and mocked provider HTTP for duplicates, missing fields, owner/revision checks, repeated confirmation, transfer interruption/retry, provider duration, unsend before receipt/during transfer/after publication and expiry cleanup. Final full-suite results are recorded in PROJECT_STATE. Mocks do not establish real LINE/Stream interoperability. Runtime credentials, an actual private transfer and phone acceptance are still required.
+Validation uses migrated SQLite and mocked provider HTTP for duplicates, missing fields, owner/revision checks, repeated confirmation, transfer interruption/retry, provider duration, unsend before receipt/during transfer/after publication and expiry cleanup. Full verification now passes 424 unit/integration, five built-runtime and 43 browser tests. The real LINE validation API accepted all five card variants without sending them. A private transfer of the Manager-downloaded sample through the real Stream adapter reached ready at 15.8 seconds; the test asset was deleted. Actual Messaging API content retrieval and phone acceptance still require a fresh signed event. No claim of full end-to-end acceptance follows from the Manager sample.
 
 Completion currently uses **查看進度 / 我的影片** reply buttons, preserving the free push allowance. Sending a non-video message recovers the latest available card if a reply was missed. `/?view=mine` opens the shared owner view. Automatic completion push, targeted recommendations, rich menu and watermark rendering remain later steps after real upload acceptance.
 
@@ -26,7 +26,7 @@ The new public-facing Official Account is **彼日浪影**, **@792vlmeo**, on th
 
 The owner requested a warm yellow background for the system-notification account's avatar to distinguish the two accounts. `assets/line/ops-avatar.png` was generated from the existing Logo, uploaded, published and visually verified on 2026-11-11. The prompt is recorded alongside the asset. The customer-facing account uses the original teal variant.
 
-No webhook endpoint, runtime Messaging credential, automatic upload processing, LIFF app, rich menu, or broadcast was deployed as part of this account setup. Account creation and API activation are not an end-to-end bot test. Keep channel secrets, raw LINE subjects and contact email out of this public repository.
+The owner subsequently authorized a dedicated Messaging token, now verified and installed in Cloudflare Secrets. Both queues exist with one-day retention. No upload webhook, production bot processing, LIFF app, rich menu or broadcast is enabled. Account/token configuration is not an end-to-end bot test. Keep channel secrets, raw LINE subjects and contact email out of this public repository.
 
 For a smooth shared identity, map signed Messaging events and verified Login identities through the same existing internal user service. LINE issues the same user ID for channels under the same Provider; do not create a second user table or trust a client-submitted subject. Missing identities must receive an explicit recovery flow instead of being guessed. Existing user limits and consent still apply.
 

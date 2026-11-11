@@ -3,7 +3,9 @@ import { limitVideoBytes } from "./line-content";
 /** Streaming multipart: bounded memory and byte count; credentials never enter the source URL. */
 export async function transferToStream(uploadUrl: string, source: ReadableStream<Uint8Array>, signal: AbortSignal): Promise<void> {
   const url = new URL(uploadUrl);
-  if (url.protocol !== "https:" || url.hostname !== "upload.videodelivery.net" || url.port || url.username || url.password) {
+  // Stream currently returns cloudflarestream.com; older tickets use videodelivery.net.
+  const allowedHosts = new Set(["upload.cloudflarestream.com", "upload.videodelivery.net"]);
+  if (url.protocol !== "https:" || !allowedHosts.has(url.hostname) || url.port || url.username || url.password) {
     await source.cancel();
     throw new Error("STREAM_UPLOAD_URL_INVALID");
   }
