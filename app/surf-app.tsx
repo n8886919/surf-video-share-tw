@@ -946,13 +946,13 @@ function RecentObservationList({ observations }: { observations: Observation[] }
   );
 }
 
-export function SurfApp({ loginStatus, initialHelpOpen = false, authTrace, adminMode = false }: { loginStatus?: LoginStatus; initialHelpOpen?: boolean; authTrace?: string; adminMode?: boolean }) {
+export function SurfApp({ loginStatus, initialView = "find", initialHelpOpen = false, authTrace, adminMode = false }: { loginStatus?: LoginStatus; initialView?: View; initialHelpOpen?: boolean; authTrace?: string; adminMode?: boolean }) {
   const initialAuthTrace = useRef(authTrace);
   const [currentTrace, setCurrentTrace] = useState(authTrace);
   const [recovery, setRecovery] = useState<LoginRecovery>();
   const [currentLoginStatus, setCurrentLoginStatus] = useState(loginStatus);
   const checkLoginRef = useRef<() => void>(() => {});
-  const [view, setView] = useState<View>(loginStatus ? "mine" : "find");
+  const [view, setView] = useState<View>(loginStatus ? "mine" : initialView);
   const uploadNavigation = useRef<"empty" | "draft" | "uploading">("empty");
   const [pendingView, setPendingView] = useState<View | null>(null);
   function changeView(next: View) {

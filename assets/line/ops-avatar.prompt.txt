@@ -1,0 +1,6 @@
+Tool: built-in image_gen (edit)
+Source: public/brand-logo.png
+Output: assets/line/ops-avatar.png
+Published: 2026-11-11, LINE Official Account system notifications.
+
+Edit target: the supplied existing circular wave-and-handshake logo. Create a sibling color variant for the LINE Official Account '彼日浪影系統通知'. Change ONLY the dark teal circular background field into a tasteful warm muted golden yellow, approximately #E9BE55 (ochre/honey gold, distinctly yellow, never pure #FFFF00, never fluorescent). Preserve the exact wave silhouette, handshake geometry, composition, all foreground pale ivory and mint/aqua fills and dark teal outlines, scale and positions. Maintain clean sharp antialiased edges, flat vector-like raster logo appearance. No text, no new objects, no shadows, no redesign. Transparent outside the circular icon, yellow fully opaque inside the circle. The yellow should harmonize with existing mint and teal foreground while keeping its outline legible. Square image suitable for a round LINE avatar.

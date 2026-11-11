@@ -45,7 +45,7 @@ interface OAuthProgressRow {
   trace_id: string | null;
 }
 
-class RegistrationCapacityError extends Error {}
+export class RegistrationCapacityError extends Error {}
 
 export interface AuthenticatedUser {
   user: UserRow;
@@ -210,14 +210,15 @@ async function takeOAuthAttempt(env: AppEnv, stateHash: string): Promise<OAuthAt
   ).bind(stateHash, new Date().toISOString()).first<OAuthAttemptRow>();
 }
 
-async function getOrCreateLineUser(
+export async function getOrCreateLineUser(
   env: AppEnv,
   lineSubject: string,
   lineDisplayName: string | null,
   linePictureUrl: string | null,
+  preserveProfile = false,
 ): Promise<UserRow> {
   const now = new Date().toISOString();
-  await env.DB.prepare(
+  if (!preserveProfile) await env.DB.prepare(
     `UPDATE users
      SET line_display_name = COALESCE(?, line_display_name), line_picture_url = ?, updated_at = ?
      WHERE line_subject = ?`,

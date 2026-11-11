@@ -10,6 +10,8 @@ import { runScheduledExpiredVideoCleanup } from "../src/worker/video-lifecycle";
 import { runScheduledPlaybackEventCleanup } from "../src/worker/playback-analytics";
 import { withSecurityHeaders } from "../src/worker/security-headers";
 import { recordOpsRecovery, recordOpsEvent, runHourlyOpsAnalysis } from "../src/worker/ops-observability";
+import { consumeLineUploads, maintainLineDrafts } from "../src/worker/line-upload-job";
+import { consumeLineEvents } from "../src/worker/line-webhook";
 
 const OPS_ANALYSIS_CRON = "5 * * * *";
 const MAINTENANCE_CRON = "20 */6 * * *";
@@ -27,6 +29,10 @@ interface ExecutionContext {
 // const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
 
 const worker = {
+  async queue(batch: MessageBatch<unknown>, env: AppEnv): Promise<void> {
+    if (batch.queue === "surf-line-events") await consumeLineEvents(batch, env);
+    else await consumeLineUploads(batch, env);
+  },
   async fetch(request: Request, env: AppEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     let response: Response;
@@ -63,6 +69,7 @@ const worker = {
           runHourlyOpsAnalysis(env, scheduledAt),
           runDailyForecastReport(env, scheduledAt),
           cleanupForecastHistory(env.DB, scheduledAt),
+          maintainLineDrafts(env, scheduledAt),
         ]);
         const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
         if (failures.length) throw new AggregateError(failures, "Hourly operations task failed");

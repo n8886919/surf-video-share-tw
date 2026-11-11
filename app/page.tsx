@@ -14,7 +14,7 @@ const LOGIN_STATUSES = new Set<LoginStatus>([
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ help?: string | string[]; login?: string | string[]; auth_trace?: string | string[] }>;
+  searchParams: Promise<{ help?: string | string[]; login?: string | string[]; auth_trace?: string | string[]; view?: string | string[] }>;
 }) {
   const query = await searchParams;
   const rawLogin = query.login;
@@ -24,5 +24,5 @@ export default async function Home({
     : undefined;
   const rawHelp = Array.isArray(query.help) ? query.help[0] : query.help;
   const trace = authTraceSchema.safeParse(query.auth_trace);
-  return <SurfApp loginStatus={loginStatus} initialHelpOpen={rawHelp === "1"} authTrace={trace.success ? trace.data : undefined} />;
+  return <SurfApp loginStatus={loginStatus} initialView={query.view === "mine" ? "mine" : "find"} initialHelpOpen={rawHelp === "1"} authTrace={trace.success ? trace.data : undefined} />;
 }

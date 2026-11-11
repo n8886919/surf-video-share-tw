@@ -10,6 +10,10 @@ The detailed score formula, weights, coverage, unordered swell assignment, sourc
 
 ## Read path
 
+LINE is an additional client of this monolith. Its opt-in signed `/api/v1/line/webhook` verifies exact bytes and expected bot destination before durable enqueue. Separate event and transfer queues keep button replies independent of large video transfers. Same-Provider Messaging subjects use the capped shared user registry without changing existing web profiles; browser sessions still require LINE Login.
+
+Private `line_upload_drafts` are separate from observations. Owner/revision/status CAS protects explicit confirmation and immutable capture fields. Cancellation tombstones prevent out-of-order resurrection. Byte-counted streaming multipart uses private Stream tickets; no video row exists before full transfer success. Both clients share insertion, provider duration policy and completion. Bounded existing maintenance handles expiry and recovery. Queue payloads, LINE subjects, tokens and upload URLs must never enter logs or public DTOs. Details: [LINE client](LINE_CLIENT.md).
+
 A debounced freshness preview reuses the exact target SQL without fetching videos or creating search events. It displays retained-row retrieval timestamps beside Search, separately per required source; this is not an upstream issue timestamp or latest check time. Missing/error/stale states remain explicit. Public thumbnail routes proxy raster bytes; no signed URL is returned.
 
 

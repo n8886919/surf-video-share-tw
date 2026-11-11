@@ -11,12 +11,23 @@
   "ai": {
     "binding": "AI"
   },
+  "queues": {
+    "producers": [
+      { "binding": "LINE_UPLOAD_QUEUE", "queue": "surf-line-uploads" },
+      { "binding": "LINE_EVENT_QUEUE", "queue": "surf-line-events" }
+    ],
+    "consumers": [
+      { "queue": "surf-line-uploads", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 20, "max_concurrency": 1 },
+      { "queue": "surf-line-events", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 3, "max_concurrency": 4 }
+    ]
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
   },
   "vars": {
     "APP_ENV": "production",
+    "LINE_UPLOAD_ENABLED": "false",
     "AUTH_DIAGNOSTICS_UNTIL": "2026-09-14T00:00:00.000Z",
     "ADMIN_USER_ID": "2129bb4a-1100-4271-a4a6-559957cde120",
     "LINE_CHANNEL_ID": "2011238358",

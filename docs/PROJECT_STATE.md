@@ -1,10 +1,26 @@
 # Project state
 
+## LINE client setup — 2026-11-11
+
+The owner requested LINE as one client of the shared service because users forget or avoid opening the web app. The public-facing Official Account **彼日浪影 (@792vlmeo)** was created on the free/light Taiwan plan; the dashboard shows 200 available messages. Its existing project Logo was uploaded and published. Messaging API was enabled under the same Provider as the web Login channel; the existing channel named 「浪影互助」 matches the configured web Login channel ID. The operational-notification account remains separate. Credentials and private account details are not recorded here.
+
+The latest confirmed UX is chat video -> editable time/spot card -> **確認上傳** -> shared processing. The owner removed silence-as-confirmation and correction-until-next-upload. Do not show the two explanatory confirmation sentences from the earlier proposal. Confirmed spot/time remain fixed. Shared account and video state, native buttons and minimal navigation are the design direction. Full requirements, verified LINE capabilities, outstanding metadata-transfer checks and security boundaries are in [LINE client](LINE_CLIENT.md).
+
+The local intake is now wired: signed webhook -> durable event queue -> private D1 draft -> revision-checked explicit confirmation -> streamed private transfer -> shared video insertion/completion. The separate transfer queue avoids delaying LINE replies; both consumers run in the existing Worker. Unsend tombstones, cancellation during transfer, private expiry, bounded retries and same-user web identity are covered. Progress uses reply buttons and the shared `/?view=mine` owner view; no paid push, watermark renderer or rich menu is enabled. Migration 0024 is additive. Production intake defaults off.
+
+Full `pnpm verify` passed: 416 unit/integration tests, migration drift, build, five built-runtime tests and 43 Chromium tests. Two additional durable-enqueue tests subsequently passed typecheck and all 32 targeted intake tests. Evidence: ignored `work/line-webhook-verify-final.log`. These use mocked provider HTTP and do not replace real LINE-to-Stream acceptance.
+
+The owner supplied a real video through the new Official Account. Chat was enabled for test access. The Manager-downloaded sample had no supported explicit recording timestamp or GPS, and its container time disagreed with the owner's stated capture time. LINE therefore must not use container time as capture-time prefill. Original-versus-received and Messaging API-versus-Manager comparisons remain unverified; no success-rate claim is justified. Test media remains local. No upload webhook, bot runtime credential, watermark renderer or broadcast was deployed.
+
+The public Messaging channel currently has no issued long-lived access token. Browser issuance requires action-time approval because it grants persistent access. No credential has been printed or committed. The existing 0.41 forecast-retention approval remains a separate production release gate; do not silently promote it with this LINE work.
+
+**Next task:** Obtain approval to issue the public channel's Messaging token, securely configure it, and validate a real private Messaging API-to-Stream transfer before reviewing production activation.
+
 ## Product 0.41 development handoff
 
 This branch preserves the 0.41 work in progress, including batched Open-Meteo collection, the capped scheduled video cleanup, centered thumbnail cropping, and the proposed fixed-capture forecast retention policy. The retention change needs owner approval before release. The pre-release dry run and reviewed deployment procedure are in [Operations](OPERATIONS.md).
 
-**Next task:** Obtain approval for the proposed retention policy before promoting this branch. Keep the original incident evidence and rollback data in the private handoff archive.
+**Release gate:** Obtain approval for the proposed retention policy before promoting this branch. Keep the original incident evidence and rollback data in the private handoff archive.
 
 Updated: 2026-09-17
 

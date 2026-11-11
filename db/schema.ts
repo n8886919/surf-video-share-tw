@@ -46,6 +46,30 @@ export const users = sqliteTable(
   (table) => [uniqueIndex("users_line_subject_idx").on(table.lineSubject)],
 );
 
+// Private client intake; never included in observation DTOs. Upload URLs are credentials.
+export const lineUploadDrafts = sqliteTable("line_upload_drafts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  messageId: text("message_id").notNull(),
+  revision: integer("revision").notNull().default(0),
+  status: text("status").notNull().default("draft"),
+  spotId: text("spot_id"),
+  capturedAt: text("captured_at"),
+  termsVersion: text("terms_version").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  transferStatus: text("transfer_status").notNull().default("queued"),
+  providerVideoId: text("provider_video_id"),
+  uploadUrl: text("upload_url"),
+  leaseToken: text("lease_token"),
+  leaseUntil: text("lease_until"),
+  transferAttempts: integer("transfer_attempts").notNull().default(0),
+  errorCode: text("error_code"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, table => [uniqueIndex("line_upload_message_idx").on(table.messageId),
+  index("line_upload_expiry_idx").on(table.expiresAt),
+  index("line_upload_user_idx").on(table.userId, table.status)]);
+
 export const authSessions = sqliteTable(
   "auth_sessions",
   {

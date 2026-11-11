@@ -169,6 +169,13 @@
       "when": 1789227143499,
       "tag": "0023_activate_baishawan",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1794380935124,
+      "tag": "0024_slimy_juggernaut",
+      "breakpoints": true
     }
   ]
 }

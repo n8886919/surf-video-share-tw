@@ -62,6 +62,9 @@ import { checkOpsReadiness, recordOpsEvent, recordOpsRecovery, normalizeCode } f
 import { adminApi } from "./admin";
 import { recordJourney } from "./journey-diagnostics";
 import { withAuthDiagnostic } from "./auth-diagnostics";
+import { lineWebhookApi } from "./line-webhook";
+import { prepareVideoInsert } from "./video-upload";
+import { finalizeVideoUpload } from "./video-completion";
 
 type Variables = { user: UserRow; authMode: "development" | "line" };
 
@@ -914,6 +917,7 @@ export const api = new Hono<{ Bindings: AppEnv; Variables: Variables }>()
   .basePath("/api/v1");
 
 api.route("/internal/forecast-ingestion", internalForecastIngestionApi);
+api.route("/line", lineWebhookApi);
 
 api.use("*", async (context, next) => {
   await next();
@@ -1672,33 +1676,11 @@ api.post("/videos/upload-request", zValidator("json", uploadRequestSchema), asyn
   const id = crypto.randomUUID();
   const now = new Date();
   const showUploader = input.showUploader ?? Boolean(user.show_identity_default);
-  await context.env.DB.prepare(
-    `INSERT INTO videos (
-      id, user_id, spot_id, video_provider, provider_video_id, captured_at,
-      duration_seconds, status, show_uploader, metadata_status,
-      metadata_expires_at, is_favorite, terms_version, moderation_status,
-      created_at, updated_at, client_file_sha256, client_file_size_bytes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
-    id,
-    user.id,
-    spot.id,
-    ticket.provider,
-    ticket.providerVideoId,
-    capturedAt,
-    input.durationSeconds,
-    "awaiting_upload",
-    showUploader ? 1 : 0,
-    "complete",
-    new Date(now.getTime() + 7 * 24 * 60 * 60_000).toISOString(),
-    0,
-    PUBLIC_MEDIA_TERMS_VERSION,
-    "visible",
-    now.toISOString(),
-    now.toISOString(),
-    input.fileSha256 ?? null,
-    input.fileSha256 ? input.sizeBytes : null,
-  ).run();
+  await prepareVideoInsert(context.env, {
+    id, userId: user.id, spotId: spot.id, capturedAt, ticket,
+    durationSeconds: input.durationSeconds, showUploader,
+    fileSha256: input.fileSha256, sizeBytes: input.sizeBytes,
+  }, now).run();
   return context.json({
     videoId: id,
     ...ticket,
@@ -1743,29 +1725,7 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
     return context.json({ error: "INVALID_DURATION", message: "影片長度必須為 10–60 秒" }, 422);
   }
 
-  let conditionSnapshotId: string | null = null;
-  if (!video.condition_snapshot_id && video.captured_at && video.latitude != null && video.longitude != null) {
-    conditionSnapshotId = await attachConditionsBestEffort(context.env, {
-      latitude: video.latitude,
-      longitude: video.longitude,
-      validTime: video.captured_at,
-      videoId: video.id,
-    });
-  }
-
-  const now = new Date().toISOString();
-  const publicAt = video.metadata_status === "complete"
-    && video.terms_version
-    && video.moderation_status === "visible"
-    && resolved.canPublish
-    ? video.public_at ?? now
-    : null;
-  await context.env.DB.prepare(
-    `UPDATE videos SET status = ?, duration_seconds = ?, uploaded_at = COALESCE(uploaded_at, ?),
-     condition_snapshot_id = COALESCE(?, condition_snapshot_id), public_at = ?, updated_at = ?,
-     metadata_expires_at = CASE WHEN ? = 'ready' AND metadata_status = 'complete' THEN NULL ELSE metadata_expires_at END
-     WHERE id = ? AND user_id = ? AND metadata_status <> 'deleting'`,
-  ).bind(resolved.state, resolved.durationSeconds, now, conditionSnapshotId, publicAt, now, resolved.state, video.id, user.id).run();
+  const completion = await finalizeVideoUpload(context.env, user.id, video, resolved);
   const [observation, historicalRows] = await Promise.all([
     findOwnedObservation(context.env, video.id, user.id),
     findOwnedHistoricalForecasts(context.env, user.id, video.id),
@@ -1778,7 +1738,7 @@ api.post("/videos/:id/complete", zValidator("json", completeUploadSchema), async
           sortForecastsForDisplay(historicalRows.map(serializeForecast)),
         )
       : null,
-    conditionsAttached: Boolean(conditionSnapshotId),
+    conditionsAttached: completion.conditionsAttached,
   });
 });
 

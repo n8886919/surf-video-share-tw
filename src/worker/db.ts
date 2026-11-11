@@ -35,6 +35,12 @@ export interface AppEnv {
   };
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;
   OPS_LINE_USER_ID?: string;
+  LINE_UPLOAD_ENABLED?: string;
+  LINE_UPLOAD_CHANNEL_SECRET?: string;
+  LINE_UPLOAD_CHANNEL_ACCESS_TOKEN?: string;
+  LINE_UPLOAD_BOT_ID?: string;
+  LINE_UPLOAD_QUEUE?: Queue<{ draftId: string }>;
+  LINE_EVENT_QUEUE?: Queue<unknown>;
 }
 
 export interface UserRow {
@@ -74,6 +80,30 @@ const schemaStatements = [
     updated_at TEXT NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS users_line_subject_idx ON users (line_subject)`,
+  `CREATE TABLE IF NOT EXISTS line_upload_drafts (
+	id text PRIMARY KEY NOT NULL,
+	user_id text NOT NULL,
+	message_id text NOT NULL,
+	revision integer DEFAULT 0 NOT NULL,
+	status text DEFAULT 'draft' NOT NULL,
+	spot_id text,
+	captured_at text,
+	terms_version text NOT NULL,
+	expires_at text NOT NULL,
+	transfer_status text DEFAULT 'queued' NOT NULL,
+	provider_video_id text,
+	upload_url text,
+	lease_token text,
+	lease_until text,
+	transfer_attempts integer DEFAULT 0 NOT NULL,
+	error_code text,
+	created_at text NOT NULL,
+	updated_at text NOT NULL,
+	FOREIGN KEY (user_id) REFERENCES users(id) ON UPDATE no action ON DELETE no action
+);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS line_upload_message_idx ON line_upload_drafts (message_id);`,
+  `CREATE INDEX IF NOT EXISTS line_upload_expiry_idx ON line_upload_drafts (expires_at);`,
+  `CREATE INDEX IF NOT EXISTS line_upload_user_idx ON line_upload_drafts (user_id,status);`,
   `CREATE TABLE IF NOT EXISTS auth_sessions (
     id_hash TEXT PRIMARY KEY NOT NULL,
     user_id TEXT NOT NULL REFERENCES users(id),
