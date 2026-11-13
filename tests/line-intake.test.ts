@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyLineDraftAction, type LineUploadDraft } from "../packages/domain/src/line-upload-draft";
 import { PUBLIC_MEDIA_TERMS_VERSION } from "../packages/domain/src/public-terms";
 import { getLineVideoContent, limitVideoBytes, verifyLineSignature } from "../src/worker/providers/line-content";
-import { lineUploadCard } from "../src/worker/line-upload-card";
+import { lineUploadCard, lineSpotCard } from "../src/worker/line-upload-card";
 import { lineVideoHints } from "../packages/domain/src/line-video-hints";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -51,12 +51,33 @@ describe("LINE explicit confirmation", () => {
   });
   it("includes three persistent actions and public contribution disclosure, never private identity", () => {
     const card = lineUploadCard(draft(), "烏石港");
-    expect(card.contents.footer.contents.map(button => button.action.label)).toEqual(["確認上傳", "更改浪點", "更改時間"]);
     const serialized = JSON.stringify(card);
+    for (const label of ["確認上傳", "更改浪點", "更改時間"]) expect(serialized).toContain(`"label":"${label}"`);
     expect(serialized).toContain("CC0");
     expect(serialized).not.toContain("不用回覆");
     expect(serialized).not.toContain('"owner"');
     expect(lineUploadCard({ ...draft(), capturedAt: null }, null).altText).toContain("請選擇");
+  });
+  it.each([[null, null], ["wushi", null], [null, "2026-11-11T00:32:00.000Z"]])("omits confirmation until both capture fields exist", (spotId, capturedAt) => {
+    const serialized = JSON.stringify(lineUploadCard({ ...draft(), spotId, capturedAt }, spotId ? "烏石港" : null));
+    expect(serialized).not.toContain("確認上傳");
+    expect(serialized).not.toContain("action=confirm");
+    expect(serialized).toContain("action=spots");
+    expect(serialized).toContain("datetimepicker");
+  });
+  it("keeps every spot selectable across compact two-column pages with revision-bound actions", () => {
+    const spots = Array.from({ length: 20 }, (_, i) => ({ id: `spot-${i}`, name_zh: `浪點${i}`, name_en: `Spot ${i}` }));
+    for (const page of [0, 1]) {
+      const card = lineSpotCard(draft(), spots, page);
+      const serialized = JSON.stringify(card);
+      expect(serialized.match(/"layout":"horizontal"/g)).toHaveLength(5);
+      for (const spot of spots.slice(page * 10, page * 10 + 10)) {
+        expect(serialized).toContain(`spot=${spot.id}\"`);
+        expect(serialized).toContain(`"label":"${spot.name_zh}"`);
+      }
+      expect(serialized).toContain(`revision=${draft().revision}`);
+      expect(serialized).toContain(page ? "上一頁" : "下一頁");
+    }
   });
 });
 

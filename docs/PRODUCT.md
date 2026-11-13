@@ -1,8 +1,10 @@
 # Product
 
-## LINE client pilot (enabled; phone acceptance pending)
+## LINE client pilot (enabled; public-upload acceptance pending)
 
 LINE is another client of the shared service. Send a 10–60 second video in one-to-one chat, select missing capture time/spot or correct suggestions through native buttons, then press **確認上傳**. The card discloses public CC0 contribution; there is no silence-based submission or next-upload correction window. Unknown recording metadata remains unknown. Confirmation fixes both fields. **查看進度** returns progress without counted push messages; **我的影片** opens the same account's web view. A non-video message recovers the latest card. Existing registration limits and web LINE Login remain. Watermarked sharing and recommendations await real upload acceptance. See [LINE client](LINE_CLIENT.md).
+
+The compact card hides **確認上傳** until both required fields are selected. Its public/CC0 notice appears with confirmation and full guidance stays under 更多. Time/spot controls share one row; spots use two-column pages of ten. The three-area mobile rich menu opens 找浪況影片 / 我的影片 and replies to 上傳說明 in chat. The owner chose these native controls instead of adding a LIFF window. Upload receipt/card controls passed the owner's phone check; publishing a suitable real surf contribution remains unverified.
 
 相似歷史實拍與近兩小時影片卡片的縮圖固定填滿卡片、置中裁切；直式影片顯示畫面中央，原始比例不變，避免圖片撐高卡片內部而只露出上方。播放、原始影片及供應商縮圖參數不變。
 

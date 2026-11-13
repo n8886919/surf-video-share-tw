@@ -8,6 +8,32 @@ import ts from 'typescript';
 const wranglerRequire = createRequire(import.meta.resolve('wrangler/package.json'));
 const { Miniflare, convertV4MiniflareOptions } = await import(pathToFileURL(wranglerRequire.resolve('miniflare')).href);
 
+test('LINE metadata inspection stops after an oversized media header in workerd', async () => {
+  const paths = ['packages/domain/src/time-policy.ts', 'packages/domain/src/video-metadata.ts', 'src/worker/providers/line-video-metadata.ts'];
+  const sources = await Promise.all(paths.map(path => readFile(new URL(`../${path}`, import.meta.url), 'utf8')));
+  const compiled = sources.map(source => ts.transpileModule(source.replace(/^import .* from ".*";\r?$/gm, ''),
+    { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace(/^export const /gm, 'const ')).join('\n');
+  const mf = new Miniflare(convertV4MiniflareOptions({ cf: false, modules: true, compatibilityDate: '2026-08-24', script: compiled + `
+    export default { async fetch() {
+      let pulls = 0, cancelled = false;
+      const body = new ReadableStream({ pull(controller) {
+        pulls++;
+        if (pulls > 1) throw new Error('Unnecessary media read');
+        const header = new Uint8Array(16);
+        new DataView(header.buffer).setUint32(0, 20_000_000);
+        header.set(new TextEncoder().encode('mdat'), 4);
+        controller.enqueue(header);
+      }, cancel() { cancelled = true; } }, { highWaterMark: 0 });
+      const metadata = await inspectLineVideoMetadata(body);
+      return Response.json({ pulls, cancelled, bytesRead: metadata.bytesRead });
+    } }` }));
+  try {
+    const response = await mf.dispatchFetch('https://example.com/metadata');
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { pulls: 1, cancelled: true, bytesRead: 16 });
+  } finally { await mf.dispose(); }
+});
+
 test('LINE adapters run in workerd and reject redirects without forwarding credentials or video bytes', async () => {
   const sources = await Promise.all(['line-content', 'line-messaging', 'stream-transfer'].map(name =>
     readFile(new URL(`../src/worker/providers/${name}.ts`, import.meta.url), 'utf8')));

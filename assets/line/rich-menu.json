@@ -1,0 +1,20 @@
+{
+  "size": { "width": 2500, "height": 843 },
+  "selected": true,
+  "name": "彼日浪影・三格導覽",
+  "chatBarText": "彼日浪影",
+  "areas": [
+    {
+      "bounds": { "x": 0, "y": 0, "width": 833, "height": 843 },
+      "action": { "type": "uri", "label": "找浪況影片", "uri": "https://surf-video-share-tw.nolanasd123.workers.dev/" }
+    },
+    {
+      "bounds": { "x": 833, "y": 0, "width": 833, "height": 843 },
+      "action": { "type": "uri", "label": "我的影片", "uri": "https://surf-video-share-tw.nolanasd123.workers.dev/?view=mine" }
+    },
+    {
+      "bounds": { "x": 1666, "y": 0, "width": 834, "height": 843 },
+      "action": { "type": "postback", "label": "上傳說明", "data": "action=upload-help", "inputOption": "openKeyboard" }
+    }
+  ]
+}

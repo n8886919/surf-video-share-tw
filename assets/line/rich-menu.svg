@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="843" viewBox="0 0 2500 843">
+  <rect width="2500" height="843" fill="#F5F4EE"/>
+  <rect width="833" height="843" fill="#006473"/>
+  <path d="M1666 110v623" stroke="#D4DFDA" stroke-width="3"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="399" cy="318" r="85"/>
+    <path d="m462 381 62 62M333 313q33-40 66 0t66 0M333 350q33-40 66 0t66 0"/>
+  </g>
+  <g fill="none" stroke="#006473" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1168 238h175q20 0 20 20v143"/>
+    <rect x="1138" y="278" width="205" height="155" rx="23"/>
+    <path d="m1220 319 57 36-57 36z" fill="#006473" stroke-width="6"/>
+    <path d="M2083 390V236m-67 67 67-67 67 67M1985 370v61q0 18 18 18h160q18 0 18-18v-61"/>
+  </g>
+  <g font-family="Microsoft JhengHei, Noto Sans CJK TC, sans-serif" font-size="88" font-weight="700" text-anchor="middle">
+    <text x="416" y="605" fill="#FFFFFF">找浪況影片</text>
+    <text x="1250" y="605" fill="#006473">我的影片</text>
+    <text x="2083" y="605" fill="#006473">上傳說明</text>
+  </g>
+</svg>

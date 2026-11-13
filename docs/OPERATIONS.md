@@ -1,6 +1,14 @@
 # Operations
 
-## LINE upload activation (enabled; phone acceptance pending)
+## LINE upload activation (enabled; public-upload acceptance pending)
+
+Current intake acceptance: the owner has received the card and verified both spot/time controls. Actual Messaging API content passed a private Stream adapter transfer, and the test asset was deleted; confirmed production publication remains untested because the owner has no suitable test contribution. See `PROJECT_STATE.md` for current deployment/verification. Never publish the non-surf test sample or fabricate capture metadata.
+
+### LINE rich menu
+
+`assets/line/rich-menu.json`, `.svg` and `.png` define the reviewed three-area mobile menu. After deploying the `action=upload-help` handler, run `node ops/publish-line-rich-menu.mjs` explicitly. It reads only the dedicated Git-ignored `.env.line-upload-runtime`, verifies bot `@792vlmeo`, validates the object, checks PNG dimensions/size, creates and uploads a new menu, then sets/read-checks the default. It does not send a broadcast/push. Existing menus remain available for rollback; previous/new IDs and the asset hash are recorded only under ignored, ACL-restricted `work/line-private/`. To roll back, use LINE's default-menu endpoint with the previous ID (or clear the API default if none existed). Do not delete the previous menu as part of publishing. Re-running creates another menu, so inspect the private record/read-back before retrying an uncertain run.
+
+The menu uses the same site and identity as the web client. Upload help is a signed postback with no registration or draft mutation. Menu display is a mobile LINE feature; reopen the chat if needed after a default-menu change. Images/design actions follow the [official rich-menu workflow](https://developers.line.biz/en/docs/messaging-api/using-rich-menus/).
 
 The public upload channel is separate from Login and operations notifications. Keep `LINE_UPLOAD_CHANNEL_SECRET`, `LINE_UPLOAD_CHANNEL_ACCESS_TOKEN` and `LINE_UPLOAD_BOT_ID` in runtime secrets/an ignored local credential file. The bot ID comes from `GET /v2/bot/info`; it is not the numeric channel ID, owner subject or `@` basic ID. Never print credentials, private source IDs, webhook bodies or upload URLs.
 

@@ -2,11 +2,11 @@ import { Hono } from "hono";
 import { lineWebhookSchema, linePostbackSchema } from "../../packages/api-contract/src/line-webhook";
 import { PUBLIC_MEDIA_TERMS_VERSION } from "../../packages/domain/src/public-terms";
 import { applyLineDraftAction } from "../../packages/domain/src/line-upload-draft";
-import { parseQuickTimeMetadata, MAX_VIDEO_METADATA_ATOM_BYTES } from "../../packages/domain/src/video-metadata";
 import { lineVideoHints } from "../../packages/domain/src/line-video-hints";
 import { getOrCreateLineUser, RegistrationCapacityError } from "./auth";
 import { ensureDevelopmentDatabase, type AppEnv, type SpotRow } from "./db";
 import { getLineVideoContent, verifyLineSignature } from "./providers/line-content";
+import { inspectLineVideoMetadata } from "./providers/line-video-metadata";
 import { replyToLine } from "./providers/line-messaging";
 import { lineUploadCard, lineSpotCard, lineProgressCard } from "./line-upload-card";
 import { enqueueLineDraft, readLineDraft, toLineDraft, type LineDraftRow } from "./line-drafts";
@@ -18,18 +18,7 @@ const WEEK = 7 * 86_400_000;
 async function metadataHints(env: AppEnv, messageId: string, spots: SpotRow[], now: Date) {
   const source = await getLineVideoContent(messageId, env.LINE_UPLOAD_CHANNEL_ACCESS_TOKEN!, AbortSignal.timeout(2_000));
   if (source.state !== "ready") return null;
-  const reader = source.body.getReader();
-  const bytes = new Uint8Array(MAX_VIDEO_METADATA_ATOM_BYTES);
-  let count = 0;
-  try {
-    while (count < bytes.length) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      const part = chunk.value.subarray(0, bytes.length - count);
-      bytes.set(part, count); count += part.length;
-    }
-  } finally { await reader.cancel().catch(() => {}); }
-  return lineVideoHints({ ...parseQuickTimeMetadata(bytes.subarray(0, count)), bytesRead: count }, spots, now);
+  return lineVideoHints(await inspectLineVideoMetadata(source.body), spots, now);
 }
 
 function draftCard(row: LineDraftRow, spots: SpotRow[], origin: string) {
@@ -90,6 +79,10 @@ export async function handleLineEvents(env: AppEnv, payload: ReturnType<typeof l
         if (event.replyToken) await replyToLine(env.LINE_UPLOAD_CHANNEL_ACCESS_TOKEN!, event.replyToken, messages);
         else console.warn("LINE_REPLY_TOKEN_MISSING");
       };
+      if (event.type === "postback" && event.postback?.data === "action=upload-help") {
+        await reply([text("直接在聊天室傳送 10–60 秒影片，選好浪點與拍攝時間，再按「確認上傳」。\n拍攝需在七天內、台北時間 05:00–19:59，檔案限 200 MB。")]);
+        continue;
+      }
       if (!["message", "postback", "unsend"].includes(event.type)) {
         if (event.type === "follow") await reply([text("直接傳送 10–60 秒的浪況影片，選好拍攝時間與浪點後，按「確認上傳」。")]);
         continue;
@@ -135,7 +128,7 @@ export async function handleLineEvents(env: AppEnv, payload: ReturnType<typeof l
             await reply([text("上傳稍密集，請稍後再試。")]); continue;
           }
           if (event.message.duration !== undefined && (event.message.duration < 10_000 || event.message.duration > 60_000)) {
-            await reply([text("影片長度必須為 10–60 秒，請剪輯後再傳送。")]); continue;
+            await reply([text("影片長度必須為 10–60 秒")]); continue;
           }
           const id = crypto.randomUUID();
           await env.DB.prepare(`INSERT INTO line_upload_drafts (id,user_id,message_id,terms_version,expires_at,created_at,updated_at)

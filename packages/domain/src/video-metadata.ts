@@ -212,7 +212,12 @@ export function parseQuickTimeMetadata(bytes: Uint8Array): Omit<ParsedVideoMetad
   };
 }
 
-export async function inspectQuickTimeMetadata(file: Blob): Promise<ParsedVideoMetadata> {
+export interface VideoMetadataSource {
+  size: number;
+  slice(start: number, end: number): { arrayBuffer(): Promise<ArrayBuffer> };
+}
+
+export async function inspectQuickTimeMetadata(file: VideoMetadataSource): Promise<ParsedVideoMetadata> {
   let offset = 0;
   let bytesRead = 0;
   for (let atomIndex = 0; atomIndex < MAX_TOP_LEVEL_ATOMS && offset + 8 <= file.size; atomIndex += 1) {

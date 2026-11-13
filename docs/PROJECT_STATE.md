@@ -1,5 +1,17 @@
 # Project state
 
+## LINE compact intake and rich menu deployed — 2026-11-13
+
+The owner reported a 2–5 second delay after sending a video, requested minimal cards and the exact rejection text 「影片長度必須為 10–60 秒」, and asked to hide confirmation until both capture fields exist. Those changes are deployed. The owner chose two-column native spot cards instead of a LIFF window, preserving the shared backend and native datetime picker. Public/CC0 consequences remain briefly visible when confirmation becomes available; full guidance stays under 更多. Rich-menu upload help is a signed postback that does not register a user or mutate a draft.
+
+Metadata inspection now feeds a bounded forward-only prefix into the shared atom-aware parser. It stops after a complete moov or an atom outside the 4 MiB budget instead of always downloading the allowance; it also correctly handles ftyp before moov. The original two-second network deadline remains. A local replay of the private test sample in 16 KiB chunks required 16 KiB rather than 4 MiB and correctly left recording time/GPS unknown; this is a byte-read comparison, not a measured phone latency improvement. No user identity, timestamps or media were added to the public repo.
+
+Full `pnpm verify` passed **437 unit/integration tests, seven built-runtime tests and 43 Chromium tests** (`work/line-compact-verify.log`). The LINE validation endpoint accepted all nine compact card variants. Worker `4eb449f5-8d10-42bc-bd0d-4888848e8793` deployed successfully with query-string redaction verified; health/readiness and the configured webhook passed read-back. The user-authorized three-area rich menu **找浪況影片 / 我的影片 / 上傳說明** is published on @792vlmeo, with default ID/actions read back. Its PNG/SVG and action manifest are in `assets/line/`; the manual publication command is `ops/publish-line-rich-menu.mjs`, with private rollback records only under ignored `work/line-private/`. No broadcast/push was sent; usage remains 0/200.
+
+On 2026-11-11 the owner confirmed both spot/time controls worked, then stopped public-upload acceptance because they had no suitable surf video. The test media remain unconfirmed/non-public. Current compact controls/menu and phone response time still need user observation; no separate iOS/Android acceptance has been claimed. Instagram sharing is under discussion: prefer the original phone video plus a small transparent information sticker and copyable text over an additional server-rendered video. This has not been implemented; any wave value must retain labelled forecast provenance, and both mobile platforms' save/add-sticker flows require validation.
+
+**Next task:** Verify the compact LINE card, two-column spot selection, rich-menu actions and perceived response time on the owner's phone without publishing the test video.
+
 ## Product 0.41 / LINE intake deployed — 2026-11-11
 
 The owner approved the 0.41 retention policy and deployment. Worker version `88b317a7-5923-4ff9-8c79-00af9dd54cd5` is deployed with migration 0024 applied, both queue producers/consumers bound and `LINE_UPLOAD_ENABLED=true`. Post-deploy checks found no pending migrations, query-string redaction enabled, healthy `/health` and `/readiness`, rejection of unsigned webhook requests, and a successful official LINE signed webhook test (HTTP 200). LINE's webhook, redelivery and error aggregation are on. Stock greeting/automatic replies and response-hour switching are off; manual chat remains available alongside the bot. Free push usage is 0/200. No broadcast/push or public test observation was sent/created. Real phone-event/content acceptance is still pending.
@@ -27,8 +39,6 @@ Real phone acceptance on 2026-11-11 reached private draft creation and actual Me
 A bounded reply-diagnostics fix (`f8bf73b`, promoted to main and the handoff branch) exposed `TypeError` on every attempt to recover a card from a real text message. The root cause is `redirect: "error"`, which Node accepts but Cloudflare Workers rejects before issuing a request. All three affected adapters (LINE content, LINE reply and Stream transfer) now use `manual` and explicitly reject unsuccessful responses. A real workerd regression first reproduced the unsupported-mode failure, then passed success and redirect-rejection cases for all three adapters, without forwarding tokens/video bytes to redirect destinations. It is included in the regular release checks.
 
 The runtime fix (`814ce53`, pushed to main and the handoff branch) is deployed as Worker `ab7a3169-bb2e-4ff2-b848-7601f71570bf`. Full `pnpm verify` passed 427 unit/integration tests, six built-runtime tests and 43 Chromium tests (`work/line-worker-runtime-verify.log`). Post-deploy health/readiness, active webhook and query-string redaction checks passed; free push usage remains 0/200. The owner sent a real text message and confirmed that the card arrived on their phone; production queue logs independently recorded `LINE_REPLY_ACCEPTED` without exceptions. The latest draft remains unconfirmed, with no selected capture fields. The owner has been asked to check the spot/time controls without confirming or entering fabricated test metadata. No confirmation/publication was performed.
-
-**Next task:** Verify the LINE spot/time controls on the owner's phone without publishing the test video.
 
 ## Product 0.41 development handoff
 

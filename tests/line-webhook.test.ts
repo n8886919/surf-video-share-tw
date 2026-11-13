@@ -77,6 +77,15 @@ function setup() {
 }
 
 describe("durable LINE intake", () => {
+  it("replies to rich-menu upload help without registering a user or creating a draft", async () => {
+    const f = setup();
+    await f.webhook({ type: "postback", postback: { data: "action=upload-help" } });
+    expect(JSON.stringify(f.replies)).toContain("直接在聊天室傳送");
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM users").get()?.n).toBe(0);
+    expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM line_upload_drafts").get()?.n).toBe(0);
+    expect(f.send).not.toHaveBeenCalled();
+    f.sqlite.close();
+  });
   it("acknowledges durable enqueue without waiting on content, replies or database work", async () => {
     const f = setup();
     expect((await f.webhook(f.videoEvent, subject, true, false)).status).toBe(200);
